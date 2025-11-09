@@ -1,16 +1,9 @@
-/*!
-Single-sensor Labelled Multi-Bernoulli (LMB) filter implementation.
+//! Labeled Multi-Bernoulli (LMB) filter implementation
+//!
+//! Implements the single-sensor LMB filter for multi-object tracking.
+//! Matches MATLAB runLmbFilter.m and associated functions.
 
-Supports multiple data association methods:
-- Loopy Belief Propagation (LBP)
-- Gibbs sampling
-- Murty's algorithm
-*/
-
+pub mod cardinality;
 pub mod prediction;
+pub mod association;
 pub mod update;
-pub mod gibbs_sampling;
-pub mod murtys;
-
-// Main filter entry point
-// pub fn run_lmb_filter() { todo!() }
