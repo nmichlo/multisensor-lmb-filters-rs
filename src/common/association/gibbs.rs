@@ -42,7 +42,7 @@ pub struct GibbsAssociationMatrices {
 ///
 /// # Returns
 /// Tuple of (v, w) association vectors
-fn initialize_gibbs_association_vectors(c: &DMatrix<f64>) -> (Vec<usize>, Vec<usize>) {
+pub fn initialize_gibbs_association_vectors(c: &DMatrix<f64>) -> (Vec<usize>, Vec<usize>) {
     let n = c.nrows();
     let m = c.ncols();
 
@@ -82,7 +82,7 @@ fn initialize_gibbs_association_vectors(c: &DMatrix<f64>) -> (Vec<usize>, Vec<us
 ///
 /// # Returns
 /// Updated (v, w) vectors
-fn generate_gibbs_sample(
+pub fn generate_gibbs_sample(
     p: &DMatrix<f64>,
     mut v: Vec<usize>,
     mut w: Vec<usize>,

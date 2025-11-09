@@ -148,9 +148,10 @@ pub fn generate_lmbm_association_matrices(
         for j in 0..number_of_measurements {
             // Determine marginal likelihood ratio
             let nu = &measurements[j] - &mu_z;
+            let quadratic_form = nu.transpose() * &z_inv * &nu;
             let gaussian_log_likelihood =
-                log_gaussian_normalising_constant - 0.5 * nu.transpose() * &z_inv * &nu;
-            r_matrix[(i, j)] = log_likelihood_ratio_terms + gaussian_log_likelihood[(0, 0)];
+                log_gaussian_normalising_constant - 0.5 * quadratic_form[(0, 0)];
+            r_matrix[(i, j)] = log_likelihood_ratio_terms + gaussian_log_likelihood;
 
             // Determine posterior mean for each measurement
             posterior_mu[i][j + 1] = &hypothesis.mu[i] + &k * &nu;
@@ -229,12 +230,14 @@ pub fn lmbm_gibbs_sampling(
     // Gibbs sampling
     for i in 0..number_of_samples {
         // Generate a new Gibbs sample
-        let (v_new, w_new) = generate_gibbs_sample(p, &v, &w);
+        let (v_new, w_new) = generate_gibbs_sample(p, v.clone(), w.clone());
         v = v_new;
         w = w_new;
 
         // Store Gibbs sample
-        v_samples.row_mut(i).copy_from(&v.transpose());
+        for (j, &val) in v.iter().enumerate() {
+            v_samples[(i, j)] = val;
+        }
     }
 
     // Keep only distinct samples
@@ -274,7 +277,7 @@ mod tests {
             None,
         );
 
-        let hypothesis = model.hypotheses[0].clone();
+        let hypothesis = model.hypotheses.clone();
         let measurements = vec![DVector::from_vec(vec![0.0, 0.0])];
 
         let result = generate_lmbm_association_matrices(&hypothesis, &measurements, &model);
@@ -329,7 +332,7 @@ mod tests {
             None,
         );
 
-        let hypothesis = model.hypotheses[0].clone();
+        let hypothesis = model.hypotheses.clone();
         let measurements = vec![DVector::from_vec(vec![0.0, 0.0])];
 
         let result = generate_lmbm_association_matrices(&hypothesis, &measurements, &model);

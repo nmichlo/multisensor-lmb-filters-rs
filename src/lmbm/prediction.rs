@@ -55,7 +55,7 @@ pub fn lmbm_prediction_step(mut hypothesis: Hypothesis, model: &Model, t: usize)
 
         hypothesis.birth_location[global_idx] = *birth_loc;
         hypothesis.birth_time[global_idx] = t;
-        hypothesis.r[global_idx] = model.r_b_lmbm;
+        hypothesis.r[global_idx] = model.r_b_lmbm[idx];
         hypothesis.mu[global_idx] = model.mu_b[idx].clone();
         hypothesis.sigma[global_idx] = model.sigma_b[idx].clone();
     }
