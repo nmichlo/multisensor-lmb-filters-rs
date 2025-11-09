@@ -1,14 +1,32 @@
-use pyo3::prelude::*;
+/*!
+# Prak - Multi-object tracking library
 
-/// A placeholder function that returns the version
-#[pyfunction]
-fn version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
+Rust port of the MATLAB multisensor-lmb-filters library.
 
-/// Prak: Multi-object tracking library
-#[pymodule]
-fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(version, m)?)?;
-    Ok(())
-}
+This library implements various multi-object tracking algorithms based on
+Labelled Multi-Bernoulli (LMB) filters and their variants, including:
+
+- Single-sensor LMB and LMBM filters
+- Multi-sensor fusion algorithms (PU-LMB, IC-LMB, GA-LMB, AA-LMB)
+- Multiple data association methods (LBP, Gibbs, Murty's algorithm)
+
+## Modules
+
+- `common` - Shared utilities, data structures, and algorithms
+- `lmb` - Single-sensor LMB filter implementation
+- `lmbm` - Single-sensor LMBM filter implementation
+- `multisensor_lmb` - Multi-sensor LMB variants
+- `multisensor_lmbm` - Multi-sensor LMBM implementation
+*/
+
+pub mod common;
+pub mod lmb;
+pub mod lmbm;
+pub mod multisensor_lmb;
+pub mod multisensor_lmbm;
+
+// Re-export commonly used types
+pub use common::types::{Model, Object, Measurement, GroundTruth};
+
+/// Library version
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

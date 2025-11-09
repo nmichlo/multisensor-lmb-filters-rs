@@ -2,17 +2,35 @@
 name = "prak"
 version = "0.0.1"
 edition = "2021"
-description = "Multi-object tracking library"
+description = "Multi-object tracking library - Rust port of multisensor-lmb-filters"
 authors = ["Nathan Michlo"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 
 [lib]
 name = "prak"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module"] }
+# Linear algebra
+nalgebra = "0.33"
 
-[build-dependencies]
-pyo3-build-config = "0.22"
+# Random number generation
+rand = "0.8"
+rand_distr = "0.4"
+
+# Serialization (for test fixtures)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+log = "0.4"
+
+[dev-dependencies]
+# Testing
+approx = "0.5"      # Floating point comparisons
+criterion = "0.5"   # Benchmarking
+
+[[bench]]
+name = "lmb_performance"
+harness = false
