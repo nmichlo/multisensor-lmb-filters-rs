@@ -1,39 +1,36 @@
-# Prak
+# PRAK - Multi-Object Tracking Library
 
-> Named after Prak from *The Hitchhiker's Guide to the Galaxy*, who was forced to tell the Ultimate Truth.
-
-A multi-object tracking library.
+Rust port of MATLAB multisensor-lmb-filters library.
 
 ## Status
 
-🚧 **Work in Progress** 🚧
+**Current Progress:** Phase 3 Complete (50%)
+- ✅ Phase 1: Foundation (316 lines)
+- ✅ Phase 2: Core Utilities (2,659 lines)  
+- ✅ Phase 3: LMB Filter (1,379 lines)
+- ⏳ Phase 4: LMBM Filter (in progress)
+- ⏸ Phase 5-9: Multi-sensor, tests, demos, docs
 
-This library is currently in early development. Watch this space for updates.
+**Total:** 4,327 lines | 44 tests passing
 
-## Planned Features
+## Implemented
 
-- Multi-object tracking algorithms
-- Sensor fusion capabilities
-- Rust core with Python bindings via PyO3
+### LMB Filter (Complete)
+- Cardinality estimation (ESF, MAP)
+- Prediction step
+- Association matrices (LBP, Gibbs, Murty's)  
+- Posterior computation
+- Main filter pipeline
 
-## Installation
+### Core Utilities
+- Linear algebra (Kalman, Gaussian PDF, log-sum-exp)
+- Data association (Hungarian, LBP, Gibbs, Murty's)
+- OSPA metrics (Euclidean & Hellinger)
+- Gaussian mixture utilities
+
+## Build
 
 ```bash
-pip install prak
+cargo build
+cargo test
 ```
-
-Or in Rust:
-
-```toml
-[dependencies]
-prak = "0.0.1"
-```
-
-## License
-
-Licensed under either of:
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
