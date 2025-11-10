@@ -5,6 +5,9 @@
 
 use nalgebra::{DMatrix, DVector};
 
+// Re-export ParallelUpdateMode for use in Model
+pub use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
+
 /// Data association method
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataAssociationMethod {
@@ -276,6 +279,26 @@ pub struct Model {
     // OSPA parameters
     /// OSPA metric parameters
     pub ospa_parameters: OspaParameters,
+
+    // Multisensor parameters (None for single-sensor systems)
+    /// Number of sensors (None for single-sensor)
+    pub number_of_sensors: Option<usize>,
+    /// Observation matrices per sensor (for multisensor)
+    pub c_multisensor: Option<Vec<DMatrix<f64>>>,
+    /// Measurement noise covariances per sensor (for multisensor)
+    pub q_multisensor: Option<Vec<DMatrix<f64>>>,
+    /// Detection probabilities per sensor (for multisensor)
+    pub detection_probability_multisensor: Option<Vec<f64>>,
+    /// Clutter rates per sensor (for multisensor)
+    pub clutter_rate_multisensor: Option<Vec<f64>>,
+    /// Clutter per unit volume per sensor (for multisensor)
+    pub clutter_per_unit_volume_multisensor: Option<Vec<f64>>,
+    /// LMB parallel update mode (for multisensor LMB)
+    pub lmb_parallel_update_mode: Option<ParallelUpdateMode>,
+    /// AA-LMB sensor weights (for multisensor LMB with AA fusion)
+    pub aa_sensor_weights: Option<Vec<f64>>,
+    /// GA-LMB sensor weights (for multisensor LMB with GA fusion)
+    pub ga_sensor_weights: Option<Vec<f64>>,
 }
 
 /// Measurement data

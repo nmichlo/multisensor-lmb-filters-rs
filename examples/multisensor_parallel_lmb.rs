@@ -5,73 +5,52 @@
 //!
 //! This matches the MATLAB runMultisensorFilters.m script with filterType = 'PU'.
 //! Supports three fusion modes: PU (Product Union), GA (Geometric Average), AA (Arithmetic Average)
-//!
-//! Note: This example uses simplified multisensor setup. For production use,
-//! implement proper multisensor model and ground truth generation.
 
-use prak::common::ground_truth::generate_ground_truth;
-use prak::common::model::generate_model;
+use prak::common::ground_truth::generate_multisensor_ground_truth;
+use prak::common::model::generate_multisensor_model;
 use prak::common::types::{DataAssociationMethod, ScenarioType};
 use prak::multisensor_lmb::parallel_update::{run_parallel_update_lmb_filter, ParallelUpdateMode};
-use nalgebra::DVector;
 
 fn main() {
     println!("=== Multi-Sensor Parallel Update LMB Filter Example ===\n");
 
-    // Generate model
-    println!("Generating model...");
-    let clutter_rate = 5.0; // Base clutter rate
-    let detection_probability = 0.67; // Base detection probability
+    // Generate multisensor model
+    println!("Generating multisensor model...");
+    let number_of_sensors = 3;
+    let clutter_rates = vec![5.0, 5.0, 5.0];
+    let detection_probabilities = vec![0.67, 0.70, 0.73];
+    let q_values = vec![4.0, 3.0, 2.0]; // Measurement noise std devs per sensor
+    let update_mode = ParallelUpdateMode::PU; // Can be PU, GA, or AA
     let data_association_method = DataAssociationMethod::LBPFixed;
     let scenario_type = ScenarioType::Fixed;
-    let number_of_sensors = 3;
-    let update_mode = ParallelUpdateMode::PU; // Can be PU, GA, or AA
 
-    let model = generate_model(
-        clutter_rate,
-        detection_probability,
+    let model = generate_multisensor_model(
+        number_of_sensors,
+        clutter_rates.clone(),
+        detection_probabilities.clone(),
+        q_values.clone(),
+        update_mode,
         data_association_method,
         scenario_type,
         None,
     );
+
     println!("  Number of sensors: {}", number_of_sensors);
-    println!("  Base clutter rate: {}", clutter_rate);
-    println!("  Base detection probability: {}", detection_probability);
+    for (s, ((clutter, pd), q)) in clutter_rates.iter().zip(&detection_probabilities).zip(&q_values).enumerate() {
+        println!("  Sensor {}: clutter={}, Pd={}, q={}", s, clutter, pd, q);
+    }
     println!("  Data association: {:?}", data_association_method);
     println!("  Scenario: {:?}", scenario_type);
     println!("  Fusion mode: {:?}", update_mode);
 
-    // Generate ground truth and measurements
-    println!("\nGenerating ground truth and measurements...");
-    let ground_truth_output = generate_ground_truth(&model, None);
-    println!("  Simulation length: {} time steps", ground_truth_output.measurements.len());
+    // Generate multisensor ground truth and measurements
+    println!("\nGenerating multisensor ground truth and measurements...");
+    let ground_truth_output = generate_multisensor_ground_truth(&model, None);
+    println!("  Simulation length: {} time steps", ground_truth_output.measurements[0].len());
     println!("  Number of objects: {}", ground_truth_output.ground_truth.len());
 
-    // Create multisensor measurements by replicating with different noise
-    // Note: This is a simplified approach. In production, implement proper
-    // multisensor ground truth generation with sensor-specific parameters.
-    println!("\nCreating multi-sensor measurements...");
-    let mut multisensor_measurements: Vec<Vec<Vec<DVector<f64>>>> = Vec::new();
-
-    for s in 0..number_of_sensors {
-        let sensor_measurements: Vec<Vec<DVector<f64>>> = ground_truth_output.measurements
-            .iter()
-            .map(|time_meas| {
-                // For each sensor, use a subset of measurements with different characteristics
-                // This simulates different sensor viewing angles and detection probabilities
-                time_meas
-                    .iter()
-                    .enumerate()
-                    .filter(|(idx, _)| (idx + s) % number_of_sensors == 0) // Different subset per sensor
-                    .map(|(_, m)| m.clone())
-                    .collect()
-            })
-            .collect();
-        multisensor_measurements.push(sensor_measurements);
-    }
-
     // Print measurement statistics per sensor
-    for (s, sensor_meas) in multisensor_measurements.iter().enumerate() {
+    for (s, sensor_meas) in ground_truth_output.measurements.iter().enumerate() {
         let total_meas: usize = sensor_meas.iter().map(|m| m.len()).sum();
         let avg_meas = total_meas as f64 / sensor_meas.len() as f64;
         println!("  Sensor {}: avg {:.1} measurements/timestep", s, avg_meas);
@@ -81,7 +60,7 @@ fn main() {
     println!("\nRunning Parallel Update LMB filter...");
     let state_estimates = run_parallel_update_lmb_filter(
         &model,
-        &multisensor_measurements,
+        &ground_truth_output.measurements,
         number_of_sensors,
         update_mode,
     );
@@ -103,7 +82,4 @@ fn main() {
     }
 
     println!("\nExample completed successfully!");
-    println!("\nNote: This example uses simplified multisensor measurement generation.");
-    println!("For production use, implement proper multisensor model and ground truth generation");
-    println!("based on generateMultisensorModel.m and generateMultisensorGroundTruth.m");
 }
