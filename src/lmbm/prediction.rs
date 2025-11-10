@@ -80,7 +80,7 @@ mod tests {
             None,
         );
 
-        let mut hypothesis = model.hypotheses[0].clone();
+        let mut hypothesis = model.hypotheses.clone();
         let initial_count = hypothesis.r.len();
 
         hypothesis = lmbm_prediction_step(hypothesis, &model, 2);
