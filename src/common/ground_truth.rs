@@ -3,9 +3,8 @@
 //! Functions to simulate object trajectories and sensor measurements for testing
 
 use crate::common::types::*;
+use crate::common::simple_rng::{Rng, SimpleRng};
 use nalgebra::{DMatrix, DVector};
-use rand::Rng;
-use rand_distr::{Distribution, Normal, Poisson};
 
 /// Ground truth trajectory for a single object
 #[derive(Debug, Clone)]
@@ -16,7 +15,8 @@ pub struct ObjectTrajectory {
     pub death_time: usize,
     /// Birth location index
     pub birth_location_index: usize,
-    /// States over time: each column is [t; x; vx; y; vy]
+    /// States over time: each column is [t; x; y; vx; vy] (matches MATLAB exactly)
+    /// where state vector is [x, y, vx, vy] representing position and velocity in 2D
     pub states: DMatrix<f64>,
 }
 
@@ -51,14 +51,21 @@ pub struct GroundTruthOutput {
 /// # Arguments
 /// * `model` - The tracking model
 /// * `number_of_objects` - Number of objects (only for Random scenario)
+/// * `seed` - Optional RNG seed for reproducibility (use 42 to match MATLAB fixtures)
 ///
 /// # Returns
 /// Complete ground truth with trajectories, measurements, and RFS representation
 pub fn generate_ground_truth(
     model: &Model,
     number_of_objects: Option<usize>,
+    seed: Option<u64>,
 ) -> GroundTruthOutput {
-    let mut rng = rand::thread_rng();
+    // Use SimpleRng for deterministic ground truth generation
+    let seed_value = seed.unwrap_or_else(|| {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    });
+    let mut rng = SimpleRng::new(seed_value);
 
     let (simulation_length, num_objects, birth_times, death_times, birth_location_indices, prior_locations) =
         match model.scenario_type {
@@ -111,10 +118,9 @@ pub fn generate_ground_truth(
                     let birth_idx = indices[i] - 1;
                     locs[(0, i)] = model.mu_b[birth_idx][0];
                     locs[(1, i)] = model.mu_b[birth_idx][1];
-                    // Random velocities
-                    let normal = Normal::new(0.0, 3.0).unwrap();
-                    locs[(2, i)] = normal.sample(&mut rng);
-                    locs[(3, i)] = normal.sample(&mut rng);
+                    // Random velocities (Normal with mean=0, std=3)
+                    locs[(2, i)] = 3.0 * rng.randn();
+                    locs[(3, i)] = 3.0 * rng.randn();
                 }
 
                 (sim_len, n_objs, births, deaths, indices, locs)
@@ -135,16 +141,13 @@ pub fn generate_ground_truth(
     };
 
     // Generate clutter measurements
-    let poisson = Poisson::new(model.clutter_rate).unwrap();
-    let normal = Normal::new(0.0, 1.0).unwrap();
-
     for t in 0..simulation_length {
-        let num_clutter = poisson.sample(&mut rng) as usize;
+        let num_clutter = rng.poisson(model.clutter_rate) as usize;
         for _ in 0..num_clutter {
             let mut z = DVector::zeros(model.z_dimension);
             for d in 0..model.z_dimension {
                 let range = model.observation_space_limits[(d, 1)] - model.observation_space_limits[(d, 0)];
-                z[d] = model.observation_space_limits[(d, 0)] + range * rng.gen::<f64>();
+                z[d] = model.observation_space_limits[(d, 0)] + range * rng.rand();
             }
             measurements[t].push(z);
         }
@@ -161,6 +164,7 @@ pub fn generate_ground_truth(
         let birth_loc_idx = birth_location_indices[obj_idx] - 1; // Convert to 0-indexed
 
         // Initialize state
+        // Prior locations are [x, y, vx, vy] - use directly
         let mut x = DVector::from_column_slice(&[
             prior_locations[(0, obj_idx)],
             prior_locations[(1, obj_idx)],
@@ -171,7 +175,7 @@ pub fn generate_ground_truth(
         let mut mu = model.mu_b[birth_loc_idx].clone();
         let mut sigma = model.sigma_b[birth_loc_idx].clone();
 
-        // Allocate trajectory storage: [t; x; vx; y; vy]
+        // Allocate trajectory storage: [t; x; y; vx; vy] - matches MATLAB exactly
         let mut states = DMatrix::zeros(5, trajectory_length);
 
         // Simulate trajectory
@@ -190,10 +194,10 @@ pub fn generate_ground_truth(
             states.view_mut((1, j), (4, 1)).copy_from(&x);
 
             // Generate measurement with detection probability
-            if rng.gen::<f64>() < model.detection_probability {
+            if rng.rand() < model.detection_probability {
                 // Measurement = C * x + noise
                 let mut z = &model.c * &x;
-                let noise = DVector::from_fn(model.z_dimension, |_, _| normal.sample(&mut rng));
+                let noise = DVector::from_fn(model.z_dimension, |_, _| rng.randn());
                 z += q_chol.l() * noise;
 
                 measurements[t - 1].push(z.clone());
@@ -253,14 +257,21 @@ pub struct MultisensorGroundTruthOutput {
 /// # Arguments
 /// * `model` - The multisensor tracking model
 /// * `number_of_objects` - Number of objects for Random scenario (None for Fixed)
+/// * `seed` - Optional RNG seed for reproducibility (use 42 to match MATLAB fixtures)
 ///
 /// # Returns
 /// MultisensorGroundTruthOutput with trajectories, measurements, and RFS representation
 pub fn generate_multisensor_ground_truth(
     model: &Model,
     number_of_objects: Option<usize>,
+    seed: Option<u64>,
 ) -> MultisensorGroundTruthOutput {
-    let mut rng = rand::thread_rng();
+    // Use SimpleRng for deterministic ground truth generation
+    let seed_value = seed.unwrap_or_else(|| {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    });
+    let mut rng = SimpleRng::new(seed_value);
 
     let number_of_sensors = model.number_of_sensors.expect("Model must be configured for multisensor");
 
@@ -320,8 +331,8 @@ pub fn generate_multisensor_ground_truth(
                 for i in 0..n_obj {
                     locs[(0, i)] = model.mu_b[birth_locs[i] - 1][0];
                     locs[(2, i)] = model.mu_b[birth_locs[i] - 1][2];
-                    locs[(1, i)] = rng.gen::<f64>() * 3.0;
-                    locs[(3, i)] = rng.gen::<f64>() * 3.0;
+                    locs[(1, i)] = 3.0 * rng.randn();
+                    locs[(3, i)] = 3.0 * rng.randn();
                 }
 
                 (sim_len, n_obj, births, deaths, birth_locs, locs)
@@ -346,16 +357,14 @@ pub fn generate_multisensor_ground_truth(
     for t in 0..simulation_length {
         for s in 0..number_of_sensors {
             let clutter_rate = model.clutter_rate_multisensor.as_ref().unwrap()[s];
-            let num_clutter = rand_distr::Poisson::new(clutter_rate)
-                .unwrap()
-                .sample(&mut rng) as usize;
+            let num_clutter = rng.poisson(clutter_rate) as usize;
 
             for _ in 0..num_clutter {
                 let mut clutter = DVector::zeros(model.z_dimension);
                 clutter[0] = model.observation_space_limits[(0, 0)]
-                    + (model.observation_space_limits[(0, 1)] - model.observation_space_limits[(0, 0)]) * rng.gen::<f64>();
+                    + (model.observation_space_limits[(0, 1)] - model.observation_space_limits[(0, 0)]) * rng.rand();
                 clutter[1] = model.observation_space_limits[(1, 0)]
-                    + (model.observation_space_limits[(1, 1)] - model.observation_space_limits[(1, 0)]) * rng.gen::<f64>();
+                    + (model.observation_space_limits[(1, 1)] - model.observation_space_limits[(1, 0)]) * rng.rand();
                 measurements[s][t].push(clutter);
             }
         }
@@ -371,7 +380,8 @@ pub fn generate_multisensor_ground_truth(
         let death_time = death_times[obj_idx];
         let trajectory_length = death_time - birth_time + 1;
 
-        let mut states = DMatrix::zeros(5, trajectory_length); // [t, x, vx, y, vy]
+        let mut states = DMatrix::zeros(5, trajectory_length); // [t, x, y, vx, vy]
+        // Prior locations are [x, y, vx, vy] - use directly
         let mut x = prior_locations.column(obj_idx).into_owned();
         let mut mu = model.mu_b[birth_location_indices[obj_idx] - 1].clone();
         let mut sigma = model.sigma_b[birth_location_indices[obj_idx] - 1].clone();
@@ -400,7 +410,7 @@ pub fn generate_multisensor_ground_truth(
             // Generate measurements for each sensor
             let mut generated_measurement = vec![false; number_of_sensors];
             for s in 0..number_of_sensors {
-                generated_measurement[s] = rng.gen::<f64>() < detection_probabilities[s];
+                generated_measurement[s] = rng.rand() < detection_probabilities[s];
             }
 
             let num_detections: usize = generated_measurement.iter().filter(|&&x| x).count();
@@ -415,7 +425,7 @@ pub fn generate_multisensor_ground_truth(
                 for s in 0..number_of_sensors {
                     if generated_measurement[s] {
                         // Generate measurement with sensor-specific noise
-                        let noise = q_multisensor[s].clone().cholesky().unwrap().l() * DVector::from_fn(model.z_dimension, |_, _| rng.sample::<f64, _>(rand_distr::StandardNormal));
+                        let noise = q_multisensor[s].clone().cholesky().unwrap().l() * DVector::from_fn(model.z_dimension, |_, _| rng.randn());
                         let y = &c_multisensor[s] * &x + noise;
                         measurements[s][t - 1].push(y.clone());
 
@@ -501,7 +511,7 @@ mod tests {
             None,
         );
 
-        let output = generate_ground_truth(&model, None);
+        let output = generate_ground_truth(&model, None, None);
 
         // Check basic properties
         assert_eq!(output.ground_truth.len(), 10);
@@ -512,7 +522,49 @@ mod tests {
         assert_eq!(output.ground_truth[0].birth_time, 1);
         assert_eq!(output.ground_truth[0].death_time, 70);
         assert_eq!(output.ground_truth[0].states.ncols(), 70);
-        assert_eq!(output.ground_truth[0].states.nrows(), 5); // [t; x; vx; y; vy]
+        assert_eq!(output.ground_truth[0].states.nrows(), 5); // [t; x; y; vx; vy]
+    }
+
+    #[test]
+    fn test_state_vector_ordering_matches_matlab() {
+        // Verify state vector ordering matches MATLAB exactly: [x, y, vx, vy]
+        // MATLAB priorLocations first column (after transpose): [-80.0, -20.0, 0.75, 1.5]'
+
+        let model = generate_model(
+            10.0,
+            0.95,
+            DataAssociationMethod::LBP,
+            ScenarioType::Fixed,
+            None,
+        );
+
+        // Use fixed seed for determinism
+        let output = generate_ground_truth(&model, None, Some(42));
+
+        // First object should have birth_location_index = 0 (first prior location)
+        let first_obj = &output.ground_truth[0];
+
+        // Verify trajectory storage format is [t; x; y; vx; vy]
+        assert_eq!(first_obj.states.nrows(), 5);
+
+        // Get initial state (first column, skip time row)
+        let initial_state = first_obj.states.column(0);
+        let t = initial_state[0];
+        let x = initial_state[1];
+        let y = initial_state[2];
+        let vx = initial_state[3];
+        let vy = initial_state[4];
+
+        // Time should match birth time
+        assert_eq!(t as usize, first_obj.birth_time);
+
+        // Initial position and velocity should match MATLAB's first prior location
+        // MATLAB: priorLocations(:, 1) = [-80.0; -20.0; 0.75; 1.5] (after transpose)
+        // which represents [x; y; vx; vy]
+        assert_eq!(x, -80.0);
+        assert_eq!(y, -20.0);
+        assert_eq!(vx, 0.75);
+        assert_eq!(vy, 1.5);
     }
 
     #[test]
@@ -525,7 +577,7 @@ mod tests {
             Some(4),
         );
 
-        let output = generate_ground_truth(&model, Some(5));
+        let output = generate_ground_truth(&model, Some(5), None);
 
         assert_eq!(output.ground_truth.len(), 5);
         assert_eq!(output.measurements.len(), 100);

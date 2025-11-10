@@ -267,10 +267,10 @@ pub fn run_parallel_update_lmb_filter(
         // Track merging
         objects = match update_mode {
             ParallelUpdateMode::AA => {
-                aa_lmb_track_merging(&measurement_updated_distributions, number_of_sensors)
+                aa_lmb_track_merging(&measurement_updated_distributions, model)
             }
             ParallelUpdateMode::GA => {
-                ga_lmb_track_merging(&measurement_updated_distributions, number_of_sensors)
+                ga_lmb_track_merging(&measurement_updated_distributions, model)
             }
             ParallelUpdateMode::PU => {
                 // For PU, we need the prior objects before sensor updates

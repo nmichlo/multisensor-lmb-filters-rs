@@ -82,15 +82,28 @@ pub fn generate_model(
     let (num_birth_locs, birth_locations) = match scenario_type {
         ScenarioType::Fixed => {
             // Four fixed birth locations
+            // Each column is [x, y, vx, vy] for one birth location (matches MATLAB)
             let mut locs = DMatrix::zeros(x_dimension, 4);
-            locs[(0, 0)] = -80.0;
-            locs[(1, 0)] = -20.0;
+            // Location 1: [-80, -20, 0, 0] -> x=-80, y=-20, vx=0, vy=0
+            locs[(0, 0)] = -80.0;  // x
+            locs[(1, 0)] = -20.0;  // y
+            locs[(2, 0)] = 0.0;    // vx
+            locs[(3, 0)] = 0.0;    // vy
+            // Location 2: [-20, 80, 0, 0] -> x=-20, y=80, vx=0, vy=0
             locs[(0, 1)] = -20.0;
             locs[(1, 1)] = 80.0;
+            locs[(2, 1)] = 0.0;
+            locs[(3, 1)] = 0.0;
+            // Location 3: [0, 0, 0, 0]
             locs[(0, 2)] = 0.0;
             locs[(1, 2)] = 0.0;
+            locs[(2, 2)] = 0.0;
+            locs[(3, 2)] = 0.0;
+            // Location 4: [40, -60, 0, 0] -> x=40, y=-60, vx=0, vy=0
             locs[(0, 3)] = 40.0;
             locs[(1, 3)] = -60.0;
+            locs[(2, 3)] = 0.0;
+            locs[(3, 3)] = 0.0;
             (4, locs)
         }
         ScenarioType::Random => {

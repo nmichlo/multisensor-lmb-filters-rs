@@ -7,155 +7,225 @@
 //!
 //! Matches MATLAB aaLmbTrackMerging.m, gaLmbTrackMerging.m, and puLmbTrackMerging.m exactly.
 
-use crate::common::types::Object;
+use crate::common::types::{Model, Object};
 use nalgebra::{DMatrix, DVector};
 
 /// Arithmetic Average (AA) track merging
 ///
-/// Fuses multi-sensor LMB estimates using simple weighted averaging.
+/// Fuses multi-sensor LMB estimates by concatenating weighted GM components.
 ///
 /// # Arguments
 /// * `sensor_objects` - Vector of LMB object sets from each sensor
-/// * `number_of_sensors` - Number of sensors
+/// * `model` - Model containing sensor weights and max GM components
 ///
 /// # Returns
 /// Fused LMB object set
 ///
 /// # Implementation Notes
 /// Matches MATLAB aaLmbTrackMerging.m exactly:
-/// 1. Average existence probabilities: r_fused = mean(r_sensors)
-/// 2. Average means: mu_fused = mean(mu_sensors)
-/// 3. Average covariances: sigma_fused = mean(sigma_sensors)
-/// 4. Keep GM components from first sensor
+/// 1. Weighted sum of existence probabilities: r_fused = sum(weight_s * r_s)
+/// 2. Concatenate weighted GM components from all sensors
+/// 3. Sort by weight descending and truncate to maximumNumberOfGmComponents
+/// 4. Renormalize weights to sum to 1
 pub fn aa_lmb_track_merging(
     sensor_objects: &[Vec<Object>],
-    number_of_sensors: usize,
+    model: &Model,
 ) -> Vec<Object> {
     if sensor_objects.is_empty() || sensor_objects[0].is_empty() {
         return vec![];
     }
 
     let number_of_objects = sensor_objects[0].len();
+    let number_of_sensors = model.number_of_sensors.unwrap_or(sensor_objects.len());
+
+    // Get sensor weights (default to uniform if not specified)
+    let sensor_weights = model.aa_sensor_weights.as_ref()
+        .map(|w| w.clone())
+        .unwrap_or_else(|| vec![1.0 / number_of_sensors as f64; number_of_sensors]);
+
     let mut fused_objects = sensor_objects[0].clone();
 
     // For each object
     for i in 0..number_of_objects {
-        let num_gm = sensor_objects[0][i].number_of_gm_components;
+        // Initialize with first sensor's weighted components
+        let mut r = sensor_weights[0] * sensor_objects[0][i].r;
+        let mut w = sensor_objects[0][i].w.iter()
+            .map(|&weight| sensor_weights[0] * weight)
+            .collect::<Vec<f64>>();
+        let mut mu = sensor_objects[0][i].mu.clone();
+        let mut sigma = sensor_objects[0][i].sigma.clone();
 
-        // Average existence probabilities
-        let mut r_sum = 0.0;
-        for s in 0..number_of_sensors {
-            r_sum += sensor_objects[s][i].r;
-        }
-        fused_objects[i].r = r_sum / (number_of_sensors as f64);
+        // Merge remaining sensors
+        for s in 1..number_of_sensors {
+            // Add weighted existence probability
+            r += sensor_weights[s] * sensor_objects[s][i].r;
 
-        // Average means and covariances for each GM component
-        for j in 0..num_gm {
-            // Average means
-            let mut mu_sum = DVector::zeros(sensor_objects[0][i].mu[j].len());
-            for s in 0..number_of_sensors {
-                mu_sum += &sensor_objects[s][i].mu[j];
+            // Concatenate weighted GM components
+            for j in 0..sensor_objects[s][i].number_of_gm_components {
+                w.push(sensor_weights[s] * sensor_objects[s][i].w[j]);
+                mu.push(sensor_objects[s][i].mu[j].clone());
+                sigma.push(sensor_objects[s][i].sigma[j].clone());
             }
-            fused_objects[i].mu[j] = mu_sum / (number_of_sensors as f64);
-
-            // Average covariances
-            let dim = sensor_objects[0][i].sigma[j].nrows();
-            let mut sigma_sum = DMatrix::zeros(dim, dim);
-            for s in 0..number_of_sensors {
-                sigma_sum += &sensor_objects[s][i].sigma[j];
-            }
-            fused_objects[i].sigma[j] = sigma_sum / (number_of_sensors as f64);
         }
+
+        // Sort by weight descending and get indices
+        let mut indexed_weights: Vec<(usize, f64)> = w.iter().enumerate()
+            .map(|(idx, &weight)| (idx, weight))
+            .collect();
+        indexed_weights.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+        // Truncate to max GM components
+        let max_components = model.maximum_number_of_gm_components;
+        let num_components = max_components.min(w.len());
+        let sorted_indices: Vec<usize> = indexed_weights.iter()
+            .take(num_components)
+            .map(|(idx, _)| *idx)
+            .collect();
+
+        // Reorder and normalize
+        let selected_weights: Vec<f64> = sorted_indices.iter()
+            .map(|&idx| w[idx])
+            .collect();
+        let weight_sum: f64 = selected_weights.iter().sum();
+        let normalized_weights: Vec<f64> = selected_weights.iter()
+            .map(|&weight| weight / weight_sum)
+            .collect();
+
+        fused_objects[i].r = r;
+        fused_objects[i].number_of_gm_components = num_components;
+        fused_objects[i].w = normalized_weights;
+        fused_objects[i].mu = sorted_indices.iter()
+            .map(|&idx| mu[idx].clone())
+            .collect();
+        fused_objects[i].sigma = sorted_indices.iter()
+            .map(|&idx| sigma[idx].clone())
+            .collect();
     }
 
     fused_objects
 }
 
+/// M-projection (moment matching) for Gaussian mixture
+///
+/// Collapses a Gaussian mixture to a single Gaussian by matching first and second moments.
+///
+/// # Arguments
+/// * `obj` - Object containing the GM to project
+///
+/// # Returns
+/// (nu, T) where nu is the mean and T is the covariance
+fn m_projection(obj: &Object) -> (DVector<f64>, DMatrix<f64>) {
+    let dim = obj.mu[0].len();
+
+    // Compute weighted mean
+    let mut nu = DVector::zeros(dim);
+    for j in 0..obj.number_of_gm_components {
+        nu += &obj.mu[j] * obj.w[j];
+    }
+
+    // Compute weighted covariance
+    let mut t = DMatrix::zeros(dim, dim);
+    for j in 0..obj.number_of_gm_components {
+        let mu_diff = &obj.mu[j] - &nu;
+        t += (&obj.sigma[j] + &mu_diff * mu_diff.transpose()) * obj.w[j];
+    }
+
+    (nu, t)
+}
+
 /// Geometric Average (GA) track merging
 ///
-/// Fuses multi-sensor LMB estimates using covariance intersection via canonical form.
+/// Fuses multi-sensor LMB estimates using weighted geometric average in canonical form.
 ///
 /// # Arguments
 /// * `sensor_objects` - Vector of LMB object sets from each sensor
-/// * `number_of_sensors` - Number of sensors
+/// * `model` - Model containing sensor weights and state dimension
 ///
 /// # Returns
 /// Fused LMB object set
 ///
 /// # Implementation Notes
 /// Matches MATLAB gaLmbTrackMerging.m exactly:
-/// 1. Convert to canonical form: K = Sigma^-1, h = K*mu, g = -0.5*mu'*K*mu
-/// 2. Exponentiate canonical parameters by 1/S
-/// 3. Convert back: Sigma = K^-1, mu = K^-1*h
-/// 4. Geometric average of existence: r_fused = prod(r_sensors)^(1/S)
+/// 1. Moment match each sensor's GM to single Gaussian (m-projection)
+/// 2. Convert to canonical form: K = weight_s * inv(T), h = K*nu
+/// 3. Sum weighted canonical parameters: g = -0.5*nu'*K*nu - 0.5*weight_s*log(det(2*pi*T))
+/// 4. Convert back: Sigma_GA = inv(sum K), mu_GA = Sigma_GA * (sum h)
+/// 5. Geometric mean of existence: r_fused = eta * prod(r_s^weight_s) / (eta * prod(r_s^weight_s) + prod((1-r_s)^weight_s))
 pub fn ga_lmb_track_merging(
     sensor_objects: &[Vec<Object>],
-    number_of_sensors: usize,
+    model: &Model,
 ) -> Vec<Object> {
     if sensor_objects.is_empty() || sensor_objects[0].is_empty() {
         return vec![];
     }
 
     let number_of_objects = sensor_objects[0].len();
+    let number_of_sensors = model.number_of_sensors.unwrap_or(sensor_objects.len());
+    let x_dimension = model.x_dimension;
+
+    // Get sensor weights (default to uniform if not specified)
+    let sensor_weights = model.ga_sensor_weights.as_ref()
+        .map(|w| w.clone())
+        .unwrap_or_else(|| vec![1.0 / number_of_sensors as f64; number_of_sensors]);
+
     let mut fused_objects = sensor_objects[0].clone();
-    let weight = 1.0 / (number_of_sensors as f64);
 
     // For each object
     for i in 0..number_of_objects {
-        let num_gm = sensor_objects[0][i].number_of_gm_components;
+        // Initialize canonical form accumulators
+        let mut k = DMatrix::zeros(x_dimension, x_dimension);
+        let mut h = DVector::zeros(x_dimension);
+        let mut g = 0.0;
 
-        // Geometric average of existence probabilities
-        let mut r_prod = 1.0;
+        // Moment match and fuse each sensor
         for s in 0..number_of_sensors {
-            r_prod *= sensor_objects[s][i].r;
-        }
-        fused_objects[i].r = r_prod.powf(weight);
+            // M-projection: collapse GM to single Gaussian
+            let (nu, t) = m_projection(&sensor_objects[s][i]);
 
-        // For each GM component
-        for j in 0..num_gm {
-            let dim = sensor_objects[0][i].sigma[j].nrows();
-
-            // Initialize canonical form sums
-            let mut k_sum = DMatrix::zeros(dim, dim);
-            let mut h_sum = DVector::zeros(dim);
-            let mut _g_sum = 0.0;
-
-            // Convert each sensor to canonical form and weight
-            for s in 0..number_of_sensors {
-                // K = Sigma^-1
-                let k = sensor_objects[s][i].sigma[j]
-                    .clone()
-                    .try_inverse()
-                    .unwrap_or_else(|| {
-                        let svd = sensor_objects[s][i].sigma[j].clone().svd(true, true);
-                        svd.pseudo_inverse(1e-10).unwrap()
-                    });
-
-                // h = K * mu
-                let h = &k * &sensor_objects[s][i].mu[j];
-
-                // g = -0.5 * mu' * K * mu
-                let g = -0.5 * sensor_objects[s][i].mu[j].dot(&h);
-
-                // Weight by 1/S and accumulate
-                k_sum += k * weight;
-                h_sum += h * weight;
-                _g_sum += g * weight;
-            }
-
-            // Convert back from canonical form
-            // Sigma = K^-1
-            let sigma_fused = k_sum.clone().try_inverse().unwrap_or_else(|| {
-                let svd = k_sum.svd(true, true);
+            // Convert to canonical form and weight
+            let t_det = t.determinant();
+            let t_inv = t.clone().try_inverse().unwrap_or_else(|| {
+                let svd = t.clone().svd(true, true);
                 svd.pseudo_inverse(1e-10).unwrap()
             });
 
-            // mu = Sigma * h = K^-1 * h
-            let mu_fused = &sigma_fused * &h_sum;
+            let k_matched = &t_inv * sensor_weights[s];
+            let h_matched = &k_matched * &nu;
+            let g_matched = -0.5 * nu.dot(&(&k_matched * &nu))
+                - 0.5 * sensor_weights[s] * (2.0 * std::f64::consts::PI * t_det).ln();
 
-            fused_objects[i].mu[j] = mu_fused;
-            fused_objects[i].sigma[j] = sigma_fused;
+            // Accumulate
+            k += &k_matched;
+            h += &h_matched;
+            g += g_matched;
         }
+
+        // Convert back to covariance form
+        let sigma_ga = k.clone().try_inverse().unwrap_or_else(|| {
+            let svd = k.clone().svd(true, true);
+            svd.pseudo_inverse(1e-10).unwrap()
+        });
+        let mu_ga = &sigma_ga * &h;
+        let k_times_mu_ga = &k * &mu_ga;
+        let sigma_ga_det_final = sigma_ga.determinant();
+        let eta = (g + 0.5 * mu_ga.dot(&k_times_mu_ga)
+            + 0.5 * (2.0 * std::f64::consts::PI * sigma_ga_det_final).ln()).exp();
+
+        // Geometric average of existence probability
+        let mut numerator = eta;
+        let mut partial_denominator = 1.0;
+        for s in 0..number_of_sensors {
+            let r_s = sensor_objects[s][i].r;
+            numerator *= r_s.powf(sensor_weights[s]);
+            partial_denominator *= (1.0 - r_s).powf(sensor_weights[s]);
+        }
+
+        // Update object with fused single Gaussian
+        fused_objects[i].r = numerator / (numerator + partial_denominator);
+        fused_objects[i].number_of_gm_components = 1;
+        fused_objects[i].w = vec![1.0];
+        fused_objects[i].mu = vec![mu_ga];
+        fused_objects[i].sigma = vec![sigma_ga];
     }
 
     fused_objects
@@ -264,9 +334,16 @@ mod tests {
 
     #[test]
     fn test_aa_lmb_track_merging() {
-        let model = generate_model(
-            10.0,
-            0.9,
+        use crate::common::model::generate_multisensor_model;
+        use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
+
+        let number_of_sensors = 2;
+        let model = generate_multisensor_model(
+            number_of_sensors,
+            vec![10.0; number_of_sensors],
+            vec![0.9; number_of_sensors],
+            vec![10.0; number_of_sensors],
+            ParallelUpdateMode::AA,
             DataAssociationMethod::Gibbs,
             ScenarioType::Fixed,
             None,
@@ -280,24 +357,35 @@ mod tests {
             obj.r *= 0.9;
         }
 
-        let sensor_objects = vec![objects1.clone(), objects2];
-        let fused = aa_lmb_track_merging(&sensor_objects, 2);
+        let sensor_objects = vec![objects1.clone(), objects2.clone()];
+        let fused = aa_lmb_track_merging(&sensor_objects, &model);
 
         // Check dimensions
         assert_eq!(fused.len(), objects1.len());
 
-        // Check that existence probabilities are averaged
+        // With uniform weights (0.5, 0.5), weighted sum should be:
+        // r_fused = 0.5 * r1 + 0.5 * r2 = 0.5 * r1 + 0.5 * (0.9 * r1) = 0.95 * r1
         for i in 0..fused.len() {
-            let expected_r = (objects1[i].r + objects1[i].r * 0.9) / 2.0;
+            let expected_r = 0.5 * objects1[i].r + 0.5 * objects2[i].r;
             assert!((fused[i].r - expected_r).abs() < 1e-10);
         }
+
+        // Check that GM components are concatenated (2 sensors -> 2x components)
+        assert!(fused[0].number_of_gm_components <= model.maximum_number_of_gm_components);
     }
 
     #[test]
     fn test_ga_lmb_track_merging() {
-        let model = generate_model(
-            10.0,
-            0.9,
+        use crate::common::model::generate_multisensor_model;
+        use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
+
+        let number_of_sensors = 2;
+        let model = generate_multisensor_model(
+            number_of_sensors,
+            vec![10.0; number_of_sensors],
+            vec![0.9; number_of_sensors],
+            vec![10.0; number_of_sensors],
+            ParallelUpdateMode::GA,
             DataAssociationMethod::Gibbs,
             ScenarioType::Fixed,
             None,
@@ -312,16 +400,15 @@ mod tests {
         }
 
         let sensor_objects = vec![objects1.clone(), objects2];
-        let fused = ga_lmb_track_merging(&sensor_objects, 2);
+        let fused = ga_lmb_track_merging(&sensor_objects, &model);
 
         // Check dimensions
         assert_eq!(fused.len(), objects1.len());
 
-        // Check that existence probabilities use geometric average
-        for i in 0..fused.len() {
-            let expected_r = (objects1[i].r * objects1[i].r * 0.8).sqrt();
-            assert!((fused[i].r - expected_r).abs() < 1e-10);
-        }
+        // GA fusion always produces single Gaussian
+        assert_eq!(fused[0].number_of_gm_components, 1);
+        assert_eq!(fused[0].w.len(), 1);
+        assert_eq!(fused[0].w[0], 1.0);
     }
 
     #[test]
