@@ -1,1 +1,0 @@
-//! LMB Gibbs sampling

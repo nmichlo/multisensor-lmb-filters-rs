@@ -1,1 +1,0 @@
-//! LMB Murty's algorithm

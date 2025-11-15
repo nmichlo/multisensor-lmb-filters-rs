@@ -8,7 +8,6 @@ pub mod association;
 pub mod filter;
 pub mod hypothesis;
 pub mod prediction;
-pub mod update;
 
 // Re-export main filter function
 pub use filter::run_lmbm_filter;

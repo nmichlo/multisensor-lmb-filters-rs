@@ -8,7 +8,6 @@ pub mod association;
 pub mod filter;
 pub mod gibbs;
 pub mod hypothesis;
-pub mod update;
 
 pub use association::{generate_multisensor_lmbm_association_matrices, MultisensorLmbmPosteriorParameters};
 pub use filter::{run_multisensor_lmbm_filter, MultisensorLmbmStateEstimates};
