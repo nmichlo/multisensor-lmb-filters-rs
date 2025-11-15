@@ -105,7 +105,7 @@ pub fn generate_lmb_association_matrices(
             let log_likelihood_ratio_terms = obj.r.ln()
                 + model.detection_probability.ln()
                 + obj.w[j].ln()
-                - model.clutter_rate.ln();
+                - model.clutter_per_unit_volume.ln();
 
             // Kalman gain and updated covariance
             let z_inv = match z_cov.clone().cholesky() {
@@ -135,7 +135,7 @@ pub fn generate_lmb_association_matrices(
                 w_log[(meas_idx + 1, j)] = obj.w[j].ln()
                     + gaussian_log_likelihood
                     + model.detection_probability.ln()
-                    - model.clutter_rate.ln();
+                    - model.clutter_per_unit_volume.ln();
 
                 mu_posterior[meas_idx + 1][j] = &obj.mu[j] + &k * &nu;
                 sigma_posterior[meas_idx + 1][j] = sigma_updated.clone();
