@@ -536,13 +536,13 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 - ✅ All tests pass within specified error bounds
 - ✅ Created `tests/test_utils.rs` with helper functions for `generate_simplified_model()` and `generate_association_matrices()`
 
-#### Task 4.2: Accuracy trial tests
+#### Task 4.2: Accuracy trial tests ⚠️ IN PROGRESS
 
 **MATLAB References**:
 - `singleSensorAccuracyTrial.m` (125 lines)
 - `multiSensorAccuracyTrial.m` (132 lines)
 
-**Status**: ⚠️ Needs implementation with practical fixture strategy
+**Status**: ⚠️ Quick validation in progress (seed 42, mixed-length fixtures)
 
 **What MATLAB does**:
 - Runs 100 trials for single-sensor (line 17: `numberOfTrials = 100`)
@@ -553,43 +553,70 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 - Single-sensor: 5 filter variants (LMB: LBP, Gibbs, Murty; LMBM: Gibbs, Murty)
 - Multi-sensor: 5 filter variants (LMB: IC, PU, GA, AA; LMBM: 1 variant)
 
-**Implementation Plan**:
+**Current Implementation Status**:
 
-1. **MATLAB Modifications** (~50 lines):
-   - [ ] Modify `singleSensorAccuracyTrial.m` to use `SimpleRng(trialNumber)` for each trial
-   - [ ] Modify `multiSensorAccuracyTrial.m` similarly
-   - [ ] Generate fixtures for **representative seeds**: 1, 5, 10, 42, 50, 100, 500 (for multi-sensor)
-   - [ ] Each fixture contains: E-OSPA, H-OSPA, cardinality arrays (100 timesteps × filter variants)
-   - [ ] Save fixtures as JSON: `fixtures/accuracy/single_trial_{seed}.json`, `fixtures/accuracy/multi_trial_{seed}.json`
-   - [ ] Generate baseline statistics: mean E-OSPA, mean H-OSPA, mean cardinality across ALL trials
-   - [ ] Save baselines: `fixtures/accuracy/single_baseline.json`, `fixtures/accuracy/multi_baseline.json`
+✅ **MATLAB Modifications Complete**:
+- [x] Modified `singleSensorAccuracyTrial.m` to use `SimpleRng(trialNumber)` for each trial
+- [x] Updated `runLmbFilter.m` to accept and thread RNG parameter
+- [x] Updated `runLmbmFilter.m` to accept and thread RNG parameter
+- [x] Updated `lmbGibbsSampling.m` and `lmbmGibbsSampling.m` to accept RNG
+- [x] Created `generateSingleSensorAccuracyFixtures.m` with detailed logging and progress tracking
 
-2. **Rust Implementation** (~400 lines):
-   - [ ] Create `tests/accuracy_trials.rs` with fixture loader
-   - [ ] Implement exact match tests for representative seeds (< 1e-10 tolerance)
-     - For each seed fixture: run Rust filter, compare per-timestep metrics
-     - Single-sensor: 7 seeds × 5 variants = 35 exact comparisons
-     - Multi-sensor: 7 seeds × 5 variants = 35 exact comparisons
-   - [ ] Implement full trial tests
-     - Run all 100/1000 trials in Rust
-     - Compute mean E-OSPA, mean H-OSPA, mean cardinality
-     - Compare against MATLAB baseline statistics (< 1e-6 tolerance for means)
-   - [ ] Port single-sensor trial loop (lines 43-64)
-   - [ ] Port multi-sensor trial loop (lines 44-77)
+✅ **Rust Test Infrastructure Complete**:
+- [x] Completely rewrote `tests/accuracy_trials.rs` (330 lines)
+- [x] Fixture loading infrastructure with `serde_json`
+- [x] Helper functions for running trials and comparing results
+- [x] Test structure ready for 7 seeds
+- [x] Determinism verification test included
 
-3. **Fixture Storage**:
-   - Per-seed fixtures: 5 variants × 100 timesteps × 3 metrics × 8 bytes = ~12KB per seed
-   - Representative seeds: 7 seeds × 12KB = ~84KB for single-sensor
-   - Multi-sensor similar: ~84KB
-   - Baseline files: 5 variants × 100 timesteps × 3 metrics × 8 bytes = ~12KB each
-   - **Total storage: ~192KB** (manageable)
+**Quick Validation Plan (Current Phase)**:
+
+**Approach**: Validate implementation quickly with reduced scope before full expansion
+- **Seed**: 42 only
+- **Ground truth**: Generate full 100 timesteps
+- **LMB filters**: Run all 100 timesteps (LBP, Gibbs, Murty)
+- **LMBM filters**: Run only first 10 timesteps (Gibbs, Murty) - pass `measurements(1:10)` to filter
+- **Rationale**: LMBM is 100x slower; running only 10 steps validates core mechanics while keeping total time ~1-2 minutes
+
+**Fixture Structure** (`single_trial_42.json`):
+```json
+{
+  "seed": 42,
+  "filterVariants": [
+    {"name": "LMB-LBP", "eOspa": [100 floats], ...},
+    {"name": "LMB-Gibbs", "eOspa": [100 floats], ...},
+    {"name": "LMB-Murty", "eOspa": [100 floats], ...},
+    {"name": "LMBM-Gibbs", "eOspa": [10 floats], ...},   ← only 10 steps
+    {"name": "LMBM-Murty", "eOspa": [10 floats], ...}    ← only 10 steps
+  ]
+}
+```
+
+**Remaining Tasks**:
+1. **MATLAB Fixture Generation** (~1 minute):
+   - [ ] Set `simulationLength = 100` in fixture script
+   - [ ] Modify LMBM filter loop: pass only `measurements(1:10)` to filter (runs 10 steps only)
+   - [ ] Modify LMBM OSPA computation: only compute for first 10 timesteps of ground truth
+   - [ ] Run `generateSingleSensorAccuracyFixtures.m` for seed 42
+   - [ ] Verify fixture saved to `../multisensor-lmb-filters/fixtures/accuracy/single_trial_42.json`
+
+2. **Rust Test Updates** (~20 lines):
+   - [ ] Update `validate_fixture()` to handle variable-length arrays
+   - [ ] LMB variants expect 100 timesteps
+   - [ ] LMBM variants expect 10 timesteps
+   - [ ] Run: `cargo test --release test_accuracy_seed_42`
+
+3. **Verification**:
+   - [ ] All metrics match within < 1e-10 tolerance
+   - [ ] Determinism test passes
+
+**Note**: Full validation (100 timesteps for LMBM, all 7 seeds, 100/1000 trial baselines) deferred until after Phases 4.3, 4.4, and 5 are complete.
 
 **Testing Strategy**:
 - ✅ **100% deterministic** - each trial uses `SimpleRng(trialNumber)` as seed
-- **Exact validation**: 7 representative seeds verify bit-for-bit equivalence
-- **Statistical validation**: Full trial runs verify mean metrics match MATLAB
-- **Coverage**: Both exact and aggregate validation ensures complete correctness
-- No need to store all 100/1000 trials - representative sampling + aggregate statistics sufficient
+- **Exact validation**: Representative seed(s) verify bit-for-bit equivalence
+- **Incremental approach**: Validate core implementation fast, expand coverage later
+- **Mixed-length fixtures**: Pragmatic solution to avoid multi-hour fixture generation while still validating LMBM basics
 
 ---
 
