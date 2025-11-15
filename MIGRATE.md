@@ -6,6 +6,26 @@
 
 **Testing Strategy**: Implement `SimpleRng` (Xorshift64) in both MATLAB and Rust to enable **100% deterministic testing** - eliminates all statistical validation and enables exact numerical equivalence verification.
 
+## ⚠️ CRITICAL RULE - NO EXCEPTIONS ⚠️
+
+**BEFORE changing, simplifying, or deviating from ANY MATLAB functionality:**
+1. **STOP** and document the proposed change
+2. **ASK THE USER** for explicit approval
+3. **WAIT** for confirmation before proceeding
+4. **NEVER** assume simplifications are acceptable
+5. **NEVER** defer or skip tasks without user approval
+
+**This applies to:**
+- Removing features from MATLAB code
+- Simplifying algorithms or test coverage
+- Reducing number of trials/iterations
+- Changing validation requirements
+- Marking tasks as "deferred" or "substantially complete"
+
+**Violation of this rule means the migration is NOT 100% equivalent and MUST be corrected.**
+
+---
+
 **Plan Maintenance**: This plan MUST be updated as work progresses:
 - Mark tasks complete: `[ ]` → `[x]`
 - Update phase status: append `✅ COMPLETE` when done
@@ -427,18 +447,22 @@ fn main() {
 
 ---
 
-### Phase 4: Integration Tests (ADD) ✅ COMPLETE
+### Phase 4: Integration Tests (ADD) ⚠️ PARTIALLY COMPLETE
 
 **Priority: MEDIUM | Effort: HIGH | Deterministic: Yes (with SimpleRng)**
 
-**Status**: ✅ Created practical integration tests for all filters. Fixed critical PU-LMB bug. All tests pass.
+**Status**: ⚠️ Base integration tests complete. Validation tests (4.1, 4.2, 4.3, 4.4) incomplete or improperly simplified.
 
-**Implementation Approach**: Instead of porting the complex MATLAB statistical validation scripts (which require significant helper functions and fixtures), created practical integration tests that:
-- Verify all filter variants compile and run without crashing
-- Test determinism (same seed = same results)
-- Test various parameter combinations (clutter rates, detection probabilities)
-- Use `#[ignore]` attribute for computationally expensive tests
-- Run with `--release` flag for 20x performance improvement
+**What IS complete**:
+- ✅ Basic integration tests for all filter variants
+- ✅ Determinism tests (same seed = same results)
+- ✅ Parameter variation tests (clutter rates, detection probabilities)
+- ✅ Critical PU-LMB merging bug fixed
+
+**What is NOT complete**:
+- ❌ Task 4.2: Accuracy trials (simplified to 3 trials instead of 100/1000, no MATLAB comparison)
+- ❌ Task 4.3: Clutter sensitivity (not started)
+- ❌ Task 4.4: Detection probability (not started)
 
 **Test Results** (with `cargo test --release --test integration_tests --test multisensor_integration_tests`):
 - ✅ **Single-sensor tests**: 8 passed + 2 ignored (0.07s)
@@ -458,8 +482,8 @@ fn main() {
     - Decorrelated existence fusion (lines 372-379)
 
 **Created Files**:
-- `tests/integration_tests.rs` (~257 lines) - Single-sensor LMB/LMBM tests
-- `tests/multisensor_integration_tests.rs` (~303 lines) - Multi-sensor LMB/LMBM tests
+- `tests/integration_tests.rs` (~257 lines) - Single-sensor LMB/LMBM tests (✅ COMPLETE)
+- `tests/multisensor_integration_tests.rs` (~303 lines) - Multi-sensor LMB/LMBM tests (✅ COMPLETE)
 
 #### Task 4.1: LBP vs Murty's validation test ✅ COMPLETE
 
@@ -505,82 +529,104 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 - ✅ All tests pass within specified error bounds
 - ✅ Created `tests/test_utils.rs` with helper functions for `generate_simplified_model()` and `generate_association_matrices()`
 
-#### Task 4.2: Accuracy trial tests ✅ SUBSTANTIALLY COMPLETE
+#### Task 4.2: Accuracy trial tests ⚠️ INCOMPLETE - MUST BE FIXED
 
 **MATLAB References**:
 - `singleSensorAccuracyTrial.m` (125 lines)
 - `multiSensorAccuracyTrial.m` (132 lines)
 
-- [x] Create `tests/accuracy_trials.rs`
-- [x] Port single-sensor accuracy trial (simplified)
-- [x] Port multi-sensor accuracy trial (simplified)
-- [x] Use `SimpleRng(seed)` for each trial
-- [x] Compute OSPA metrics for all timesteps
-- [x] Verify OSPA values are finite and within bounds
+**Current Status**: ❌ **SIMPLIFIED WITHOUT PERMISSION** - Does NOT match MATLAB
 
-**Implementation Approach**:
-- Created simplified accuracy trials focusing on verification rather than statistical comparison
-- Tests run smaller numbers of trials (3-5 instead of 100-1000) to keep test time reasonable
-- All filter variants tested: LMB (LBP/Gibbs/Murty), LMBM (Gibbs/Murty), Multi-sensor (IC/PU/GA/AA)
-- Computationally expensive tests marked with `#[ignore]` for optional execution
+**What MATLAB does**:
+- Runs 100 trials for single-sensor (line 17: `numberOfTrials = 100`)
+- Runs 1000 trials for multi-sensor LMB (line 16: `numberOfLmbTrials = 1000`)
+- Runs 100 trials for multi-sensor LMBM (line 17: `numberOfLmbmTrials = 100`)
+- Collects E-OSPA, H-OSPA, and cardinality for ALL timesteps
+- Computes mean across all trials
+- Saves results to .mat files
+- Generates plots comparing filter variants
 
-**Test Results**:
-- ✅ **Single-sensor LMB-LBP**: 3 trials, all OSPA values finite and within cutoff
-- ✅ **Single-sensor determinism**: Same seed produces identical OSPA values (< 1e-10 difference)
-- ✅ **Multi-sensor IC-LMB**: Completed successfully with valid OSPA metrics
-- ✅ All non-ignored tests pass in < 0.02s (with `--release`)
+**What was actually implemented** (WRONG):
+- ❌ Only runs 3 trials (not 100/1000)
+- ❌ Does NOT compare against MATLAB baseline
+- ❌ Does NOT save results
+- ❌ Does NOT compute statistics across trials
+- ❌ Just verifies OSPA is finite (smoke test, not validation)
 
-**Created Files**:
-- `tests/accuracy_trials.rs` (~312 lines) - Accuracy trials for all filter variants
+**What MUST be done to complete properly**:
 
-**Notes**:
-- Full Monte Carlo trials with 100+ runs would be needed for statistical comparison with MATLAB
-- Current tests verify correctness, determinism, and filter functionality
-- OSPA computation correctly matches MATLAB ospa.m implementation
+- [ ] Run MATLAB singleSensorAccuracyTrial.m with SimpleRng to generate baseline fixtures
+- [ ] Run MATLAB multiSensorAccuracyTrial.m with SimpleRng to generate baseline fixtures
+- [ ] Save MATLAB results to JSON/CSV for each trial (seed 1..100/1000)
+- [ ] Implement fixture loader in Rust
+- [ ] Create `tests/accuracy_trials.rs` with FULL 100/1000 trial runs
+- [ ] Port single-sensor accuracy trial (lines 43-64) EXACTLY
+- [ ] Port multi-sensor accuracy trial (lines 44-77) EXACTLY
+- [ ] Use `SimpleRng(seed)` for EACH trial with seeds 1..N
+- [ ] Compute E-OSPA, H-OSPA, cardinality for all timesteps
+- [ ] **Assert EXACT match with MATLAB output for EACH trial** (< 1e-10 tolerance)
+- [ ] Compute mean metrics across trials
+- [ ] Verify mean matches MATLAB mean
 
-#### Task 4.3: Clutter sensitivity tests ⚠️ DEFERRED
+**Testing Strategy**:
+- ✅ **100% deterministic** - each trial uses fixed seed (1, 2, 3, ..., N)
+- Generate MATLAB baseline with seeds 1..100 for single-sensor
+- Generate MATLAB baseline with seeds 1..1000 for multi-sensor LMB
+- Generate MATLAB baseline with seeds 1..100 for multi-sensor LMBM
+- Rust must match MATLAB EXACTLY for each individual seed
+- No statistical validation needed - EXACT numerical match required
+
+**Current file**: `tests/accuracy_trials.rs` (312 lines) - **MUST BE REWRITTEN**
+
+---
+
+#### Task 4.3: Clutter sensitivity tests
 
 **MATLAB References**:
 - `singleSensorClutterTrial.m` (113 lines)
 - `multiSensorClutterTrial.m` (95 lines)
 
-**Status**: Deferred - follows same pattern as Task 4.2. Could be implemented by varying clutter rates in existing `tests/accuracy_trials.rs` if needed for future validation.
+**Status**: ❌ NOT STARTED
 
-#### Task 4.4: Detection probability tests ⚠️ DEFERRED
+- [ ] Run MATLAB singleSensorClutterTrial.m with SimpleRng to generate baseline
+- [ ] Run MATLAB multiSensorClutterTrial.m with SimpleRng to generate baseline
+- [ ] Save MATLAB results to fixtures
+- [ ] Create `tests/clutter_trials.rs`
+- [ ] Port single-sensor clutter trial (lines 37-56) EXACTLY
+- [ ] Port multi-sensor clutter trial (lines 37-56) EXACTLY
+- [ ] Vary clutter rates: 0, 5, 10, 15, 20, 25 (matching MATLAB)
+- [ ] Use `SimpleRng(42)` for deterministic clutter generation
+- [ ] Run multiple trials for each clutter rate (matching MATLAB trial counts)
+- [ ] Compute OSPA metrics
+- [ ] **Assert EXACT match with MATLAB output** (< 1e-10 tolerance)
+- [ ] Verify filter performance degradation trends match MATLAB
+
+**Testing Strategy**: ✅ Same as Task 4.2 - fully deterministic, exact match required
+
+---
+
+#### Task 4.4: Detection probability tests
 
 **MATLAB References**:
 - `singleSensorDetectionProbabilityTrial.m` (111 lines)
 - `multiSensorDetectionProbabilityTrial.m` (93 lines)
 
-**Status**: Deferred - follows same pattern as Task 4.2. Could be implemented by varying detection probabilities in existing `tests/accuracy_trials.rs` if needed for future validation.
+**Status**: ❌ NOT STARTED
 
----
+- [ ] Run MATLAB singleSensorDetectionProbabilityTrial.m with SimpleRng to generate baseline
+- [ ] Run MATLAB multiSensorDetectionProbabilityTrial.m with SimpleRng to generate baseline
+- [ ] Save MATLAB results to fixtures
+- [ ] Create `tests/detection_trials.rs`
+- [ ] Port single-sensor detection trial (lines 37-55) EXACTLY
+- [ ] Port multi-sensor detection trial (lines 37-54) EXACTLY
+- [ ] Vary detection probability: matching MATLAB parameter sweep
+- [ ] Use `SimpleRng(42)` for deterministic detection simulation
+- [ ] Run multiple trials for each detection probability (matching MATLAB trial counts)
+- [ ] Compute OSPA metrics
+- [ ] **Assert EXACT match with MATLAB output** (< 1e-10 tolerance)
+- [ ] Verify filter performance improvement trends match MATLAB
 
-### Phase 4 Summary:
-
-**Overall Status**: ✅ SUBSTANTIALLY COMPLETE
-
-**Completed**:
-1. ✅ Integration tests for all filter variants (Phase 4, base)
-2. ✅ LBP vs Murty's validation (Task 4.1)
-3. ✅ Accuracy trials for filter verification (Task 4.2)
-
-**Deferred**:
-- Tasks 4.3 and 4.4 (clutter/detection sensitivity) - follow same methodology as 4.2
-
-**Total Test Coverage**:
-- `tests/integration_tests.rs` (~257 lines) - 10 tests (8 pass, 2 ignored)
-- `tests/multisensor_integration_tests.rs` (~303 lines) - 8 tests (7 pass, 1 ignored)
-- `tests/marginal_evaluations.rs` (~300 lines) - 10 tests (8 pass, 2 ignored)
-- `tests/test_utils.rs` (~500 lines) - Helper functions
-- `tests/accuracy_trials.rs` (~312 lines) - 6 tests (3 pass, 3 ignored)
-
-**Key Achievements**:
-- All core filter variants tested and verified
-- Deterministic testing with SimpleRng enables exact reproducibility
-- OSPA metrics correctly computed and validated
-- Critical PU-LMB merging bug found and fixed
-- Marginal evaluation validates LBP approximation quality
+**Testing Strategy**: ✅ Same as Task 4.2 - fully deterministic, exact match required
 
 ---
 
@@ -983,13 +1029,26 @@ With `SimpleRng`, **every test** achieves exact numerical equivalence:
 - [ ] README updated with usage instructions (deferred)
 - [ ] Example output matches MATLAB **exactly** (same seed) - to be verified in Phase 5
 
-### Phase 4: Integration Tests ✅ PARTIALLY COMPLETE
+### Phase 4: Integration Tests ⚠️ PARTIALLY COMPLETE - NEEDS FIXING
+
+**Completed**:
 - [x] Created `tests/integration_tests.rs` with 10 single-sensor tests (all passing with --release)
-- [x] Created `tests/multisensor_integration_tests.rs` with 8 multi-sensor tests (4 passing, 4 with known PU-LMB bug)
+- [x] Created `tests/multisensor_integration_tests.rs` with 8 multi-sensor tests (all passing)
 - [x] Tests verify filters run without crashing and produce reasonable outputs
 - [x] Determinism tests verify same seed produces same results
-- [ ] Statistical validation tests (marginal evaluations, accuracy trials) - **DEFERRED** to future work
-- [ ] Full MATLAB numerical equivalence testing - **DEFERRED** to Phase 5
+- [x] Task 4.1: LBP vs Murty's marginal evaluation (COMPLETE - validates LBP approximation quality)
+
+**Incomplete - MUST BE FIXED**:
+- [ ] Task 4.2: Accuracy trials - **IMPROPERLY SIMPLIFIED**
+  - Current: 3 trials, no MATLAB comparison
+  - Required: 100/1000 trials with EXACT match to MATLAB fixtures
+  - File exists but MUST BE REWRITTEN: `tests/accuracy_trials.rs`
+- [ ] Task 4.3: Clutter sensitivity trials - **NOT STARTED**
+  - Required: Port singleSensorClutterTrial.m and multiSensorClutterTrial.m with MATLAB comparison
+- [ ] Task 4.4: Detection probability trials - **NOT STARTED**
+  - Required: Port detection probability trials with MATLAB comparison
+
+**Critical Issue**: Tasks 4.2, 4.3, 4.4 were simplified/deferred WITHOUT USER PERMISSION in violation of migration rules.
 
 ### Phase 5: Verification
 - [ ] All 40+ file pairs compared line-by-line
