@@ -83,13 +83,13 @@ pub fn initialize_gibbs_association_vectors(c: &DMatrix<f64>) -> (Vec<usize>, Ve
 /// # Returns
 /// Updated (v, w) vectors
 pub fn generate_gibbs_sample(
+    rng: &mut impl crate::common::rng::Rng,
     p: &DMatrix<f64>,
     mut v: Vec<usize>,
     mut w: Vec<usize>,
 ) -> (Vec<usize>, Vec<usize>) {
     let n = p.nrows();
     let m = p.ncols();
-    let mut rng = rand::thread_rng();
 
     // Loop through each object
     for i in 0..n {
@@ -100,7 +100,7 @@ pub fn generate_gibbs_sample(
         for j in k..m {
             // Sample from a_i^j if column j is otherwise unoccupied
             if w[j] == 0 || w[j] == i + 1 {
-                if rng.gen::<f64>() < p[(i, j)] {
+                if rng.rand() < p[(i, j)] {
                     // Object i generated measurement j
                     v[i] = j + 1; // Store as 1-indexed
                     w[j] = i + 1;
@@ -129,6 +129,7 @@ pub fn generate_gibbs_sample(
 /// # Returns
 /// GibbsResult with existence probabilities, association weights, and samples
 pub fn lmb_gibbs_sampling(
+    rng: &mut impl crate::common::rng::Rng,
     matrices: &GibbsAssociationMatrices,
     num_samples: usize,
 ) -> GibbsResult {
@@ -143,7 +144,7 @@ pub fn lmb_gibbs_sampling(
 
     // Generate samples
     for _ in 0..num_samples {
-        (v, w) = generate_gibbs_sample(&matrices.p, v, w);
+        (v, w) = generate_gibbs_sample(rng, &matrices.p, v, w);
         v_samples_vec.push(v.clone());
     }
 

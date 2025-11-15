@@ -215,6 +215,7 @@ pub fn generate_lmbm_association_matrices(
 /// 2. Generate Gibbs samples
 /// 3. Return only unique samples
 pub fn lmbm_gibbs_sampling(
+    rng: &mut impl crate::common::rng::Rng,
     p: &DMatrix<f64>,
     c: &DMatrix<f64>,
     number_of_samples: usize,
@@ -230,7 +231,7 @@ pub fn lmbm_gibbs_sampling(
     // Gibbs sampling
     for i in 0..number_of_samples {
         // Generate a new Gibbs sample
-        let (v_new, w_new) = generate_gibbs_sample(p, v.clone(), w.clone());
+        let (v_new, w_new) = generate_gibbs_sample(rng, p, v.clone(), w.clone());
         v = v_new;
         w = w_new;
 

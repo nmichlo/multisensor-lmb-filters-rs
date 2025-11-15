@@ -12,3 +12,4 @@ pub mod linalg;
 pub mod metrics;
 pub mod association;
 pub mod utils;
+pub mod rng;

@@ -26,6 +26,7 @@ use std::collections::HashSet;
 /// 2. For each sample: call generateMultisensorAssociationEvent
 /// 3. Store and keep only unique association events
 pub fn multisensor_lmbm_gibbs_sampling(
+    rng: &mut impl crate::common::rng::Rng,
     l: &[f64],
     dimensions: &[usize],
     number_of_samples: usize,
@@ -50,7 +51,7 @@ pub fn multisensor_lmbm_gibbs_sampling(
     // Gibbs sampling
     for _ in 0..number_of_samples {
         // Generate new Gibbs sample
-        generate_multisensor_association_event(l, dimensions, &m, &mut v, &mut w);
+        generate_multisensor_association_event(rng, l, dimensions, &m, &mut v, &mut w);
 
         // Store sample (flatten V row-wise)
         let mut sample = Vec::with_capacity(number_of_objects * number_of_sensors);
@@ -95,6 +96,7 @@ pub fn multisensor_lmbm_gibbs_sampling(
 ///          - Compute sample probability: P = 1 / (exp(L_miss - L_detect) + 1)
 ///          - Sample: if rand() < P, associate object i to measurement j
 fn generate_multisensor_association_event(
+    rng: &mut impl crate::common::rng::Rng,
     l: &[f64],
     dimensions: &[usize],
     m: &[usize],
@@ -103,7 +105,6 @@ fn generate_multisensor_association_event(
 ) {
     let number_of_sensors = m.len();
     let number_of_objects = dimensions[number_of_sensors];
-    let mut rng = rand::thread_rng();
 
     // For each sensor
     for s in 0..number_of_sensors {
@@ -135,7 +136,7 @@ fn generate_multisensor_association_event(
                     let p = 1.0 / ((l[r_idx] - l[q_idx]).exp() + 1.0);
 
                     // Sample
-                    if rng.gen::<f64>() < p {
+                    if rng.rand() < p {
                         // Object i generated measurement j
                         v[(i, s)] = j + 1; // Store as 1-indexed
                         w[(j, s)] = i + 1;

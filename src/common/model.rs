@@ -22,6 +22,7 @@ use rand::Rng;
 /// # Returns
 /// Complete Model struct
 pub fn generate_model(
+    rng: &mut impl crate::common::rng::Rng,
     clutter_rate: f64,
     detection_probability: f64,
     data_association_method: DataAssociationMethod,
@@ -109,11 +110,12 @@ pub fn generate_model(
         ScenarioType::Random => {
             let n = number_of_birth_locations.expect("Must specify number of birth locations for Random scenario");
             let mut locs = DMatrix::zeros(x_dimension, n);
-            let mut rng = rand::thread_rng();
 
             for i in 0..n {
-                locs[(0, i)] = rng.gen_range(observation_space_limits[(0, 0)]..observation_space_limits[(0, 1)]) * 0.5;
-                locs[(1, i)] = rng.gen_range(observation_space_limits[(1, 0)]..observation_space_limits[(1, 1)]) * 0.5;
+                let range0 = observation_space_limits[(0, 1)] - observation_space_limits[(0, 0)];
+                let range1 = observation_space_limits[(1, 1)] - observation_space_limits[(1, 0)];
+                locs[(0, i)] = 0.5 * observation_space_limits[(0, 0)] + range0 * rng.rand();
+                locs[(1, i)] = 0.5 * observation_space_limits[(1, 0)] + range1 * rng.rand();
             }
             (n, locs)
         }
@@ -243,6 +245,7 @@ pub fn generate_model(
 /// # Returns
 /// Complete Model struct configured for multisensor tracking
 pub fn generate_multisensor_model(
+    rng: &mut impl crate::common::rng::Rng,
     number_of_sensors: usize,
     clutter_rates: Vec<f64>,
     detection_probabilities: Vec<f64>,
@@ -341,11 +344,12 @@ pub fn generate_multisensor_model(
         ScenarioType::Random => {
             let n = number_of_birth_locations.expect("Must specify number of birth locations for Random scenario");
             let mut locs = DMatrix::zeros(x_dimension, n);
-            let mut rng = rand::thread_rng();
 
             for i in 0..n {
-                locs[(0, i)] = rng.gen_range(observation_space_limits[(0, 0)]..observation_space_limits[(0, 1)]) * 0.5;
-                locs[(1, i)] = rng.gen_range(observation_space_limits[(1, 0)]..observation_space_limits[(1, 1)]) * 0.5;
+                let range0 = observation_space_limits[(0, 1)] - observation_space_limits[(0, 0)];
+                let range1 = observation_space_limits[(1, 1)] - observation_space_limits[(1, 0)];
+                locs[(0, i)] = 0.5 * observation_space_limits[(0, 0)] + range0 * rng.rand();
+                locs[(1, i)] = 0.5 * observation_space_limits[(1, 0)] + range1 * rng.rand();
             }
             (n, locs)
         }

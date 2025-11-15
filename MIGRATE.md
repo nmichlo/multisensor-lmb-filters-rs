@@ -111,20 +111,22 @@
 
 ## Migration Plan - Step by Step
 
-### Phase 0: Deterministic RNG Implementation (FOUNDATION)
+### Phase 0: Deterministic RNG Implementation (FOUNDATION) ✅ COMPLETE
 
 **Priority: CRITICAL | Effort: LOW | RNG: N/A**
 
 **Goal**: Implement identical, minimal PRNG in both MATLAB and Rust to enable 100% deterministic testing without statistical validation.
 
-#### Task 0.1: Implement SimpleRng in MATLAB
+**Status**: ✅ All tasks completed. SimpleRng implemented in both Octave and Rust. Core function signatures updated to accept RNG parameters. Call sites will be updated when examples are created in Phase 3.
+
+#### Task 0.1: Implement SimpleRng in MATLAB ✅ COMPLETE
 
 **Create**: `../multisensor-lmb-filters/common/SimpleRng.m` (~50 lines)
 
-- [ ] Implement Xorshift64 PRNG as MATLAB class
-- [ ] Methods: `rand()`, `randn()`, `poissrnd(lambda)`
-- [ ] Constructor takes seed (uint64)
-- [ ] Avoid zero state (use 1 if seed=0)
+- [x] Implement Xorshift64 PRNG as MATLAB class
+- [x] Methods: `rand()`, `randn()`, `poissrnd(lambda)`
+- [x] Constructor takes seed (uint64)
+- [x] Avoid zero state (use 1 if seed=0)
 
 **Implementation**:
 ```matlab
@@ -180,14 +182,14 @@ classdef SimpleRng
 end
 ```
 
-#### Task 0.2: Implement SimpleRng in Rust
+#### Task 0.2: Implement SimpleRng in Rust ✅ COMPLETE
 
 **Create**: `src/common/rng.rs` (~80 lines)
 
-- [ ] Implement `Rng` trait with `rand()`, `randn()`, `poissrnd()`
-- [ ] Implement `SimpleRng` struct with Xorshift64
-- [ ] Match MATLAB implementation exactly
-- [ ] Allow trait swapping for future improvements
+- [x] Implement `Rng` trait with `rand()`, `randn()`, `poissrnd()`
+- [x] Implement `SimpleRng` struct with Xorshift64
+- [x] Match MATLAB implementation exactly
+- [x] Allow trait swapping for future improvements
 
 **Implementation**:
 ```rust
@@ -239,33 +241,38 @@ impl Rng for SimpleRng {
 }
 ```
 
-#### Task 0.3: Cross-language validation
+#### Task 0.3: Cross-language validation ✅ COMPLETE
 
 **Create**: `tests/test_rng_equivalence.rs` (Rust) and `testSimpleRng.m` (MATLAB)
 
-- [ ] Generate first 10,000 values from `SimpleRng(42)` in both languages
-- [ ] Assert bit-for-bit identical output for `rand()`
-- [ ] Assert identical output for `randn()` (within 1e-15)
-- [ ] Assert identical output for `poissrnd(5.0)` (exact integer match)
-- [ ] Test with seeds: 0, 1, 42, 12345, 2^32-1, 2^63-1
+- [x] Generate first 10,000 values from `SimpleRng(42)` in both languages
+- [x] Assert bit-for-bit identical output for `rand()`
+- [x] Assert identical output for `randn()` (within 1e-15)
+- [x] Assert identical output for `poissrnd(5.0)` (exact integer match)
+- [x] Test with seeds: 0, 1, 42, 12345, 2^32-1, 2^63-1
 
-#### Task 0.4: Replace RNG calls in MATLAB codebase
+#### Task 0.4: Replace RNG calls in MATLAB codebase ✅ COMPLETE
 
-- [ ] Update `generateGroundTruth.m` to accept `rng` parameter
-- [ ] Update `generateMultisensorGroundTruth.m` to accept `rng` parameter
-- [ ] Update `generateModel.m` to accept `rng` parameter
-- [ ] Update `generateMultisensorModel.m` to accept `rng` parameter
-- [ ] Update `generateGibbsSample.m` to accept `rng` parameter
-- [ ] Update `generateMultisensorAssociationEvent.m` to accept `rng` parameter
-- [ ] Update test/trial scripts to use `SimpleRng(seed)`
+- [x] Update `generateGroundTruth.m` to accept `rng` parameter
+- [x] Update `generateMultisensorGroundTruth.m` to accept `rng` parameter
+- [x] Update `generateModel.m` to accept `rng` parameter
+- [x] Update `generateMultisensorModel.m` to accept `rng` parameter
+- [x] Update `generateGibbsSample.m` to accept `rng` parameter
+- [x] Update `generateMultisensorAssociationEvent.m` to accept `rng` parameter
+- [ ] Update test/trial scripts to use `SimpleRng(seed)` (deferred to Phase 4)
 
-#### Task 0.5: Replace RNG calls in Rust codebase
+#### Task 0.5: Replace RNG calls in Rust codebase ✅ COMPLETE
 
-- [ ] Replace `thread_rng()` calls with `rng: &mut impl Rng` parameter
-- [ ] Update `generate_ground_truth()` signature
-- [ ] Update `generate_model()` signature
-- [ ] Update `generate_gibbs_sample()` signature
-- [ ] Update all call sites to pass `rng` parameter
+- [x] Replace `thread_rng()` calls with `rng: &mut impl Rng` parameter
+- [x] Update `generate_ground_truth()` signature
+- [x] Update `generate_multisensor_ground_truth()` signature
+- [x] Update `generate_model()` signature
+- [x] Update `generate_multisensor_model()` signature
+- [x] Update `generate_gibbs_sample()` signature
+- [x] Update `lmb_gibbs_sampling()` signature
+- [x] Update `lmbm_gibbs_sampling()` signature
+- [x] Update `multisensor_lmbm_gibbs_sampling()` signature
+- [ ] Update all call sites to pass `rng` parameter (deferred to Phase 3 - Examples)
 
 **Rationale**:
 - **Xorshift64** is trivial (~5 lines of bit ops), fast, and well-understood
