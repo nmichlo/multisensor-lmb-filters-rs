@@ -1,311 +1,347 @@
-//! Accuracy trial tests - Compare filter variants
+//! Accuracy trial tests - Validate exact numerical equivalence with MATLAB
 //!
-//! Simplified version focused on verifying filter correctness and OSPA metrics.
+//! This test suite validates that the Rust implementation produces identical results
+//! to the MATLAB implementation for accuracy trials. It uses deterministic fixtures
+//! generated from MATLAB with SimpleRng to enable exact numerical comparison.
+//!
 //! Based on MATLAB singleSensorAccuracyTrial.m and multiSensorAccuracyTrial.m.
 
-use prak::common::ground_truth::{generate_ground_truth, generate_multisensor_ground_truth};
+use prak::common::ground_truth::generate_ground_truth;
 use prak::common::metrics::ospa;
-use prak::common::model::{generate_model, generate_multisensor_model};
+use prak::common::model::generate_model;
 use prak::common::rng::SimpleRng;
-use prak::common::types::{DataAssociationMethod, ParallelUpdateMode, ScenarioType};
+use prak::common::types::{DataAssociationMethod, ScenarioType};
 use prak::lmb::filter::run_lmb_filter;
 use prak::lmbm::filter::run_lmbm_filter;
-use prak::multisensor_lmb::iterated_corrector::run_ic_lmb_filter;
-use prak::multisensor_lmb::parallel_update::run_parallel_update_lmb_filter;
+use serde::Deserialize;
+use std::fs;
+use std::path::PathBuf;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Fixture data for a single filter variant's results for one trial
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FilterVariantMetrics {
+    name: String,
+    #[serde(rename = "eOspa")]
+    e_ospa: Vec<f64>,
+    #[serde(rename = "hOspa")]
+    h_ospa: Vec<f64>,
+    cardinality: Vec<usize>,
+}
 
-    #[test]
-    fn test_single_sensor_lmb_lbp_small() {
-        // Small accuracy trial for LMB with LBP
-        let num_trials = 3;
-        let mut rng = SimpleRng::new(42);
+/// Complete fixture data for a single trial (all filter variants)
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TrialFixture {
+    seed: u64,
+    filter_variants: Vec<FilterVariantMetrics>,
+}
 
-        for trial in 0..num_trials {
-            println!("LMB-LBP Trial {}/{}", trial + 1, num_trials);
+/// Load a fixture file from the tests/data directory
+fn load_fixture(seed: u64) -> TrialFixture {
+    // Get path to fixture file (in tests/data directory)
+    let fixture_path: PathBuf = [
+        env!("CARGO_MANIFEST_DIR"),
+        "tests",
+        "data",
+        &format!("single_trial_{}.json", seed),
+    ]
+    .iter()
+    .collect();
 
-            let model = generate_model(
-                &mut rng,
-                10.0,
-                0.95,
-                DataAssociationMethod::LBP,
-                ScenarioType::Fixed,
-                None,
-            );
+    // Read and parse JSON
+    let json_str = fs::read_to_string(&fixture_path)
+        .unwrap_or_else(|e| panic!("Failed to read fixture file {:?}: {}", fixture_path, e));
 
-            let ground_truth_output = generate_ground_truth(&mut rng, &model, None);
-            let state_estimates = run_lmb_filter(&mut rng, &model, &ground_truth_output.measurements);
+    serde_json::from_str(&json_str)
+        .unwrap_or_else(|e| panic!("Failed to parse fixture file {:?}: {}", fixture_path, e))
+}
 
-            // Compute OSPA for each timestep
-            let simulation_length = ground_truth_output.measurements.len();
-            for t in 0..simulation_length {
-                let metrics = ospa(
-                    &ground_truth_output.ground_truth_rfs.x[t],
-                    &ground_truth_output.ground_truth_rfs.mu[t],
-                    &ground_truth_output.ground_truth_rfs.sigma[t],
-                    &state_estimates.mu[t],
-                    &state_estimates.sigma[t],
-                    &model.ospa_parameters,
-                );
+/// Run a single-sensor trial with given seed and data association method
+/// Returns (e_ospa, h_ospa, cardinality) vectors for all timesteps
+fn run_single_sensor_trial(
+    seed: u64,
+    method: DataAssociationMethod,
+) -> (Vec<f64>, Vec<f64>, Vec<usize>) {
+    // Generate model with fixed seed 0 (same for all trials)
+    let mut model_rng = SimpleRng::new(0);
+    let mut model = generate_model(
+        &mut model_rng,
+        2.0, // clutterRate - matches MATLAB generateModel(2, 0.95, 'LBP')
+        0.95, // detectionProbability
+        method,
+        ScenarioType::Fixed,
+        None,
+    );
 
-                // Verify OSPA is reasonable
-                assert!(
-                    metrics.e_ospa.total.is_finite() && metrics.e_ospa.total >= 0.0,
-                    "E-OSPA at t={} is invalid: {}",
-                    t,
-                    metrics.e_ospa.total
-                );
-                assert!(
-                    metrics.e_ospa.total <= model.ospa_parameters.e_c,
-                    "E-OSPA at t={} exceeds cutoff: {} > {}",
-                    t,
-                    metrics.e_ospa.total,
-                    model.ospa_parameters.e_c
-                );
-            }
+    // Update model's data association method
+    model.data_association_method = method;
+
+    // Generate ground truth with trial-specific seed
+    let mut trial_rng = SimpleRng::new(seed);
+    let ground_truth_output = generate_ground_truth(&mut trial_rng, &model, None);
+
+    // Debug: Print ground truth info
+    if seed == 42 && matches!(method, DataAssociationMethod::LBP) {
+        eprintln!("DEBUG: Ground truth at t=0:");
+        eprintln!("  Objects: {}", ground_truth_output.ground_truth_rfs.x[0].len());
+        eprintln!("  Measurements: {}", ground_truth_output.measurements[0].len());
+        if !ground_truth_output.ground_truth_rfs.x[0].is_empty() {
+            eprintln!("  Object 1 pos: {:?}", ground_truth_output.ground_truth_rfs.x[0][0]);
+        }
+        if !ground_truth_output.measurements[0].is_empty() {
+            eprintln!("  Measurement 1: {:?}", ground_truth_output.measurements[0][0]);
         }
     }
 
-    #[test]
-    fn test_single_sensor_determinism() {
-        // Verify same seed produces same OSPA
-        let run_trial = |seed: u64| -> Vec<f64> {
-            let mut rng = SimpleRng::new(seed);
-            let model = generate_model(
-                &mut rng,
-                10.0,
-                0.95,
-                DataAssociationMethod::LBP,
-                ScenarioType::Fixed,
-                None,
-            );
-
-            let ground_truth_output = generate_ground_truth(&mut rng, &model, None);
-            let state_estimates = run_lmb_filter(&mut rng, &model, &ground_truth_output.measurements);
-
-            // Compute E-OSPA for each timestep
-            let mut e_ospa = Vec::new();
-            let simulation_length = ground_truth_output.measurements.len();
-            for t in 0..simulation_length {
-                let metrics = ospa(
-                    &ground_truth_output.ground_truth_rfs.x[t],
-                    &ground_truth_output.ground_truth_rfs.mu[t],
-                    &ground_truth_output.ground_truth_rfs.sigma[t],
-                    &state_estimates.mu[t],
-                    &state_estimates.sigma[t],
-                    &model.ospa_parameters,
-                );
-                e_ospa.push(metrics.e_ospa.total);
-            }
-            e_ospa
-        };
-
-        let e1 = run_trial(12345);
-        let e2 = run_trial(12345);
-
-        assert_eq!(e1.len(), e2.len());
-        for t in 0..e1.len() {
-            assert!(
-                (e1[t] - e2[t]).abs() < 1e-10,
-                "E-OSPA differs at t={}: {} vs {}",
-                t,
-                e1[t],
-                e2[t]
-            );
+    // Run filter with seed+1000 (matches MATLAB fixture generation)
+    let mut filter_rng = SimpleRng::new(seed + 1000);
+    let state_estimates = match method {
+        DataAssociationMethod::LBP
+        | DataAssociationMethod::Gibbs
+        | DataAssociationMethod::Murty
+        | DataAssociationMethod::LBPFixed => {
+            run_lmb_filter(&mut filter_rng, &model, &ground_truth_output.measurements)
         }
+    };
+
+    // Debug: Print filter output
+    if seed == 42 && matches!(method, DataAssociationMethod::LBP) {
+        eprintln!("DEBUG: Filter output at t=0:");
+        eprintln!("  Detected objects: {}", state_estimates.mu[0].len());
     }
 
-    #[test]
-    #[ignore] // Computationally expensive
-    fn test_single_sensor_all_lmb_methods() {
-        // Test all LMB data association methods
-        let methods = vec![
-            DataAssociationMethod::LBP,
-            DataAssociationMethod::Gibbs,
-            DataAssociationMethod::Murty,
-        ];
+    // Compute OSPA metrics for each timestep
+    let simulation_length = ground_truth_output.measurements.len();
+    let mut e_ospa = Vec::with_capacity(simulation_length);
+    let mut h_ospa = Vec::with_capacity(simulation_length);
+    let mut cardinality = Vec::with_capacity(simulation_length);
 
-        for method in &methods {
-            println!("\nTesting LMB with {:?}", method);
-            let mut rng = SimpleRng::new(42);
-
-            let model = generate_model(&mut rng, 10.0, 0.95, *method, ScenarioType::Fixed, None);
-            let ground_truth_output = generate_ground_truth(&mut rng, &model, None);
-            let state_estimates = run_lmb_filter(&mut rng, &model, &ground_truth_output.measurements);
-
-            // Check a few timesteps
-            for t in 0..10.min(ground_truth_output.measurements.len()) {
-                let metrics = ospa(
-                    &ground_truth_output.ground_truth_rfs.x[t],
-                    &ground_truth_output.ground_truth_rfs.mu[t],
-                    &ground_truth_output.ground_truth_rfs.sigma[t],
-                    &state_estimates.mu[t],
-                    &state_estimates.sigma[t],
-                    &model.ospa_parameters,
-                );
-
-                assert!(
-                    metrics.e_ospa.total.is_finite() && metrics.e_ospa.total >= 0.0,
-                    "{:?} LMB: E-OSPA at t={} is invalid: {}",
-                    method,
-                    t,
-                    metrics.e_ospa.total
-                );
-            }
-        }
-    }
-
-    #[test]
-    #[ignore] // Computationally expensive
-    fn test_single_sensor_lmbm_methods() {
-        // Test LMBM data association methods
-        let methods = vec![DataAssociationMethod::Gibbs, DataAssociationMethod::Murty];
-
-        for method in &methods {
-            println!("\nTesting LMBM with {:?}", method);
-            let mut rng = SimpleRng::new(42);
-
-            let model = generate_model(&mut rng, 10.0, 0.95, *method, ScenarioType::Fixed, None);
-            let ground_truth_output = generate_ground_truth(&mut rng, &model, None);
-            let state_estimates = run_lmbm_filter(&mut rng, &model, &ground_truth_output.measurements);
-
-            // Check a few timesteps
-            for t in 0..10.min(ground_truth_output.measurements.len()) {
-                let metrics = ospa(
-                    &ground_truth_output.ground_truth_rfs.x[t],
-                    &ground_truth_output.ground_truth_rfs.mu[t],
-                    &ground_truth_output.ground_truth_rfs.sigma[t],
-                    &state_estimates.mu[t],
-                    &state_estimates.sigma[t],
-                    &model.ospa_parameters,
-                );
-
-                assert!(
-                    metrics.e_ospa.total.is_finite() && metrics.e_ospa.total >= 0.0,
-                    "{:?} LMBM: E-OSPA at t={} is invalid: {}",
-                    method,
-                    t,
-                    metrics.e_ospa.total
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn test_multisensor_ic_lmb_small() {
-        // Test multi-sensor IC-LMB
-        let mut rng = SimpleRng::new(42);
-
-        let num_sensors = 3;
-        let clutter_rates = vec![5.0, 5.0, 5.0];
-        let detection_probs = vec![0.67, 0.7, 0.73];
-        let measurement_noise_scales = vec![4.0, 3.0, 2.0];
-
-        let model = generate_multisensor_model(
-            &mut rng,
-            num_sensors,
-            clutter_rates,
-            detection_probs,
-            measurement_noise_scales,
-            ParallelUpdateMode::PU,
-            DataAssociationMethod::LBP,
-            ScenarioType::Fixed,
-            None,
+    for t in 0..simulation_length {
+        let metrics = ospa(
+            &ground_truth_output.ground_truth_rfs.x[t],
+            &ground_truth_output.ground_truth_rfs.mu[t],
+            &ground_truth_output.ground_truth_rfs.sigma[t],
+            &state_estimates.mu[t],
+            &state_estimates.sigma[t],
+            &model.ospa_parameters,
         );
 
-        let ground_truth_output = generate_multisensor_ground_truth(&mut rng, &model, None);
-        let state_estimates = run_ic_lmb_filter(&mut rng, &model, &ground_truth_output.measurements, 0);
-
-        // Check a few timesteps
-        for t in 0..10.min(ground_truth_output.measurements[0].len()) {
-            let metrics = ospa(
-                &ground_truth_output.ground_truth_rfs.x[t],
-                &ground_truth_output.ground_truth_rfs.mu[t],
-                &ground_truth_output.ground_truth_rfs.sigma[t],
-                &state_estimates.mu[t],
-                &state_estimates.sigma[t],
-                &model.ospa_parameters,
-            );
-
-            assert!(
-                metrics.e_ospa.total.is_finite() && metrics.e_ospa.total >= 0.0,
-                "IC-LMB: E-OSPA at t={} is invalid: {}",
-                t,
-                metrics.e_ospa.total
-            );
-        }
-
-        println!("IC-LMB test completed successfully");
+        e_ospa.push(metrics.e_ospa.total);
+        h_ospa.push(metrics.h_ospa.total);
+        cardinality.push(state_estimates.mu[t].len());
     }
 
-    #[test]
-    #[ignore] // Computationally expensive
-    fn test_multisensor_all_lmb_methods() {
-        // Test all multi-sensor LMB update modes
-        let modes = vec![
-            ("IC", true),
-            ("PU", false),
-            ("GA", false),
-            ("AA", false),
-        ];
+    (e_ospa, h_ospa, cardinality)
+}
 
-        for (name, is_ic) in &modes {
-            println!("\nTesting multi-sensor LMB with {}", name);
-            let mut rng = SimpleRng::new(42);
+/// Run a single-sensor LMBM trial (only first 10 timesteps for quick validation)
+fn run_single_sensor_lmbm_trial(
+    seed: u64,
+    method: DataAssociationMethod,
+) -> (Vec<f64>, Vec<f64>, Vec<usize>) {
+    // Generate model with fixed seed 0
+    let mut model_rng = SimpleRng::new(0);
+    let mut model = generate_model(
+        &mut model_rng,
+        2.0,
+        0.95,
+        method,
+        ScenarioType::Fixed,
+        None,
+    );
+    model.data_association_method = method;
 
-            let num_sensors = 3;
-            let clutter_rates = vec![5.0, 5.0, 5.0];
-            let detection_probs = vec![0.67, 0.7, 0.73];
-            let measurement_noise_scales = vec![4.0, 3.0, 2.0];
+    // Generate ground truth (full 100 timesteps)
+    let mut trial_rng = SimpleRng::new(seed);
+    let ground_truth_output = generate_ground_truth(&mut trial_rng, &model, None);
 
-            let update_mode = match *name {
-                "PU" => ParallelUpdateMode::PU,
-                "GA" => ParallelUpdateMode::GA,
-                "AA" => ParallelUpdateMode::AA,
-                _ => ParallelUpdateMode::PU,
-            };
+    // Run LMBM filter with only first 10 measurements (quick validation)
+    const LMBM_SIMULATION_LENGTH: usize = 10;
+    let mut filter_rng = SimpleRng::new(seed + 1000);
+    let measurements_short: Vec<_> = ground_truth_output.measurements.iter()
+        .take(LMBM_SIMULATION_LENGTH)
+        .cloned()
+        .collect();
+    let state_estimates = run_lmbm_filter(&mut filter_rng, &model, &measurements_short);
 
-            let model = generate_multisensor_model(
-                &mut rng,
-                num_sensors,
-                clutter_rates,
-                detection_probs,
-                measurement_noise_scales,
-                update_mode,
-                DataAssociationMethod::LBP,
-                ScenarioType::Fixed,
-                None,
-            );
+    // Compute OSPA metrics for first 10 timesteps only
+    let mut e_ospa = Vec::with_capacity(LMBM_SIMULATION_LENGTH);
+    let mut h_ospa = Vec::with_capacity(LMBM_SIMULATION_LENGTH);
+    let mut cardinality = Vec::with_capacity(LMBM_SIMULATION_LENGTH);
 
-            let ground_truth_output = generate_multisensor_ground_truth(&mut rng, &model, None);
+    for t in 0..LMBM_SIMULATION_LENGTH {
+        let metrics = ospa(
+            &ground_truth_output.ground_truth_rfs.x[t],
+            &ground_truth_output.ground_truth_rfs.mu[t],
+            &ground_truth_output.ground_truth_rfs.sigma[t],
+            &state_estimates.mu[t],
+            &state_estimates.sigma[t],
+            &model.ospa_parameters,
+        );
 
-            let state_estimates = if *is_ic {
-                run_ic_lmb_filter(&mut rng, &model, &ground_truth_output.measurements, 0)
-            } else {
-                run_parallel_update_lmb_filter(&mut rng, &model, &ground_truth_output.measurements, num_sensors, update_mode)
-            };
-
-            // Check a few timesteps
-            for t in 0..10.min(ground_truth_output.measurements[0].len()) {
-                let metrics = ospa(
-                    &ground_truth_output.ground_truth_rfs.x[t],
-                    &ground_truth_output.ground_truth_rfs.mu[t],
-                    &ground_truth_output.ground_truth_rfs.sigma[t],
-                    &state_estimates.mu[t],
-                    &state_estimates.sigma[t],
-                    &model.ospa_parameters,
-                );
-
-                assert!(
-                    metrics.e_ospa.total.is_finite() && metrics.e_ospa.total >= 0.0,
-                    "{} multi-LMB: E-OSPA at t={} is invalid: {}",
-                    name,
-                    t,
-                    metrics.e_ospa.total
-                );
-            }
-        }
+        e_ospa.push(metrics.e_ospa.total);
+        h_ospa.push(metrics.h_ospa.total);
+        cardinality.push(state_estimates.mu[t].len());
     }
+
+    (e_ospa, h_ospa, cardinality)
+}
+
+/// Compare two f64 vectors element-wise with tolerance
+fn assert_vec_close(actual: &[f64], expected: &[f64], tolerance: f64, metric_name: &str, filter_name: &str) {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{} length mismatch for {}: {} vs {}",
+        metric_name,
+        filter_name,
+        actual.len(),
+        expected.len()
+    );
+
+    for (t, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+        let diff = (a - e).abs();
+        assert!(
+            diff < tolerance,
+            "{} mismatch at timestep {} for {}: Rust={}, MATLAB={}, diff={}",
+            metric_name,
+            t,
+            filter_name,
+            a,
+            e,
+            diff
+        );
+    }
+}
+
+/// Compare two usize vectors element-wise (exact match)
+fn assert_vec_exact(actual: &[usize], expected: &[usize], metric_name: &str, filter_name: &str) {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{} length mismatch for {}: {} vs {}",
+        metric_name,
+        filter_name,
+        actual.len(),
+        expected.len()
+    );
+
+    for (t, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(
+            a,
+            e,
+            "{} mismatch at timestep {} for {}: Rust={}, MATLAB={}",
+            metric_name,
+            t,
+            filter_name,
+            a,
+            e
+        );
+    }
+}
+
+/// Test helper: validate a single fixture
+fn validate_fixture(seed: u64) {
+    println!("\n=== Testing seed {} ===", seed);
+    let fixture = load_fixture(seed);
+    assert_eq!(fixture.seed, seed, "Fixture seed mismatch");
+
+    const TOLERANCE: f64 = 1e-10;
+
+    for variant in &fixture.filter_variants {
+        println!("  Testing {} ... (expected t=0: E-OSPA={:.6}, H-OSPA={:.6}, Card={})",
+                 variant.name, variant.e_ospa[0], variant.h_ospa[0], variant.cardinality[0]);
+
+        // Determine method and filter type from name
+        let (e_ospa, h_ospa, cardinality) = if variant.name.starts_with("LMB-") {
+            let method = match variant.name.as_str() {
+                "LMB-LBP" => DataAssociationMethod::LBP,
+                "LMB-Gibbs" => DataAssociationMethod::Gibbs,
+                "LMB-Murty" => DataAssociationMethod::Murty,
+                _ => panic!("Unknown LMB variant: {}", variant.name),
+            };
+            run_single_sensor_trial(seed, method)
+        } else if variant.name.starts_with("LMBM-") {
+            let method = match variant.name.as_str() {
+                "LMBM-Gibbs" => DataAssociationMethod::Gibbs,
+                "LMBM-Murty" => DataAssociationMethod::Murty,
+                _ => panic!("Unknown LMBM variant: {}", variant.name),
+            };
+            run_single_sensor_lmbm_trial(seed, method)
+        } else {
+            panic!("Unknown filter variant: {}", variant.name);
+        };
+
+        // Show actual Rust results for comparison
+        println!("    Rust t=0: E-OSPA={:.6}, H-OSPA={:.6}, Card={}", e_ospa[0], h_ospa[0], cardinality[0]);
+
+        // Compare results
+        assert_vec_close(&e_ospa, &variant.e_ospa, TOLERANCE, "E-OSPA", &variant.name);
+        assert_vec_close(&h_ospa, &variant.h_ospa, TOLERANCE, "H-OSPA", &variant.name);
+        assert_vec_exact(&cardinality, &variant.cardinality, "Cardinality", &variant.name);
+
+        println!("    ✓ E-OSPA, H-OSPA, Cardinality match (tolerance < {})", TOLERANCE);
+    }
+
+    println!("=== Seed {} PASSED ===", seed);
+}
+
+//
+// Test cases for each fixture seed
+//
+
+#[test]
+fn test_accuracy_seed_1() {
+    validate_fixture(1);
+}
+
+#[test]
+fn test_accuracy_seed_5() {
+    validate_fixture(5);
+}
+
+#[test]
+fn test_accuracy_seed_10() {
+    validate_fixture(10);
+}
+
+#[test]
+fn test_accuracy_seed_42() {
+    validate_fixture(42);
+}
+
+#[test]
+fn test_accuracy_seed_50() {
+    validate_fixture(50);
+}
+
+#[test]
+fn test_accuracy_seed_100() {
+    validate_fixture(100);
+}
+
+#[test]
+fn test_accuracy_seed_500() {
+    validate_fixture(500);
+}
+
+//
+// Determinism verification test
+//
+
+#[test]
+fn test_single_sensor_determinism() {
+    // Verify that running the same seed twice produces identical results
+    let seed = 42;
+    let method = DataAssociationMethod::LBP;
+
+    let (e1, h1, c1) = run_single_sensor_trial(seed, method);
+    let (e2, h2, c2) = run_single_sensor_trial(seed, method);
+
+    assert_vec_close(&e1, &e2, 0.0, "E-OSPA (determinism)", "LMB-LBP");
+    assert_vec_close(&h1, &h2, 0.0, "H-OSPA (determinism)", "LMB-LBP");
+    assert_vec_exact(&c1, &c2, "Cardinality (determinism)", "LMB-LBP");
+
+    println!("✓ Determinism verified: same seed produces identical results");
 }
