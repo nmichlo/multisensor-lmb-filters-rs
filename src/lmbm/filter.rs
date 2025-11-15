@@ -31,6 +31,7 @@ pub struct LmbmStateEstimates {
 /// Determines the objects' state estimates using the LMBM filter.
 ///
 /// # Arguments
+/// * `rng` - Random number generator
 /// * `model` - Model parameters
 /// * `measurements` - Measurements for each time-step
 ///
@@ -47,7 +48,11 @@ pub struct LmbmStateEstimates {
 /// 3. Gate trajectories by existence probability
 /// 4. State extraction using heuristic MAP
 /// 5. Update trajectories
-pub fn run_lmbm_filter(model: &Model, measurements: &[Vec<DVector<f64>>]) -> LmbmStateEstimates {
+pub fn run_lmbm_filter(
+    rng: &mut impl crate::common::rng::Rng,
+    model: &Model,
+    measurements: &[Vec<DVector<f64>>],
+) -> LmbmStateEstimates {
     let simulation_length = measurements.len();
 
     // Initialize
@@ -93,6 +98,7 @@ pub fn run_lmbm_filter(model: &Model, measurements: &[Vec<DVector<f64>>]) -> Lmb
                     _ => {
                         // Gibbs, LBP, LBPFixed all use Gibbs sampling for LMBM
                         lmbm_gibbs_sampling(
+                            rng,
                             &association_result.association_matrices.p,
                             &association_result.association_matrices.c,
                             model.number_of_samples,

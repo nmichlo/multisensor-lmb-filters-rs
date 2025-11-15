@@ -58,6 +58,7 @@ pub struct MultisensorLmbmStateEstimates {
 ///    - Extract MAP state estimate
 ///    - Update trajectories
 pub fn run_multisensor_lmbm_filter(
+    rng: &mut impl crate::common::rng::Rng,
     model: &Model,
     measurements: &[Vec<Vec<DVector<f64>>>], // [sensor][time][measurements]
     number_of_sensors: usize,
@@ -120,7 +121,7 @@ pub fn run_multisensor_lmbm_filter(
                     );
 
                 // Generate posterior hypotheses using Gibbs sampling
-                let a = multisensor_lmbm_gibbs_sampling(&l, &dimensions, model.number_of_samples);
+                let a = multisensor_lmbm_gibbs_sampling(rng, &l, &dimensions, model.number_of_samples);
 
                 // Determine each posterior hypothesis' parameters
                 let new_hypotheses = determine_multisensor_posterior_hypothesis_parameters(

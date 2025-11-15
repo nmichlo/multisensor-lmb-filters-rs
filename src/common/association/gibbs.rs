@@ -5,7 +5,6 @@
 //! and lmbGibbsSampling.m exactly.
 
 use nalgebra::{DMatrix, DVector};
-use rand::Rng;
 use std::collections::HashMap;
 
 /// Gibbs sampling result

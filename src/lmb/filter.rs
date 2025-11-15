@@ -43,7 +43,11 @@ pub struct LmbStateEstimates {
 /// 3. Gate tracks by existence probability
 /// 4. MAP cardinality extraction
 /// 5. Update trajectories
-pub fn run_lmb_filter(model: &Model, measurements: &[Vec<DVector<f64>>]) -> LmbStateEstimates {
+pub fn run_lmb_filter(
+    rng: &mut impl crate::common::rng::Rng,
+    model: &Model,
+    measurements: &[Vec<DVector<f64>>],
+) -> LmbStateEstimates {
     let simulation_length = measurements.len();
 
     // Initialize
@@ -73,7 +77,7 @@ pub fn run_lmb_filter(model: &Model, measurements: &[Vec<DVector<f64>>]) -> LmbS
                     lmb_lbp_fixed(&association_result, model.maximum_number_of_lbp_iterations)
                 }
                 DataAssociationMethod::Gibbs => {
-                    lmb_gibbs(&association_result, model.number_of_samples)
+                    lmb_gibbs(rng, &association_result, model.number_of_samples)
                 }
                 DataAssociationMethod::Murty => {
                     let (r, w, _v) = lmb_murtys(&association_result, model.number_of_assignments);

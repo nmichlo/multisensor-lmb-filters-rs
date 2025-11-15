@@ -38,6 +38,7 @@ use nalgebra::{DMatrix, DVector};
 ///
 /// Key difference from PU-LMB: Sequential updates instead of parallel + fusion
 pub fn run_ic_lmb_filter(
+    rng: &mut impl crate::common::rng::Rng,
     model: &Model,
     measurements: &[Vec<Vec<DVector<f64>>>], // [sensor][time][measurements]
     number_of_sensors: usize,
@@ -85,7 +86,7 @@ pub fn run_ic_lmb_filter(
                             r: association_matrices.gibbs_r.clone(),
                             c: association_matrices.cost.clone(),
                         };
-                        let result = lmb_gibbs_sampling(&gibbs_matrices, model.number_of_samples);
+                        let result = lmb_gibbs_sampling(rng, &gibbs_matrices, model.number_of_samples);
                         (result.r.as_slice().to_vec(), result.w)
                     }
                     DataAssociationMethod::Murty => {

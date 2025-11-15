@@ -4,7 +4,6 @@
 //! Matches MATLAB multisensorLmbmGibbsSampling.m and generateMultisensorAssociationEvent.m exactly.
 
 use nalgebra::DMatrix;
-use rand::Rng;
 use std::collections::HashSet;
 
 /// Generate association events using multi-sensor Gibbs sampler

@@ -5,7 +5,6 @@
 use crate::common::types::*;
 use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
 use nalgebra::{DMatrix, DVector};
-use rand::Rng;
 
 /// Generate a tracking model
 ///

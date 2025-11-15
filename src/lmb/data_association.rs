@@ -48,16 +48,18 @@ pub fn lmb_lbp_fixed(
 /// Compute marginals using Gibbs sampling
 ///
 /// # Arguments
+/// * `rng` - Random number generator
 /// * `association_result` - Association matrices and posterior parameters
 /// * `num_samples` - Number of Gibbs samples
 ///
 /// # Returns
 /// Tuple of (r, W)
 pub fn lmb_gibbs(
+    rng: &mut impl crate::common::rng::Rng,
     association_result: &LmbAssociationResult,
     num_samples: usize,
 ) -> (DVector<f64>, DMatrix<f64>) {
-    let result = lmb_gibbs_sampling(&association_result.gibbs, num_samples);
+    let result = lmb_gibbs_sampling(rng, &association_result.gibbs, num_samples);
     (result.r, result.w)
 }
 
