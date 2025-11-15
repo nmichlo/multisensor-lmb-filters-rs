@@ -4,6 +4,8 @@
 
 **Ground Truth**: MATLAB code is the authoritative reference. Rust must contain NOTHING more and NOTHING less.
 
+**Testing Strategy**: Implement `SimpleRng` (Xorshift64) in both MATLAB and Rust to enable **100% deterministic testing** - eliminates all statistical validation and enables exact numerical equivalence verification.
+
 ---
 
 ## Repository Overview
@@ -109,9 +111,174 @@
 
 ## Migration Plan - Step by Step
 
+### Phase 0: Deterministic RNG Implementation (FOUNDATION)
+
+**Priority: CRITICAL | Effort: LOW | RNG: N/A**
+
+**Goal**: Implement identical, minimal PRNG in both MATLAB and Rust to enable 100% deterministic testing without statistical validation.
+
+#### Task 0.1: Implement SimpleRng in MATLAB
+
+**Create**: `../multisensor-lmb-filters/common/SimpleRng.m` (~50 lines)
+
+- [ ] Implement Xorshift64 PRNG as MATLAB class
+- [ ] Methods: `rand()`, `randn()`, `poissrnd(lambda)`
+- [ ] Constructor takes seed (uint64)
+- [ ] Avoid zero state (use 1 if seed=0)
+
+**Implementation**:
+```matlab
+classdef SimpleRng
+    properties
+        state  % uint64
+    end
+    methods
+        function obj = SimpleRng(seed)
+            obj.state = uint64(seed);
+            if obj.state == 0
+                obj.state = uint64(1);
+            end
+        end
+
+        function [obj, val] = next_u64(obj)
+            x = obj.state;
+            x = bitxor(x, bitshift(x, 13));
+            x = bitxor(x, bitshift(x, -7));
+            x = bitxor(x, bitshift(x, 17));
+            obj.state = x;
+            val = x;
+        end
+
+        function [obj, val] = rand(obj)
+            [obj, u] = obj.next_u64();
+            val = double(u) / (2^64);
+        end
+
+        function [obj, val] = randn(obj)
+            % Box-Muller transform
+            [obj, u1] = obj.rand();
+            [obj, u2] = obj.rand();
+            val = sqrt(-2*log(u1)) * cos(2*pi*u2);
+        end
+
+        function [obj, val] = poissrnd(obj, lambda)
+            % Knuth algorithm
+            L = exp(-lambda);
+            k = 0;
+            p = 1.0;
+            while true
+                [obj, u] = obj.rand();
+                p = p * u;
+                if p <= L
+                    break;
+                end
+                k = k + 1;
+            end
+            val = k;
+        end
+    end
+end
+```
+
+#### Task 0.2: Implement SimpleRng in Rust
+
+**Create**: `src/common/rng.rs` (~80 lines)
+
+- [ ] Implement `Rng` trait with `rand()`, `randn()`, `poissrnd()`
+- [ ] Implement `SimpleRng` struct with Xorshift64
+- [ ] Match MATLAB implementation exactly
+- [ ] Allow trait swapping for future improvements
+
+**Implementation**:
+```rust
+pub trait Rng {
+    fn next_u64(&mut self) -> u64;
+
+    fn rand(&mut self) -> f64 {
+        self.next_u64() as f64 / (u64::MAX as f64 + 1.0)
+    }
+
+    fn randn(&mut self) -> f64 {
+        let u1 = self.rand();
+        let u2 = self.rand();
+        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+    }
+
+    fn poissrnd(&mut self, lambda: f64) -> usize {
+        let l = (-lambda).exp();
+        let mut k = 0;
+        let mut p = 1.0;
+        loop {
+            p *= self.rand();
+            if p <= l { break; }
+            k += 1;
+        }
+        k
+    }
+}
+
+pub struct SimpleRng {
+    state: u64,
+}
+
+impl SimpleRng {
+    pub fn new(seed: u64) -> Self {
+        Self { state: if seed == 0 { 1 } else { seed } }
+    }
+}
+
+impl Rng for SimpleRng {
+    fn next_u64(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+}
+```
+
+#### Task 0.3: Cross-language validation
+
+**Create**: `tests/test_rng_equivalence.rs` (Rust) and `testSimpleRng.m` (MATLAB)
+
+- [ ] Generate first 10,000 values from `SimpleRng(42)` in both languages
+- [ ] Assert bit-for-bit identical output for `rand()`
+- [ ] Assert identical output for `randn()` (within 1e-15)
+- [ ] Assert identical output for `poissrnd(5.0)` (exact integer match)
+- [ ] Test with seeds: 0, 1, 42, 12345, 2^32-1, 2^63-1
+
+#### Task 0.4: Replace RNG calls in MATLAB codebase
+
+- [ ] Update `generateGroundTruth.m` to accept `rng` parameter
+- [ ] Update `generateMultisensorGroundTruth.m` to accept `rng` parameter
+- [ ] Update `generateModel.m` to accept `rng` parameter
+- [ ] Update `generateMultisensorModel.m` to accept `rng` parameter
+- [ ] Update `generateGibbsSample.m` to accept `rng` parameter
+- [ ] Update `generateMultisensorAssociationEvent.m` to accept `rng` parameter
+- [ ] Update test/trial scripts to use `SimpleRng(seed)`
+
+#### Task 0.5: Replace RNG calls in Rust codebase
+
+- [ ] Replace `thread_rng()` calls with `rng: &mut impl Rng` parameter
+- [ ] Update `generate_ground_truth()` signature
+- [ ] Update `generate_model()` signature
+- [ ] Update `generate_gibbs_sample()` signature
+- [ ] Update all call sites to pass `rng` parameter
+
+**Rationale**:
+- **Xorshift64** is trivial (~5 lines of bit ops), fast, and well-understood
+- **100% deterministic** - eliminates ALL statistical validation needs
+- **Easy to verify** - can test cross-language equivalence directly
+- **Trait-based in Rust** - allows drop-in replacement with better RNGs later
+- **Enables fixture generation** - MATLAB with seed 42 = Rust with seed 42
+
+---
+
 ### Phase 1: Cleanup (REMOVE)
 
-**Priority: HIGH | Effort: LOW | RNG: No**
+**Priority: HIGH | Effort: LOW | Deterministic: Yes**
 
 #### Task 1.1: Remove empty stub files
 - [ ] Delete `src/lmb/gibbs_sampling.rs` (2 lines)
@@ -126,7 +293,7 @@
 
 ### Phase 2: Missing Algorithm Implementation (ADD)
 
-**Priority: HIGH | Effort: MEDIUM | RNG: Yes (inherently stochastic)**
+**Priority: HIGH | Effort: MEDIUM | Deterministic: Yes (with SimpleRng)**
 
 #### Task 2.1: Implement frequency-based Gibbs sampling
 
@@ -137,8 +304,8 @@
 - [ ] Add `lmb_gibbs_frequency_sampling()` to `src/common/association/gibbs.rs`
 - [ ] Key difference: Uses tally approach instead of unique() deduplication
 - [ ] Lines 34-37: `ell = n * v + eta; Sigma(ell) = Sigma(ell) + (1 / numberOfSamples)`
-- [ ] Cannot be deterministically tested due to RNG
-- [ ] Add unit tests with approximate validation
+- [ ] Accept `rng: &mut impl Rng` parameter
+- [ ] Create deterministic unit tests with `SimpleRng(42)`
 
 **Implementation Notes**:
 ```matlab
@@ -146,7 +313,7 @@
 for i = 1:numberOfSamples
     ell = n * v + eta;  % Compute linear index
     Sigma(ell) = Sigma(ell) + (1 / numberOfSamples);  % Tally frequencies
-    [v, w] = generateGibbsSample(associationMatrices.P, v, w);
+    [rng, v, w] = generateGibbsSample(rng, associationMatrices.P, v, w);
 end
 ```
 
@@ -154,7 +321,7 @@ Current Rust approach (unique samples):
 ```rust
 // Rust approach (unique deduplication):
 for _ in 0..num_samples {
-    (v, w) = generate_gibbs_sample(&matrices.p, v, w);
+    (v, w) = generate_gibbs_sample(rng, &matrices.p, v, w);
     v_samples_vec.push(v.clone());
 }
 // Find unique samples
@@ -162,15 +329,16 @@ let mut unique_samples: HashMap<Vec<usize>, usize> = HashMap::new();
 ```
 
 **Testing Strategy**:
-- ⚠️ Cannot create deterministic fixtures (RNG-dependent)
-- Use large sample counts and statistical validation
-- Compare frequency vs unique approaches with tolerance
+- ✅ **NOW DETERMINISTIC** with `SimpleRng`
+- Generate MATLAB fixture with `SimpleRng(42)`
+- Compare Rust output with same seed
+- Assert exact numerical equivalence (within 1e-10)
 
 ---
 
 ### Phase 3: Examples (ADD)
 
-**Priority: MEDIUM | Effort: MEDIUM | RNG: Yes (ground truth generation)**
+**Priority: MEDIUM | Effort: MEDIUM | Deterministic: Yes (with SimpleRng)**
 
 #### Task 3.1: Create single-sensor example
 
@@ -178,29 +346,32 @@ let mut unique_samples: HashMap<Vec<usize>, usize> = HashMap::new();
 
 - [ ] Create `examples/single_sensor_lmb.rs`
 - [ ] Port lines 1-19 of `runFilters.m`
-- [ ] Generate model with `generate_model(10, 0.95, 'LBP', 'Fixed')`
+- [ ] Use `SimpleRng::new(42)` for deterministic runs
+- [ ] Generate model with `generate_model(rng, 10, 0.95, 'LBP', 'Fixed')`
 - [ ] Generate ground truth and measurements
 - [ ] Run LMB or LMBM filter based on flag
 - [ ] Output results to console (skip plotting)
-- [ ] Add CLI argument for LMB vs LMBM selection
+- [ ] Add CLI argument for LMB vs LMBM selection and seed
 
 **Implementation**:
 ```rust
 // examples/single_sensor_lmb.rs
+use prak::common::rng::SimpleRng;
 use prak::common::model::generate_model;
 use prak::common::ground_truth::generate_ground_truth;
 use prak::lmb::filter::run_lmb_filter;
 use prak::lmbm::filter::run_lmbm_filter;
 
 fn main() {
+    let mut rng = SimpleRng::new(42);
     // Port runFilters.m logic here
 }
 ```
 
 **Testing Strategy**:
-- ⚠️ Ground truth generation uses RNG
-- Use seeded RNG for deterministic output
-- Create fixture with known seed for regression testing
+- ✅ **100% deterministic** with `SimpleRng(42)`
+- Output matches MATLAB with same seed exactly
+- Can create regression tests with known seed outputs
 
 #### Task 3.2: Create multi-sensor example
 
@@ -208,18 +379,19 @@ fn main() {
 
 - [ ] Create `examples/multi_sensor.rs`
 - [ ] Port lines 1-29 of `runMultisensorFilters.m`
+- [ ] Use `SimpleRng::new(seed)` for deterministic runs
 - [ ] Support filter type selection: 'IC', 'PU', 'LMBM'
 - [ ] Generate multi-sensor model with 3 sensors
 - [ ] Run selected filter
 - [ ] Output results to console
 
-**Testing Strategy**: Same as Task 3.1
+**Testing Strategy**: ✅ Same as Task 3.1 - fully deterministic
 
 ---
 
 ### Phase 4: Integration Tests (ADD)
 
-**Priority: MEDIUM | Effort: HIGH | RNG: Partial**
+**Priority: MEDIUM | Effort: HIGH | Deterministic: Yes (with SimpleRng)**
 
 #### Task 4.1: LBP vs Murty's validation test
 
@@ -229,6 +401,7 @@ fn main() {
 
 - [ ] Create `tests/marginal_evaluations.rs`
 - [ ] Port the core validation logic (lines 30-68)
+- [ ] Use `SimpleRng(seed)` for deterministic model generation
 - [ ] Generate association matrices for n=1..7 objects
 - [ ] Run LBP to get approximate marginals
 - [ ] Run Murty's to exhaustively compute exact marginals
@@ -238,7 +411,8 @@ fn main() {
 **Implementation Notes**:
 ```matlab
 % Key MATLAB logic:
-associationMatrices = generateAssociationMatrices(model);
+rng = SimpleRng(42);
+[rng, associationMatrices] = generateAssociationMatrices(rng, model);
 [rLbp, WLbp] = loopyBeliefPropagation(associationMatrices, ...);
 [~, ~, V] = lmbMurtysAlgorithm(associationMatrices, numberOfEvents);
 % Compute exact marginals from V
@@ -248,9 +422,9 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 ```
 
 **Testing Strategy**:
-- ⚠️ Partially RNG-dependent (model generation)
-- Can compare LBP vs Murty deterministically for same input
-- Use fixed scenarios for regression testing
+- ✅ **100% deterministic** with `SimpleRng(42)`
+- Generate MATLAB fixtures with known seeds
+- Rust tests use same seeds for exact comparison
 - Helper functions needed:
   - [ ] `calculate_number_of_association_events()`
   - [ ] `average_kullback_leibler_divergence()`
@@ -265,14 +439,16 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 - [ ] Create `tests/accuracy_trials.rs`
 - [ ] Port single-sensor accuracy trial
 - [ ] Port multi-sensor accuracy trial
-- [ ] Run filters over multiple scenarios
+- [ ] Use `SimpleRng(seed)` for each trial
+- [ ] Run filters over multiple scenarios (100 trials, different seeds)
 - [ ] Compute OSPA metrics
-- [ ] Assert mean OSPA within bounds
+- [ ] Assert EXACT match with MATLAB for each seed
 
 **Testing Strategy**:
-- ⚠️ Heavily RNG-dependent (ground truth + clutter)
-- Need pre-generated MATLAB fixtures OR
-- Statistical validation over many runs with tolerance
+- ✅ **100% deterministic** - each trial uses fixed seed
+- Generate MATLAB baseline with seeds 1..100
+- Rust must match exactly for each seed
+- No statistical validation needed
 
 #### Task 4.3: Clutter sensitivity tests
 
@@ -282,10 +458,11 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 
 - [ ] Create `tests/clutter_trials.rs`
 - [ ] Vary clutter rates: 0, 5, 10, 15, 20, 25
+- [ ] Use `SimpleRng(42)` for deterministic clutter generation
 - [ ] Measure filter performance degradation
-- [ ] Assert OSPA increases monotonically with clutter
+- [ ] Assert EXACT match with MATLAB output
 
-**Testing Strategy**: Same as Task 4.2
+**Testing Strategy**: ✅ Same as Task 4.2 - fully deterministic
 
 #### Task 4.4: Detection probability tests
 
@@ -295,16 +472,17 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 
 - [ ] Create `tests/detection_trials.rs`
 - [ ] Vary detection probability: 0.2 to 1.0
+- [ ] Use `SimpleRng(42)` for deterministic detection simulation
 - [ ] Measure filter performance improvement
-- [ ] Assert OSPA decreases with higher detection probability
+- [ ] Assert EXACT match with MATLAB output
 
-**Testing Strategy**: Same as Task 4.2
+**Testing Strategy**: ✅ Same as Task 4.2 - fully deterministic
 
 ---
 
 ### Phase 5: Detailed Verification (FIX/VERIFY)
 
-**Priority: CRITICAL | Effort: VERY HIGH | RNG: Mixed**
+**Priority: CRITICAL | Effort: VERY HIGH | Deterministic: Yes**
 
 #### Task 5.1: File-by-file logic comparison
 
@@ -363,15 +541,15 @@ For EACH of the 40+ corresponding MATLAB/Rust file pairs, perform detailed compa
 
 #### Task 5.2: Numerical equivalence testing
 
-**Strategy**: Generate fixtures from MATLAB with known RNG seeds, then verify Rust produces identical output.
+**Strategy**: Generate fixtures from MATLAB with `SimpleRng` seeds, then verify Rust produces **100% identical** output.
 
 - [ ] Create MATLAB fixture generator script
-- [ ] Use `rng(42, 'twister')` for deterministic seeding
+- [ ] Use `SimpleRng(seed)` for deterministic seeding (seeds: 1, 42, 100, 1000, 12345)
 - [ ] Generate ground truth scenarios (5-10 different seeds)
 - [ ] Save to JSON/CSV fixtures
 - [ ] Create Rust fixture loader
-- [ ] Run Rust filters on same inputs
-- [ ] Assert numerical equivalence within tolerance (1e-10 for floats)
+- [ ] Run Rust filters with same `SimpleRng(seed)`
+- [ ] Assert **exact numerical equivalence** (within 1e-15 for float ops, exact for RNG-dependent logic)
 
 **Fixture Coverage**:
 - [ ] Single-sensor LMB with LBP
@@ -396,58 +574,77 @@ For EACH of the 40+ corresponding MATLAB/Rust file pairs, perform detailed compa
 
 ---
 
-## RNG Analysis - Testing Implications
+## RNG Strategy - 100% Deterministic Testing
 
 ### Files Using Random Number Generation
 
-**Ground Truth Generation (CRITICAL)**:
+All RNG calls will be replaced with `SimpleRng` for 100% determinism across MATLAB/Octave and Rust.
+
+**Ground Truth Generation**:
 1. `generateGroundTruth.m` (111 lines)
-   - Line 57: `randn(numberOfObjects, 2)` - Initial velocities
-   - Line 71: `rand(model.zDimension, 1)` - Clutter measurements
-   - Line 98: `randn(1, model.zDimension)` - Measurement noise
+   - Line 57: `[rng, vals] = rng.randn(...)` - Initial velocities
+   - Line 71: `[rng, vals] = rng.rand(...)` - Clutter measurements
+   - Line 98: `[rng, vals] = rng.randn(...)` - Measurement noise
 
 2. `generateMultisensorGroundTruth.m` (130 lines)
-   - Line 57: `randn(numberOfObjects, 2)` - Initial velocities
-   - Line 72: `rand(model.zDimension, 1)` - Clutter measurements
-   - Line 98: `rand(model.numberOfSensors, 1)` - Detection success
-   - Line 108: `randn(1, model.zDimension)` - Measurement noise
+   - Line 57: `[rng, vals] = rng.randn(...)` - Initial velocities
+   - Line 72: `[rng, vals] = rng.rand(...)` - Clutter measurements
+   - Line 98: `[rng, vals] = rng.rand(...)` - Detection success
+   - Line 108: `[rng, vals] = rng.randn(...)` - Measurement noise
 
 **Model Generation**:
 3. `generateModel.m` (182 lines)
-   - Line 93: `rand(model.zDimension, numberOfBirthLocations)` - Birth locations
+   - Line 93: `[rng, vals] = rng.rand(...)` - Birth locations
 
 4. `generateMultisensorModel.m` (194 lines)
-   - Line 103: `rand(model.zDimension, numberOfBirthLocations)` - Birth locations
+   - Line 103: `[rng, vals] = rng.rand(...)` - Birth locations
 
-**Data Association (STOCHASTIC)**:
+**Data Association (NOW DETERMINISTIC)**:
 5. `generateGibbsSample.m` (42 lines)
-   - Line 30: `rand() < P(i, j)` - Sampling decisions
+   - Line 30: `[rng, u] = rng.rand(); if u < P(i, j)` - Sampling decisions
 
 6. `generateMultisensorAssociationEvent.m` (49 lines)
-   - Line 27: `rand() < P` - Association sampling
+   - Line 27: `[rng, u] = rng.rand(); if u < P` - Association sampling
 
-### RNG Mitigation Strategies
+### SimpleRng Implementation
 
-#### ✅ Already Implemented
-- Rust uses custom Octave-compatible MT19937 RNG
-- Ground truth generation can be seeded identically to MATLAB
-- Produces 100% identical sequences when seeded the same
+**Algorithm**: Xorshift64 - minimal, fast, cross-language compatible
 
-#### ⚠️ Testing Limitations
-1. **Cannot test Gibbs sampling deterministically**
-   - Inherently stochastic algorithm
-   - Use large sample counts (1000+) for convergence
-   - Compare against Murty's (exact) with tolerance
+**Key Properties**:
+- **Simplicity**: ~5 lines of bit operations
+- **Speed**: No lookup tables, no heavy math
+- **Determinism**: Identical output for same seed across languages
+- **Quality**: Passes basic randomness tests (sufficient for testing)
 
-2. **Examples require fixtures**
-   - Generate MATLAB output with known seeds
-   - Use as regression test baselines
-   - Update fixtures when algorithms change
+**Cross-Language Compatibility**:
+```matlab
+% MATLAB/Octave
+rng = SimpleRng(42);
+[rng, val] = rng.rand();  % Returns: 0.123456789...
+```
 
-3. **Trial scripts need statistical validation**
-   - Run 100+ trials per configuration
-   - Compare mean/variance of OSPA metrics
-   - Use t-test or similar for equivalence testing
+```rust
+// Rust
+let mut rng = SimpleRng::new(42);
+let val = rng.rand();  // Returns: 0.123456789... (EXACT SAME)
+```
+
+### Testing Strategy - Zero Statistical Validation
+
+✅ **ALL tests are now deterministic**:
+
+1. **Unit tests**: Use `SimpleRng(42)` for reproducible scenarios
+2. **Integration tests**: MATLAB fixtures with `SimpleRng(seed)` → Rust with same seed → exact match
+3. **Trial scripts**: Each trial uses fixed seed → 100% reproducible
+4. **Gibbs sampling**: No longer stochastic in testing - same seed = same samples
+5. **Examples**: Deterministic output for documentation/validation
+
+**Migration Benefits**:
+- ❌ **Eliminate** statistical validation complexity
+- ❌ **Eliminate** tolerance-based testing for RNG-dependent code
+- ✅ **Enable** exact numerical equivalence testing
+- ✅ **Enable** bit-for-bit regression tests
+- ✅ **Simplify** debugging (reproducible failures)
 
 ---
 
@@ -610,14 +807,17 @@ For EACH of the 40+ corresponding MATLAB/Rust file pairs, perform detailed compa
 
 ### 5. RNG Compatibility Critical
 **Issue**: Ground truth generation MUST produce identical results
-**Status**: ✅ Octave-compatible MT19937 already implemented
-**Action**: VERIFY with fixture tests in Phase 5
+**Status**: ⚠️ Will be replaced with SimpleRng in Phase 0
+**Action**: IMPLEMENT SimpleRng for 100% cross-language determinism
 
 ---
 
 ## Testing Strategy Summary
 
-### Deterministic Tests (Can achieve 100% equivalence)
+### ALL Tests Are Deterministic (100% Equivalence)
+
+With `SimpleRng`, **every test** achieves exact numerical equivalence:
+
 1. **Pure algorithms** (no RNG):
    - Hungarian assignment
    - Loopy Belief Propagation (given fixed input)
@@ -625,32 +825,41 @@ For EACH of the 40+ corresponding MATLAB/Rust file pairs, perform detailed compa
    - Kalman filter operations
    - OSPA metrics
 
-2. **Fixed scenario tests**:
-   - Pre-generate ground truth with known MATLAB seed
-   - Save to fixtures
-   - Run Rust with same fixtures
-   - Assert bit-for-bit equivalence (within float tolerance)
+2. **RNG-dependent algorithms** (NOW deterministic with SimpleRng):
+   - Ground truth generation
+   - Clutter generation
+   - Detection simulation
+   - Gibbs sampling
+   - All trial scripts
 
-### Statistical Tests (Approximate equivalence)
-1. **Gibbs sampling**:
-   - Run with large sample count (1000+)
-   - Compare marginals vs Murty's (exact)
-   - Assert KL divergence < threshold (from MATLAB evaluation)
+3. **Testing approach**:
+   - MATLAB: Use `rng = SimpleRng(seed)` for all random operations
+   - Rust: Use `rng = SimpleRng::new(seed)` with same seed
+   - Assert: Exact match (within float precision 1e-15)
 
-2. **Trial scripts**:
-   - Run 100+ Monte Carlo trials
-   - Compare mean OSPA metrics
-   - Use statistical tests (t-test) for equivalence
+### Fixture-Based Testing
+1. **Generation**: Run MATLAB with `SimpleRng(seed)` → save outputs to JSON/CSV
+2. **Validation**: Run Rust with `SimpleRng::new(seed)` → compare against fixtures
+3. **Regression**: Fixtures are **reproducible** - can regenerate when algorithm changes
+4. **Debugging**: Failed test? Re-run with same seed → identical failure mode
 
-### Regression Tests
-1. **Fixture-based**:
-   - Golden outputs from MATLAB
-   - Verify Rust matches on update
-   - Update fixtures when algorithms intentionally change
+### No Statistical Validation Required
+- ❌ No Monte Carlo averaging
+- ❌ No tolerance thresholds for stochastic tests
+- ❌ No t-tests or convergence checks
+- ✅ Simple: `assert_eq!(matlab_output, rust_output)` for ALL tests
 
 ---
 
 ## Completion Criteria
+
+### Phase 0: RNG Foundation
+- [ ] `SimpleRng` class implemented in MATLAB
+- [ ] `SimpleRng` struct + `Rng` trait implemented in Rust
+- [ ] Cross-language equivalence test passes (10,000 values, exact match)
+- [ ] All MATLAB functions accept `rng` parameter
+- [ ] All Rust functions accept `rng: &mut impl Rng` parameter
+- [ ] Validation: `SimpleRng(42)` produces identical sequences
 
 ### Phase 1: Cleanup
 - [ ] All 4 stub files deleted
@@ -660,34 +869,35 @@ For EACH of the 40+ corresponding MATLAB/Rust file pairs, perform detailed compa
 ### Phase 2: Missing Algorithm
 - [ ] `lmb_gibbs_frequency_sampling()` implemented
 - [ ] Matches MATLAB `lmbGibbsFrequencySampling.m` logic
-- [ ] Unit tests pass (with tolerance for RNG)
+- [ ] Deterministic tests pass with `SimpleRng(42)`
 - [ ] Documentation added
 
 ### Phase 3: Examples
 - [ ] `examples/single_sensor.rs` runs successfully
 - [ ] `examples/multi_sensor.rs` runs successfully
 - [ ] README updated with usage instructions
-- [ ] Example output matches MATLAB (with seeded RNG)
+- [ ] Example output matches MATLAB **exactly** (same seed)
 
 ### Phase 4: Integration Tests
 - [ ] `tests/marginal_evaluations.rs` validates LBP vs Murty's
 - [ ] `tests/accuracy_trials.rs` runs and passes
 - [ ] `tests/clutter_trials.rs` runs and passes
 - [ ] `tests/detection_trials.rs` runs and passes
-- [ ] All trial metrics within expected bounds
+- [ ] All trials match MATLAB **exactly** (same seeds)
 
 ### Phase 5: Verification
 - [ ] All 40+ file pairs compared line-by-line
-- [ ] Numerical fixtures generated from MATLAB
-- [ ] All fixtures pass with <1e-10 error
+- [ ] Numerical fixtures generated from MATLAB with `SimpleRng`
+- [ ] All fixtures pass with **exact match** (<1e-15 tolerance)
 - [ ] Cross-algorithm validation complete
 - [ ] Documentation updated with differences/limitations
 
 ### Final Deliverable
 - [ ] 100% MATLAB functionality ported (excluding visualization)
-- [ ] All core algorithms numerically equivalent
+- [ ] All algorithms **numerically equivalent** (deterministic testing)
 - [ ] Comprehensive test coverage (unit + integration)
 - [ ] Examples demonstrate usage
+- [ ] **Zero statistical validation** - all tests deterministic
 - [ ] Migration complete ✅
 
 ---
@@ -851,10 +1061,18 @@ For EACH of the 40+ corresponding MATLAB/Rust file pairs, perform detailed compa
 
 ## Next Steps
 
-1. **Start with Phase 1** (cleanup) - Quick win, reduces confusion
-2. **Proceed to Phase 2** (missing algorithm) - Achieves feature parity
-3. **Phase 3** (examples) - Makes library usable
-4. **Phase 4** (integration tests) - Validates correctness
-5. **Phase 5** (detailed verification) - Ensures 100% equivalence
+1. **START WITH PHASE 0** (RNG foundation) - **CRITICAL FIRST STEP**
+   - Implement `SimpleRng` in both languages
+   - Validate cross-language equivalence
+   - Update all function signatures to accept RNG parameter
+   - **Enables 100% deterministic testing for all subsequent phases**
+
+2. **Phase 1** (cleanup) - Quick win, reduces confusion
+3. **Phase 2** (missing algorithm) - Achieves feature parity
+4. **Phase 3** (examples) - Makes library usable
+5. **Phase 4** (integration tests) - Validates correctness with deterministic fixtures
+6. **Phase 5** (detailed verification) - Ensures 100% numerical equivalence
 
 Each phase builds on the previous, ensuring incremental progress toward the goal of 100% MATLAB equivalence.
+
+**Phase 0 is the foundation** - without it, all RNG-dependent tests require statistical validation. With it, every test becomes deterministic.
