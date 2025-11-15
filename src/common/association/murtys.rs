@@ -165,7 +165,7 @@ fn murtys_algorithm(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
         assignments_list.push(entry.assignment.clone());
         costs_list.push(entry.cost);
 
-        let p_now = entry.problem;
+        let mut p_now = entry.problem;
         let s_now = entry.assignment;
 
         // Generate children
@@ -203,16 +203,16 @@ fn murtys_algorithm(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
                     });
                 }
 
-                // Enforce current assignment
-                let mut p_now_mut = p_now.clone();
-                let v_tmp = p_now_mut[(a, aj - 1)];
+                // Enforce current assignment (modifies P_now in place for next iteration)
+                // MATLAB: v_tmp = P_now(aw,aj); P_now(aw,:) = inf; P_now(:,aj) = inf; P_now(aw,aj) = v_tmp;
+                let v_tmp = p_now[(a, aj - 1)];
                 for col in 0..num_cols {
-                    p_now_mut[(a, col)] = f64::INFINITY;
+                    p_now[(a, col)] = f64::INFINITY;
                 }
                 for row in 0..num_rows {
-                    p_now_mut[(row, aj - 1)] = f64::INFINITY;
+                    p_now[(row, aj - 1)] = f64::INFINITY;
                 }
-                p_now_mut[(a, aj - 1)] = v_tmp;
+                p_now[(a, aj - 1)] = v_tmp;
             }
         }
     }

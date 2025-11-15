@@ -239,10 +239,7 @@ fn validate_fixture(seed: u64) {
             let method = match variant.name.as_str() {
                 "LMB-LBP" => DataAssociationMethod::LBP,
                 "LMB-Gibbs" => DataAssociationMethod::Gibbs,
-                "LMB-Murty" => {
-                    eprintln!("  SKIPPING LMB-Murty (known issue at t=25)");
-                    continue;  // Skip Murty for now
-                }
+                "LMB-Murty" => DataAssociationMethod::Murty,
                 _ => panic!("Unknown LMB variant: {}", variant.name),
             };
             run_single_sensor_trial(seed, method)
