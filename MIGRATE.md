@@ -298,21 +298,25 @@ impl Rng for SimpleRng {
 
 ---
 
-### Phase 2: Missing Algorithm Implementation (ADD)
+### Phase 2: Missing Algorithm Implementation (ADD) ✅ COMPLETE
 
 **Priority: HIGH | Effort: MEDIUM | Deterministic: Yes (with SimpleRng)**
 
-#### Task 2.1: Implement frequency-based Gibbs sampling
+**Status**: ✅ All tasks completed. Frequency-based Gibbs sampling implemented in both Octave and Rust.
+
+#### Task 2.1: Implement frequency-based Gibbs sampling ✅ COMPLETE
 
 **MATLAB Reference**: `lmbGibbsFrequencySampling.m` (47 lines)
 
 **Missing**: Alternative Gibbs implementation that counts sample frequencies instead of unique samples.
 
-- [ ] Add `lmb_gibbs_frequency_sampling()` to `src/common/association/gibbs.rs`
-- [ ] Key difference: Uses tally approach instead of unique() deduplication
-- [ ] Lines 34-37: `ell = n * v + eta; Sigma(ell) = Sigma(ell) + (1 / numberOfSamples)`
-- [ ] Accept `rng: &mut impl Rng` parameter
-- [ ] Create deterministic unit tests with `SimpleRng(42)`
+- [x] Add `lmb_gibbs_frequency_sampling()` to `src/common/association/gibbs.rs`
+- [x] Key difference: Uses tally approach instead of unique() deduplication
+- [x] Lines 34-37: `ell = n * v + eta; Sigma(ell) = Sigma(ell) + (1 / numberOfSamples)`
+- [x] Accept `rng: &mut impl Rng` parameter
+- [x] Create deterministic unit tests with `SimpleRng(42)`
+- [x] Update MATLAB `lmbGibbsFrequencySampling.m` to accept RNG parameter
+- [x] Update MATLAB `lmbGibbsSampling.m` to accept RNG parameter
 
 **Implementation Notes**:
 ```matlab

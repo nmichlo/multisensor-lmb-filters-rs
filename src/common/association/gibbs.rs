@@ -32,34 +32,35 @@ pub struct GibbsAssociationMatrices {
     pub c: DMatrix<f64>,
 }
 
-/// Initialize Gibbs association vectors using Hungarian/Murty's algorithm
+/// Initialize Gibbs association vectors using Murty's algorithm
 ///
 /// Finds the most likely assignment as the initial state for Gibbs sampling.
+/// Matches MATLAB initialiseGibbsAssociationVectors.m exactly.
 ///
 /// # Arguments
 /// * `c` - Cost matrix (n x m)
 ///
 /// # Returns
 /// Tuple of (v, w) association vectors
+///
+/// # Implementation Notes
+/// Matches MATLAB initialiseGibbsAssociationVectors.m line 24:
+/// v = murtysAlgorithmWrapper(C, 1)';
 pub fn initialize_gibbs_association_vectors(c: &DMatrix<f64>) -> (Vec<usize>, Vec<usize>) {
     let n = c.nrows();
     let m = c.ncols();
 
-    // Use Hungarian algorithm to find best assignment
-    let hungarian_result = super::hungarian::hungarian(c);
+    // Use Murty's algorithm to find best assignment (matching MATLAB)
+    let murtys_result = super::murtys::murtys_algorithm_wrapper(c, 1);
 
-    // Extract v from matching matrix
+    // Extract v from assignments (first and only assignment)
+    // In Rust, assignments is (k x n) matrix where k=1
     let mut v = vec![0; n];
-    for i in 0..n {
-        for j in 0..m {
-            if hungarian_result.matching[(i, j)] == 1.0 {
-                v[i] = j + 1; // 1-indexed (0 means not assigned)
-                break;
-            }
-        }
+    for j in 0..n {
+        v[j] = murtys_result.assignments[(0, j)];
     }
 
-    // Determine w from v
+    // Determine w from v (matching MATLAB lines 26-29)
     let mut w = vec![0; m];
     for (obj_idx, &meas_idx) in v.iter().enumerate() {
         if meas_idx > 0 {
@@ -217,12 +218,91 @@ pub fn lmb_gibbs_sampling(
     }
 }
 
+/// LMB Gibbs frequency sampling
+///
+/// Determines posterior existence probabilities and marginal association
+/// probabilities using Gibbs sampling with frequency counting.
+///
+/// This variant tallies all samples without deduplication, making it more
+/// efficient in languages with fast loops (like Rust).
+///
+/// # Arguments
+/// * `rng` - Random number generator
+/// * `matrices` - Gibbs association matrices (P, L, R, C)
+/// * `num_samples` - Number of Gibbs samples to generate
+///
+/// # Returns
+/// GibbsResult with existence probabilities and association weights
+///
+/// # Implementation Notes
+/// Matches MATLAB lmbGibbsFrequencySampling.m exactly:
+/// - Line 36-40: Tally frequencies instead of deduplicating samples
+/// - Line 42-46: Normalize and compute marginals
+pub fn lmb_gibbs_frequency_sampling(
+    rng: &mut impl crate::common::rng::Rng,
+    matrices: &GibbsAssociationMatrices,
+    num_samples: usize,
+) -> GibbsResult {
+    let n = matrices.p.nrows();
+    let m = matrices.p.ncols();
+
+    // Initialize association vectors
+    let (mut v, mut w) = initialize_gibbs_association_vectors(&matrices.c);
+
+    // Sigma = zeros(n, m+1) - tally matrix
+    let mut sigma = DMatrix::zeros(n, m + 1);
+
+    // Gibbs sampling with frequency counting
+    for _ in 0..num_samples {
+        // Add up tally: In MATLAB: ell = n * v + eta, then Sigma(ell) += 1/numSamples
+        // This linear indexing maps to: Sigma(i, v(i) + 1) in MATLAB (1-indexed)
+        // In Rust (0-indexed): sigma[(i, v[i])] where v[i] is 0-indexed (0=miss, 1+ means measurement)
+        for i in 0..n {
+            let meas_idx = v[i]; // 0 means not assigned, 1+ means measurement index
+            sigma[(i, meas_idx)] += 1.0 / (num_samples as f64);
+        }
+
+        // Generate new Gibbs sample
+        (v, w) = generate_gibbs_sample(rng, &matrices.p, v, w);
+    }
+
+    // Normalize: Tau = Sigma .* R
+    let tau = sigma.component_mul(&matrices.r);
+
+    // Existence probabilities: r = sum(Tau, 2)
+    let mut r = DVector::zeros(n);
+    for i in 0..n {
+        r[i] = tau.row(i).sum();
+    }
+
+    // Marginal association probabilities: W = Tau ./ r
+    let mut w_result = DMatrix::zeros(n, m + 1);
+    for i in 0..n {
+        if r[i] > 1e-15 {
+            for j in 0..(m + 1) {
+                w_result[(i, j)] = tau[(i, j)] / r[i];
+            }
+        }
+    }
+
+    // V samples not needed for frequency variant
+    let v_samples = DMatrix::zeros(0, n);
+
+    GibbsResult {
+        r,
+        w: w_result,
+        v_samples,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_gibbs_sampling_simple() {
+        use crate::common::rng::SimpleRng;
+
         // Simple 2 objects, 2 measurements
         let p = DMatrix::from_row_slice(2, 2, &[
             0.7, 0.3,
@@ -248,7 +328,8 @@ mod tests {
 
         let matrices = GibbsAssociationMatrices { p, l, r, c };
 
-        let result = lmb_gibbs_sampling(&matrices, 100);
+        let mut rng = SimpleRng::new(42);
+        let result = lmb_gibbs_sampling(&mut rng, &matrices, 100);
 
         // Verify shapes
         assert_eq!(result.r.len(), 2);
@@ -265,5 +346,120 @@ mod tests {
         for i in 0..2 {
             assert!(result.r[i] >= 0.0 && result.r[i] <= 1.0);
         }
+    }
+
+    #[test]
+    fn test_gibbs_frequency_sampling() {
+        use crate::common::rng::SimpleRng;
+
+        // Simple 2 objects, 2 measurements
+        let p = DMatrix::from_row_slice(2, 2, &[
+            0.7, 0.3,
+            0.4, 0.6,
+        ]);
+
+        // L = [eta, L1, L2]
+        let l = DMatrix::from_row_slice(2, 3, &[
+            0.05, 0.8, 0.15,
+            0.05, 0.3, 0.65,
+        ]);
+
+        // R = [phi/eta, 1, 1]
+        let r = DMatrix::from_row_slice(2, 3, &[
+            0.05, 1.0, 1.0,
+            0.05, 1.0, 1.0,
+        ]);
+
+        let c = DMatrix::from_row_slice(2, 2, &[
+            1.0, 3.0,
+            3.0, 1.0,
+        ]);
+
+        let matrices = GibbsAssociationMatrices { p, l, r, c };
+
+        let mut rng = SimpleRng::new(42);
+        let result = lmb_gibbs_frequency_sampling(&mut rng, &matrices, 1000);
+
+        // Verify shapes
+        assert_eq!(result.r.len(), 2);
+        assert_eq!(result.w.nrows(), 2);
+        assert_eq!(result.w.ncols(), 3); // miss + 2 measurements
+
+        // Verify probabilities sum to 1 for each object
+        for i in 0..2 {
+            let row_sum: f64 = result.w.row(i).sum();
+            assert!((row_sum - 1.0).abs() < 1e-10, "Row {} sum: {}", i, row_sum);
+        }
+
+        // Verify existence probabilities are in [0, 1]
+        for i in 0..2 {
+            assert!(result.r[i] >= 0.0 && result.r[i] <= 1.0);
+        }
+
+        // Both methods should produce similar results with enough samples
+        let mut rng2 = SimpleRng::new(42);
+        let result2 = lmb_gibbs_sampling(&mut rng2, &matrices, 1000);
+
+        // Check that results are close (within tolerance)
+        for i in 0..2 {
+            assert!((result.r[i] - result2.r[i]).abs() < 0.1,
+                "Existence probability difference too large at object {}", i);
+        }
+    }
+
+    #[test]
+    fn test_gibbs_frequency_cross_language_equivalence() {
+        use crate::common::rng::SimpleRng;
+
+        // Test cross-language equivalence with Octave testGibbsFrequency.m
+        // Simple 2 objects, 2 measurements matching Octave test
+        let p = DMatrix::from_row_slice(2, 2, &[
+            0.7, 0.3,
+            0.4, 0.6,
+        ]);
+
+        let l = DMatrix::from_row_slice(2, 3, &[
+            0.05, 0.8, 0.15,
+            0.05, 0.3, 0.65,
+        ]);
+
+        let r = DMatrix::from_row_slice(2, 3, &[
+            0.05, 1.0, 1.0,
+            0.05, 1.0, 1.0,
+        ]);
+
+        let c = DMatrix::from_row_slice(2, 2, &[
+            1.0, 3.0,
+            3.0, 1.0,
+        ]);
+
+        let matrices = GibbsAssociationMatrices { p, l, r, c };
+
+        // Use same seed as Octave
+        let mut rng = SimpleRng::new(42);
+        let result = lmb_gibbs_frequency_sampling(&mut rng, &matrices, 1000);
+
+        // Expected values from Octave with SimpleRng(42) and 1000 samples:
+        // r = [0.6922, 0.6399]
+        // W = [[0.023404, 0.869691, 0.106906],
+        //      [0.029612, 0.165638, 0.804750]]
+
+        // Verify exact match (deterministic with SimpleRng)
+        assert!((result.r[0] - 0.6922).abs() < 1e-10, "r[0] mismatch: {}", result.r[0]);
+        assert!((result.r[1] - 0.6399500000).abs() < 1e-10, "r[1] mismatch: {}", result.r[1]);
+
+        assert!((result.w[(0, 0)] - 0.023404).abs() < 1e-6, "W[0,0] mismatch: {}", result.w[(0, 0)]);
+        assert!((result.w[(0, 1)] - 0.869691).abs() < 1e-6, "W[0,1] mismatch: {}", result.w[(0, 1)]);
+        assert!((result.w[(0, 2)] - 0.106906).abs() < 1e-6, "W[0,2] mismatch: {}", result.w[(0, 2)]);
+
+        assert!((result.w[(1, 0)] - 0.029612).abs() < 1e-6, "W[1,0] mismatch: {}", result.w[(1, 0)]);
+        assert!((result.w[(1, 1)] - 0.165638).abs() < 1e-6, "W[1,1] mismatch: {}", result.w[(1, 1)]);
+        assert!((result.w[(1, 2)] - 0.804750).abs() < 1e-6, "W[1,2] mismatch: {}", result.w[(1, 2)]);
+
+        println!("Cross-language equivalence verified!");
+        println!("Rust r: [{}, {}]", result.r[0], result.r[1]);
+        println!("Rust W: [[{}, {}, {}], [{}, {}, {}]]",
+            result.w[(0, 0)], result.w[(0, 1)], result.w[(0, 2)],
+            result.w[(1, 0)], result.w[(1, 1)], result.w[(1, 2)]);
     }
 }

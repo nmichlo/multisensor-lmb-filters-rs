@@ -67,8 +67,8 @@ pub fn murtys_algorithm_wrapper(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
     let n1 = p0.nrows();
     let n2 = p0.ncols();
 
-    // Padding block for dummy variables
-    let blk1 = DMatrix::from_element(n1, n1, -(-1.0_f64).ln());
+    // Padding block for dummy variables (matching MATLAB: -log(ones(n1,n1)) = 0)
+    let blk1 = DMatrix::from_element(n1, n1, -(1.0_f64).ln());
 
     // Concatenate: P0 = [P0 blk1]
     let mut p0_padded = DMatrix::zeros(n1, n2 + n1);
