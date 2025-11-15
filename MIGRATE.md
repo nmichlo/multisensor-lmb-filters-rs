@@ -365,22 +365,24 @@ let mut unique_samples: HashMap<Vec<usize>, usize> = HashMap::new();
 
 ---
 
-### Phase 3: Examples (ADD)
+### Phase 3: Examples (ADD) ✅ COMPLETE
 
 **Priority: MEDIUM | Effort: MEDIUM | Deterministic: Yes (with SimpleRng)**
 
-#### Task 3.1: Create single-sensor example
+**Status**: ✅ All tasks completed. Both single-sensor and multi-sensor examples implemented with CLI support.
+
+#### Task 3.1: Create single-sensor example ✅ COMPLETE
 
 **MATLAB Reference**: `runFilters.m` (19 lines)
 
-- [ ] Create `examples/single_sensor_lmb.rs`
-- [ ] Port lines 1-19 of `runFilters.m`
-- [ ] Use `SimpleRng::new(42)` for deterministic runs
-- [ ] Generate model with `generate_model(rng, 10, 0.95, 'LBP', 'Fixed')`
-- [ ] Generate ground truth and measurements
-- [ ] Run LMB or LMBM filter based on flag
-- [ ] Output results to console (skip plotting)
-- [ ] Add CLI argument for LMB vs LMBM selection and seed
+- [x] Create `examples/single_sensor.rs` (~142 lines)
+- [x] Port lines 1-19 of `runFilters.m`
+- [x] Use `SimpleRng::new(seed)` for deterministic runs (default: 42)
+- [x] Generate model with configurable parameters
+- [x] Generate ground truth and measurements
+- [x] Run LMB or LMBM filter based on flag
+- [x] Output results to console (skip plotting)
+- [x] Add CLI arguments (clap) for all parameters: seed, filter type, clutter rate, detection probability, data association, scenario type
 
 **Implementation**:
 ```rust
@@ -398,23 +400,30 @@ fn main() {
 ```
 
 **Testing Strategy**:
-- ✅ **100% deterministic** with `SimpleRng(42)`
+- ✅ **100% deterministic** with `SimpleRng(seed)`
 - Output matches MATLAB with same seed exactly
 - Can create regression tests with known seed outputs
 
-#### Task 3.2: Create multi-sensor example
+#### Task 3.2: Create multi-sensor example ✅ COMPLETE
 
 **MATLAB Reference**: `runMultisensorFilters.m` (29 lines)
 
-- [ ] Create `examples/multi_sensor.rs`
-- [ ] Port lines 1-29 of `runMultisensorFilters.m`
-- [ ] Use `SimpleRng::new(seed)` for deterministic runs
-- [ ] Support filter type selection: 'IC', 'PU', 'LMBM'
-- [ ] Generate multi-sensor model with 3 sensors
-- [ ] Run selected filter
-- [ ] Output results to console
+- [x] Create `examples/multi_sensor.rs` (~198 lines)
+- [x] Port lines 1-29 of `runMultisensorFilters.m`
+- [x] Use `SimpleRng::new(seed)` for deterministic runs (default: 42)
+- [x] Support filter type selection: 'IC', 'PU', 'GA', 'AA', 'LMBM'
+- [x] Generate multi-sensor model with configurable number of sensors (default: 3)
+- [x] Run selected filter
+- [x] Output results to console
+- [x] Add CLI arguments (clap) for all parameters: seed, filter type, number of sensors, data association, scenario type
 
 **Testing Strategy**: ✅ Same as Task 3.1 - fully deterministic
+
+**Implementation Notes**:
+- Added `clap` dependency (v4.5) for command-line argument parsing
+- Both examples support `--help` flag for usage information
+- Examples can be run with: `cargo run --example single_sensor` or `cargo run --example multi_sensor`
+- All parameters have sensible defaults matching MATLAB examples
 
 ---
 
@@ -901,11 +910,12 @@ With `SimpleRng`, **every test** achieves exact numerical equivalence:
 - [ ] Deterministic tests pass with `SimpleRng(42)`
 - [ ] Documentation added
 
-### Phase 3: Examples
-- [ ] `examples/single_sensor.rs` runs successfully
-- [ ] `examples/multi_sensor.rs` runs successfully
-- [ ] README updated with usage instructions
-- [ ] Example output matches MATLAB **exactly** (same seed)
+### Phase 3: Examples ✅ COMPLETE
+- [x] `examples/single_sensor.rs` runs successfully
+- [x] `examples/multi_sensor.rs` runs successfully
+- [x] Both examples compile and execute without errors
+- [ ] README updated with usage instructions (deferred)
+- [ ] Example output matches MATLAB **exactly** (same seed) - to be verified in Phase 5
 
 ### Phase 4: Integration Tests
 - [ ] `tests/marginal_evaluations.rs` validates LBP vs Murty's
