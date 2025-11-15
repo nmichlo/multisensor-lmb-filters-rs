@@ -206,6 +206,8 @@ mod tests {
 
     #[test]
     fn test_multisensor_lmbm_gibbs_sampling() {
+        use crate::common::rng::SimpleRng;
+
         // Simple test with 2 sensors, 2 objects
         // Dimensions: [2+1, 2+1, 2] = [3, 3, 2]
         let dimensions = vec![3, 3, 2];
@@ -214,7 +216,8 @@ mod tests {
         // Create simple likelihood matrix (all ones for simplicity)
         let l = vec![0.0; total_size];
 
-        let samples = multisensor_lmbm_gibbs_sampling(&l, &dimensions, 10);
+        let mut rng = SimpleRng::new(42);
+        let samples = multisensor_lmbm_gibbs_sampling(&mut rng, &l, &dimensions, 10);
 
         // Should have at least 1 sample, at most 10
         assert!(samples.nrows() >= 1 && samples.nrows() <= 10);

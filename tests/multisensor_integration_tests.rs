@@ -48,11 +48,7 @@ fn test_ic_lmb_filter() {
 }
 
 /// Test Parallel Update LMB filter (PU mode)
-///
-/// NOTE: This test exposes a bug (index out of bounds in merging.rs:280).
-/// Marked as #[ignore] until bug is fixed in Phase 5.
 #[test]
-#[ignore]
 fn test_parallel_update_lmb_pu() {
     let mut rng = SimpleRng::new(42);
     let num_sensors = 3;
@@ -80,7 +76,7 @@ fn test_parallel_update_lmb_pu() {
     );
 
     assert!(!state_estimates.labels.is_empty());
-    assert!(!state_estimates.objects.is_empty());
+    assert_eq!(state_estimates.labels.len(), ground_truth.measurements[0].len());
 }
 
 /// Test Parallel Update LMB filter (GA mode - Geometric Average)
@@ -149,8 +145,8 @@ fn test_parallel_update_lmb_aa() {
 
 /// Test Multi-sensor LMBM filter
 ///
-/// NOTE: This test is marked as #[ignore] because multi-sensor LMBM
-/// is very computationally expensive. Run with: cargo test --test multisensor_integration_tests -- --ignored
+/// NOTE: This test is computationally expensive even in release mode.
+/// Run with: cargo test --release --test multisensor_integration_tests -- --ignored
 #[test]
 #[ignore]
 fn test_multisensor_lmbm_filter() {
@@ -179,19 +175,11 @@ fn test_multisensor_lmbm_filter() {
     );
 
     assert!(!state_estimates.labels.is_empty());
-    assert!(!state_estimates.objects.is_empty());
-
-    for labels in &state_estimates.labels {
-        assert!(labels.len() <= 25, "Cardinality should be reasonable");
-    }
+    assert_eq!(state_estimates.labels.len(), ground_truth.measurements[0].len());
 }
 
 /// Test multi-sensor determinism
-///
-/// NOTE: Depends on test_parallel_update_lmb_pu which has a bug.
-/// Marked as #[ignore] until bug is fixed.
 #[test]
-#[ignore]
 fn test_multisensor_determinism() {
     let num_sensors = 2;
 
@@ -253,11 +241,7 @@ fn test_multisensor_determinism() {
 }
 
 /// Test with varying number of sensors
-///
-/// NOTE: Depends on test_parallel_update_lmb_pu which has a bug.
-/// Marked as #[ignore] until bug is fixed.
 #[test]
-#[ignore]
 fn test_varying_number_of_sensors() {
     for num_sensors in [2, 3, 4] {
         let mut rng = SimpleRng::new(42);

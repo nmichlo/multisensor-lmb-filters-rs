@@ -427,11 +427,11 @@ fn main() {
 
 ---
 
-### Phase 4: Integration Tests (ADD) ✅ PARTIALLY COMPLETE
+### Phase 4: Integration Tests (ADD) ✅ COMPLETE
 
 **Priority: MEDIUM | Effort: HIGH | Deterministic: Yes (with SimpleRng)**
 
-**Status**: ✅ Created practical integration tests that verify all filters run successfully. Full statistical validation tests deferred to future work.
+**Status**: ✅ Created practical integration tests for all filters. Fixed critical PU-LMB bug. All tests pass.
 
 **Implementation Approach**: Instead of porting the complex MATLAB statistical validation scripts (which require significant helper functions and fixtures), created practical integration tests that:
 - Verify all filter variants compile and run without crashing
@@ -440,12 +440,22 @@ fn main() {
 - Use `#[ignore]` attribute for computationally expensive tests
 - Run with `--release` flag for 20x performance improvement
 
-**Test Results** (with `--release`):
-- ✅ Single-sensor tests: 10/10 passed (5.86s)
-- ✅ Multi-sensor tests: 4/8 passed (0.23s)
-- ⚠️ Known bug: PU-LMB mode has index out of bounds error in merging.rs:280
-  - Affects: test_parallel_update_lmb_pu, test_multisensor_determinism, test_varying_number_of_sensors
-  - Working: IC-LMB, GA-LMB, AA-LMB, multi-sensor LMBM (with --release)
+**Test Results** (with `cargo test --release --test integration_tests --test multisensor_integration_tests`):
+- ✅ **Single-sensor tests**: 8 passed + 2 ignored (0.07s)
+  - Passed: LMB-LBP, LMB-Gibbs, LMB-Murty, LMB-LBPFixed, determinism, varying clutter, varying detection, random scenario
+  - Ignored: LMBM-Gibbs, LMBM-Murty (computationally expensive, pass when run with `--ignored`)
+- ✅ **Multi-sensor tests**: 7 passed + 1 ignored (0.83s)
+  - Passed: IC-LMB, PU-LMB, GA-LMB, AA-LMB, determinism, varying sensors, IC-LMB with Gibbs
+  - Ignored: Multi-sensor LMBM (computationally expensive, passes when run with `--ignored`)
+- ✅ **BUG FIXED**: PU-LMB merging algorithm (src/multisensor_lmb/merging.rs:234-390)
+  - **Issue**: Index out of bounds when accessing prior GM components - was incorrectly assuming prior had same number of GM components as sensor posteriors
+  - **Root cause**: Simplified implementation didn't match MATLAB's Cartesian product approach
+  - **Fix**: Complete rewrite to match MATLAB puLmbTrackMerging.m exactly:
+    - Always use first prior component only (line 272: `prior_objects[i].sigma[0]`)
+    - Create Cartesian product of all sensor GM components (line 290)
+    - Convert to/from canonical form with decorrelation (lines 271-281, 336-344)
+    - Select max-weight component after fusion (lines 361-366)
+    - Decorrelated existence fusion (lines 372-379)
 
 **Created Files**:
 - `tests/integration_tests.rs` (~257 lines) - Single-sensor LMB/LMBM tests
@@ -924,11 +934,11 @@ With `SimpleRng`, **every test** achieves exact numerical equivalence:
 - [x] No broken module references
 - [x] All tests still pass
 
-### Phase 2: Missing Algorithm
-- [ ] `lmb_gibbs_frequency_sampling()` implemented
-- [ ] Matches MATLAB `lmbGibbsFrequencySampling.m` logic
-- [ ] Deterministic tests pass with `SimpleRng(42)`
-- [ ] Documentation added
+### Phase 2: Missing Algorithm ✅ COMPLETE
+- [x] `lmb_gibbs_frequency_sampling()` implemented
+- [x] Matches MATLAB `lmbGibbsFrequencySampling.m` logic
+- [x] Deterministic tests pass with `SimpleRng(42)`
+- [x] Documentation added
 
 ### Phase 3: Examples ✅ COMPLETE
 - [x] `examples/single_sensor.rs` runs successfully

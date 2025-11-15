@@ -245,10 +245,12 @@ pub fn ga_lmb_track_merging(
 ///
 /// # Implementation Notes
 /// Matches MATLAB puLmbTrackMerging.m exactly:
-/// 1. Convert prior and posteriors to canonical form
-/// 2. Information fusion: K_fused = sum(K_sensor) - (S-1)*K_prior
-/// 3. Convert back to moment form
-/// 4. Existence fusion: r_fused = 1 - prod(1-r_sensor)
+/// 1. Convert prior (first component only) to canonical form
+/// 2. Create Cartesian product of all sensor GM components
+/// 3. Information fusion for each combination: K = sum(K_sensor) + (1-S)*K_prior
+/// 4. Convert back to moment form and normalize weights
+/// 5. Select component with maximum weight
+/// 6. Existence fusion using decorrelated formula
 pub fn pu_lmb_track_merging(
     sensor_objects: &[Vec<Object>],
     prior_objects: &[Object],
@@ -259,68 +261,129 @@ pub fn pu_lmb_track_merging(
     }
 
     let number_of_objects = sensor_objects[0].len();
-    let mut fused_objects = sensor_objects[0].clone();
+    let mut fused_objects = prior_objects.to_vec();
 
     // For each object
     for i in 0..number_of_objects {
-        let num_gm = sensor_objects[0][i].number_of_gm_components;
+        // Use first (and typically only) component from prior
+        let dim = prior_objects[i].sigma[0].nrows();
 
-        // Existence fusion: r_fused = 1 - prod(1 - r_sensor)
-        let mut r_product = 1.0;
-        for s in 0..number_of_sensors {
-            r_product *= 1.0 - sensor_objects[s][i].r;
-        }
-        fused_objects[i].r = 1.0 - r_product;
-
-        // For each GM component
-        for j in 0..num_gm {
-            let dim = sensor_objects[0][i].sigma[j].nrows();
-
-            // Prior canonical form
-            let k_prior = prior_objects[i].sigma[j]
-                .clone()
-                .try_inverse()
-                .unwrap_or_else(|| {
-                    let svd = prior_objects[i].sigma[j].clone().svd(true, true);
-                    svd.pseudo_inverse(1e-10).unwrap()
-                });
-            let h_prior = &k_prior * &prior_objects[i].mu[j];
-
-            // Initialize fused canonical parameters
-            let mut k_fused = DMatrix::zeros(dim, dim);
-            let mut h_fused = DVector::zeros(dim);
-
-            // Accumulate sensor information
-            for s in 0..number_of_sensors {
-                // Sensor canonical form
-                let k_sensor = sensor_objects[s][i].sigma[j]
-                    .clone()
-                    .try_inverse()
-                    .unwrap_or_else(|| {
-                        let svd = sensor_objects[s][i].sigma[j].clone().svd(true, true);
-                        svd.pseudo_inverse(1e-10).unwrap()
-                    });
-                let h_sensor = &k_sensor * &sensor_objects[s][i].mu[j];
-
-                k_fused += &k_sensor;
-                h_fused += &h_sensor;
-            }
-
-            // Decorrelation: subtract (S-1) * prior
-            let decorr = (number_of_sensors - 1) as f64;
-            k_fused -= &k_prior * decorr;
-            h_fused -= &h_prior * decorr;
-
-            // Convert back to moment form
-            let sigma_fused = k_fused.clone().try_inverse().unwrap_or_else(|| {
-                let svd = k_fused.svd(true, true);
+        // Convert prior to canonical form
+        let k_prior = prior_objects[i].sigma[0]
+            .clone()
+            .try_inverse()
+            .unwrap_or_else(|| {
+                let svd = prior_objects[i].sigma[0].clone().svd(true, true);
                 svd.pseudo_inverse(1e-10).unwrap()
             });
-            let mu_fused = &sigma_fused * &h_fused;
+        let h_prior = &k_prior * &prior_objects[i].mu[0];
+        let g_prior = -0.5 * prior_objects[i].mu[0].dot(&(&k_prior * &prior_objects[i].mu[0]))
+            - 0.5 * (2.0 * std::f64::consts::PI * prior_objects[i].sigma[0].determinant()).ln();
 
-            fused_objects[i].mu[j] = mu_fused;
-            fused_objects[i].sigma[j] = sigma_fused;
+        // Determine number of GM components from each sensor
+        let mut num_gm_per_sensor = vec![0; number_of_sensors];
+        for s in 0..number_of_sensors {
+            num_gm_per_sensor[s] = sensor_objects[s][i].number_of_gm_components;
         }
+
+        // Calculate total number of posterior GM components (Cartesian product)
+        let num_posterior_gm: usize = num_gm_per_sensor.iter().product();
+
+        // Preallocate posterior mixture
+        let decorr_factor = (1 - number_of_sensors as i32) as f64;
+        let mut k_components = vec![k_prior.clone() * decorr_factor; num_posterior_gm];
+        let mut h_components = vec![h_prior.clone() * decorr_factor; num_posterior_gm];
+        let mut g_components = vec![g_prior * decorr_factor; num_posterior_gm];
+
+        // Combine sensor measurements
+        for s in 0..number_of_sensors {
+            let current_mixture_size = if s == 0 { 1 } else { num_gm_per_sensor[0..s].iter().product() };
+            let k_temp = k_components.clone();
+            let h_temp = h_components.clone();
+            let g_temp = g_components.clone();
+
+            let mut ell = 0;
+            for j in 0..num_gm_per_sensor[s] {
+                // Convert sensor component to canonical form
+                let w = sensor_objects[s][i].w[j];
+                let mu = &sensor_objects[s][i].mu[j];
+                let sigma = &sensor_objects[s][i].sigma[j];
+
+                let k_c = sigma.clone().try_inverse().unwrap_or_else(|| {
+                    let svd = sigma.clone().svd(true, true);
+                    svd.pseudo_inverse(1e-10).unwrap()
+                });
+                let h_c = &k_c * mu;
+                let g_c = -0.5 * mu.dot(&(&k_c * mu))
+                    - 0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln()
+                    + w.ln();
+
+                // Combine with existing mixture
+                for k in 0..current_mixture_size {
+                    k_components[ell] = &k_temp[k] + &k_c;
+                    h_components[ell] = &h_temp[k] + &h_c;
+                    g_components[ell] = g_temp[k] + g_c;
+                    ell += 1;
+                }
+            }
+        }
+
+        // Convert back to covariance form and normalize
+        let mut sigma_components = Vec::with_capacity(num_posterior_gm);
+        let mut mu_components = Vec::with_capacity(num_posterior_gm);
+        let mut weights = Vec::with_capacity(num_posterior_gm);
+
+        for j in 0..num_posterior_gm {
+            let k_temp = k_components[j].clone();
+            let sigma = k_components[j].clone().try_inverse().unwrap_or_else(|| {
+                let svd = k_components[j].clone().svd(true, true);
+                svd.pseudo_inverse(1e-10).unwrap()
+            });
+            let mu = &sigma * &h_components[j];
+            let g = g_components[j] + 0.5 * h_components[j].dot(&(&k_temp * &h_components[j]))
+                + 0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln();
+
+            sigma_components.push(sigma);
+            mu_components.push(mu);
+            g_components[j] = g;
+        }
+
+        // Normalize weights
+        let max_g = g_components.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        for j in 0..num_posterior_gm {
+            weights.push((g_components[j] - max_g).exp());
+        }
+        let sum_weights: f64 = weights.iter().sum();
+        for w in &mut weights {
+            *w /= sum_weights;
+        }
+
+        // Find component with maximum weight
+        let max_idx = weights.iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
+
+        // Calculate eta for existence probability
+        let eta: f64 = g_components.iter().map(|g| g.exp()).sum();
+
+        // Existence fusion with decorrelation
+        let numerator = eta * prior_objects[i].r.powf(decorr_factor)
+            * (0..number_of_sensors)
+                .map(|s| sensor_objects[s][i].r)
+                .product::<f64>();
+        let partial_denominator = (1.0 - prior_objects[i].r).powf(decorr_factor)
+            * (0..number_of_sensors)
+                .map(|s| 1.0 - sensor_objects[s][i].r)
+                .product::<f64>();
+
+        // Update object with max-weight component
+        fused_objects[i].r = numerator / (numerator + partial_denominator);
+        fused_objects[i].number_of_gm_components = 1;
+        fused_objects[i].w = vec![1.0];
+        fused_objects[i].mu = vec![mu_components[max_idx].clone()];
+        fused_objects[i].sigma = vec![sigma_components[max_idx].clone()];
     }
 
     fused_objects

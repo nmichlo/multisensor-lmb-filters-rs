@@ -244,7 +244,11 @@ mod tests {
 
     #[test]
     fn test_run_multisensor_lmbm_filter() {
+        use crate::common::rng::SimpleRng;
+
+        let mut rng = SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -258,7 +262,7 @@ mod tests {
             vec![vec![], vec![], vec![]], // Sensor 2
         ];
 
-        let estimates = run_multisensor_lmbm_filter(&model, &measurements, 2);
+        let estimates = run_multisensor_lmbm_filter(&mut rng, &model, &measurements, 2);
 
         assert_eq!(estimates.labels.len(), 3);
         assert_eq!(estimates.mu.len(), 3);
