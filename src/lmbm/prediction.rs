@@ -72,7 +72,9 @@ mod tests {
 
     #[test]
     fn test_lmbm_prediction_birth() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -99,7 +101,9 @@ mod tests {
 
     #[test]
     fn test_lmbm_prediction_survival() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,

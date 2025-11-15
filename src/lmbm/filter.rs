@@ -229,7 +229,9 @@ mod tests {
 
     #[test]
     fn test_run_lmbm_filter_no_measurements() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -239,7 +241,8 @@ mod tests {
 
         // Run filter with no measurements
         let measurements = vec![vec![]; 5];
-        let estimates = run_lmbm_filter(&model, &measurements);
+        let mut rng2 = crate::common::rng::SimpleRng::new(42);
+        let estimates = run_lmbm_filter(&mut rng2, &model, &measurements);
 
         assert_eq!(estimates.labels.len(), 5);
         assert_eq!(estimates.mu.len(), 5);
@@ -248,7 +251,9 @@ mod tests {
 
     #[test]
     fn test_run_lmbm_filter_with_measurements() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -263,7 +268,8 @@ mod tests {
             vec![],
         ];
 
-        let estimates = run_lmbm_filter(&model, &measurements);
+        let mut rng2 = crate::common::rng::SimpleRng::new(42);
+        let estimates = run_lmbm_filter(&mut rng2, &model, &measurements);
 
         assert_eq!(estimates.labels.len(), 3);
         assert_eq!(estimates.mu.len(), 3);

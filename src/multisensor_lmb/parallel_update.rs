@@ -368,7 +368,9 @@ mod tests {
 
     #[test]
     fn test_run_parallel_update_lmb_filter_aa() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -382,7 +384,7 @@ mod tests {
             vec![vec![], vec![], vec![]], // Sensor 2
         ];
 
-        let estimates = run_parallel_update_lmb_filter(&model, &measurements, 2, ParallelUpdateMode::AA);
+        let estimates = run_parallel_update_lmb_filter(&mut rng, &model, &measurements, 2, ParallelUpdateMode::AA);
 
         assert_eq!(estimates.labels.len(), 3);
         assert_eq!(estimates.mu.len(), 3);

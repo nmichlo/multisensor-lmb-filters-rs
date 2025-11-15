@@ -297,7 +297,9 @@ mod tests {
 
     #[test]
     fn test_determine_posterior_hypothesis_parameters() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -329,7 +331,9 @@ mod tests {
 
     #[test]
     fn test_lmbm_normalisation_and_gating() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -356,7 +360,9 @@ mod tests {
 
     #[test]
     fn test_lmbm_state_extraction_eap() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -381,7 +387,9 @@ mod tests {
 
     #[test]
     fn test_lmbm_state_extraction_map() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,

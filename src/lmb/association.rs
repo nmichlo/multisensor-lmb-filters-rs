@@ -232,7 +232,9 @@ mod tests {
 
     #[test]
     fn test_generate_association_matrices_no_measurements() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::LBP,
@@ -252,7 +254,9 @@ mod tests {
 
     #[test]
     fn test_generate_association_matrices_with_measurements() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::LBP,
@@ -290,7 +294,9 @@ mod tests {
 
     #[test]
     fn test_posterior_weights_normalized() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::LBP,

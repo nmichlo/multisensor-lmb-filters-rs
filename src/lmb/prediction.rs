@@ -60,7 +60,9 @@ mod tests {
 
     #[test]
     fn test_lmb_prediction_empty() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::LBP,
@@ -77,7 +79,9 @@ mod tests {
 
     #[test]
     fn test_lmb_prediction_survival() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::LBP,
@@ -125,7 +129,9 @@ mod tests {
 
     #[test]
     fn test_lmb_prediction_birth_time() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::LBP,

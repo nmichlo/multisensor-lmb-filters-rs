@@ -491,7 +491,9 @@ mod tests {
 
     #[test]
     fn test_generate_fixed_ground_truth() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.95,
             DataAssociationMethod::LBP,
@@ -499,7 +501,8 @@ mod tests {
             None,
         );
 
-        let output = generate_ground_truth(&model, None, None);
+        let mut rng2 = crate::common::rng::SimpleRng::new(100);
+        let output = generate_ground_truth(&mut rng2, &model, None);
 
         // Check basic properties
         assert_eq!(output.ground_truth.len(), 10);
@@ -518,7 +521,9 @@ mod tests {
         // Verify state vector ordering matches MATLAB exactly: [x, y, vx, vy]
         // MATLAB priorLocations first column (after transpose): [-80.0, -20.0, 0.75, 1.5]'
 
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.95,
             DataAssociationMethod::LBP,
@@ -527,7 +532,8 @@ mod tests {
         );
 
         // Use fixed seed for determinism
-        let output = generate_ground_truth(&model, None, Some(42));
+        let mut rng2 = crate::common::rng::SimpleRng::new(42);
+        let output = generate_ground_truth(&mut rng2, &model, None);
 
         // First object should have birth_location_index = 0 (first prior location)
         let first_obj = &output.ground_truth[0];
@@ -557,7 +563,9 @@ mod tests {
 
     #[test]
     fn test_generate_random_ground_truth() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.95,
             DataAssociationMethod::LBP,
@@ -565,7 +573,8 @@ mod tests {
             Some(4),
         );
 
-        let output = generate_ground_truth(&model, Some(5), None);
+        let mut rng2 = crate::common::rng::SimpleRng::new(42);
+        let output = generate_ground_truth(&mut rng2, &model, Some(5));
 
         assert_eq!(output.ground_truth.len(), 5);
         assert_eq!(output.measurements.len(), 100);

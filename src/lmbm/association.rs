@@ -270,7 +270,9 @@ mod tests {
 
     #[test]
     fn test_generate_lmbm_association_matrices() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -306,10 +308,11 @@ mod tests {
 
     #[test]
     fn test_lmbm_gibbs_sampling() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let p = DMatrix::from_row_slice(3, 2, &[0.5, 0.5, 0.6, 0.4, 0.3, 0.7]);
         let c = DMatrix::from_row_slice(3, 2, &[1.0, 2.0, 3.0, 1.0, 2.0, 3.0]);
 
-        let samples = lmbm_gibbs_sampling(&p, &c, 50);
+        let samples = lmbm_gibbs_sampling(&mut rng, &p, &c, 50);
 
         // Check dimensions
         assert!(samples.nrows() > 0);
@@ -325,7 +328,9 @@ mod tests {
 
     #[test]
     fn test_lmbm_association_posterior_probabilities() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,

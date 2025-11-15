@@ -401,7 +401,9 @@ mod tests {
         use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
 
         let number_of_sensors = 2;
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_multisensor_model(
+            &mut rng,
             number_of_sensors,
             vec![10.0; number_of_sensors],
             vec![0.9; number_of_sensors],
@@ -443,7 +445,9 @@ mod tests {
         use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
 
         let number_of_sensors = 2;
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_multisensor_model(
+            &mut rng,
             number_of_sensors,
             vec![10.0; number_of_sensors],
             vec![0.9; number_of_sensors],
@@ -476,7 +480,9 @@ mod tests {
 
     #[test]
     fn test_pu_lmb_track_merging() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,

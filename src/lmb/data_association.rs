@@ -190,7 +190,9 @@ mod tests {
 
     #[test]
     fn test_lmb_lbp() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::LBP,
@@ -220,7 +222,9 @@ mod tests {
 
     #[test]
     fn test_lmb_gibbs() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Gibbs,
@@ -234,7 +238,8 @@ mod tests {
         let association_result =
             generate_lmb_association_matrices(&objects, &measurements, &model);
 
-        let (r, w) = lmb_gibbs(&association_result, 100);
+        let mut rng2 = crate::common::rng::SimpleRng::new(42);
+        let (r, w) = lmb_gibbs(&mut rng2, &association_result, 100);
 
         // Check dimensions
         assert_eq!(r.len(), objects.len());
@@ -250,7 +255,9 @@ mod tests {
 
     #[test]
     fn test_lmb_murtys() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.9,
             DataAssociationMethod::Murty,

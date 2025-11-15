@@ -470,7 +470,9 @@ mod tests {
 
     #[test]
     fn test_generate_fixed_model() {
+        let mut rng = crate::common::rng::SimpleRng::new(42);
         let model = generate_model(
+            &mut rng,
             10.0,
             0.95,
             DataAssociationMethod::LBP,
