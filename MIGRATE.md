@@ -6,6 +6,13 @@
 
 **Testing Strategy**: Implement `SimpleRng` (Xorshift64) in both MATLAB and Rust to enable **100% deterministic testing** - eliminates all statistical validation and enables exact numerical equivalence verification.
 
+**Plan Maintenance**: This plan MUST be updated as work progresses:
+- Mark tasks complete: `[ ]` → `[x]`
+- Update phase status: append `✅ COMPLETE` when done
+- Document bugs found, fixes applied, and deviations from original plan
+- Add implementation notes and verification details
+- Keep the plan as the authoritative record of migration status
+
 ---
 
 ## Repository Overview
@@ -118,6 +125,8 @@
 **Goal**: Implement identical, minimal PRNG in both MATLAB and Rust to enable 100% deterministic testing without statistical validation.
 
 **Status**: ✅ All tasks completed. SimpleRng implemented in both Octave and Rust. Core function signatures updated to accept RNG parameters. Call sites will be updated when examples are created in Phase 3.
+
+**Implementation Notes**: Octave SimpleRng enhanced with variadic `rand()`/`randn()` methods (scalar, vector n×1, matrix rows×cols) to keep inline changes simple per user feedback.
 
 #### Task 0.1: Implement SimpleRng in MATLAB ✅ COMPLETE
 
@@ -283,16 +292,19 @@ impl Rng for SimpleRng {
 
 ---
 
-### Phase 1: Cleanup (REMOVE)
+### Phase 1: Cleanup (REMOVE) ✅ COMPLETE
 
 **Priority: HIGH | Effort: LOW | Deterministic: Yes**
 
-#### Task 1.1: Remove empty stub files
-- [ ] Delete `src/lmb/gibbs_sampling.rs` (2 lines)
-- [ ] Delete `src/lmb/murtys.rs` (2 lines)
-- [ ] Delete `src/lmbm/update.rs` (2 lines)
-- [ ] Delete `src/multisensor_lmbm/update.rs` (2 lines)
-- [ ] Update module references if needed
+**Status**: ✅ All tasks completed. Empty stub files were already deleted in prior cleanup.
+
+#### Task 1.1: Remove empty stub files ✅ COMPLETE
+- [x] Delete `src/lmb/gibbs_sampling.rs` (2 lines) - already removed
+- [x] Delete `src/lmb/murtys.rs` (2 lines) - already removed
+- [x] Delete `src/lmbm/update.rs` (2 lines) - already removed
+- [x] Delete `src/multisensor_lmbm/update.rs` (2 lines) - already removed
+- [x] Update module references if needed - no references found
+- [x] Verified project compiles successfully
 
 **Rationale**: These files contain only comment headers and serve no purpose. Functionality is already implemented in other modules.
 
@@ -317,6 +329,12 @@ impl Rng for SimpleRng {
 - [x] Create deterministic unit tests with `SimpleRng(42)`
 - [x] Update MATLAB `lmbGibbsFrequencySampling.m` to accept RNG parameter
 - [x] Update MATLAB `lmbGibbsSampling.m` to accept RNG parameter
+
+**Critical Bugs Fixed**:
+1. **Murty's algorithm dummy cost**: Rust used `∞` instead of `0` for dummy block (line 71: `-(-1.0).ln()` → `-(1.0).ln()` = 0)
+2. **Gibbs initialization**: Rust used Hungarian algorithm instead of Murty's - now matches MATLAB `murtysAlgorithmWrapper(C, 1)`
+
+**Verification**: Cross-language test with `SimpleRng(42)` and 1000 samples achieves exact numerical equivalence (within 1e-6).
 
 **Implementation Notes**:
 ```matlab
@@ -872,10 +890,10 @@ With `SimpleRng`, **every test** achieves exact numerical equivalence:
 - [ ] All Rust functions accept `rng: &mut impl Rng` parameter
 - [ ] Validation: `SimpleRng(42)` produces identical sequences
 
-### Phase 1: Cleanup
-- [ ] All 4 stub files deleted
-- [ ] No broken module references
-- [ ] All tests still pass
+### Phase 1: Cleanup ✅ COMPLETE
+- [x] All 4 stub files deleted
+- [x] No broken module references
+- [x] All tests still pass
 
 ### Phase 2: Missing Algorithm
 - [ ] `lmb_gibbs_frequency_sampling()` implemented
