@@ -110,32 +110,29 @@
    - ✅ Hypothesis management
    - ✅ Gibbs sampling
 
-### ⚠️ MISSING IMPLEMENTATIONS
+### ⚠️ REMAINING WORK
 
-1. **Gibbs Sampling Variant** (0%)
-   - ❌ `lmbGibbsFrequencySampling.m` - Frequency-counting Gibbs sampler
-   - Current Rust only implements unique-sample approach
-   - MATLAB has BOTH variants
+1. **Phase 4.5: Fix Broken Tests** (0/3 tasks - 0%)
+   - ❌ Generate missing accuracy fixtures (seeds 1, 5, 10, 50, 100, 500)
+   - ❌ Fix determinism test assertion bug
+   - ❌ Verify 104/104 tests passing
 
-2. **Examples** (0/2)
-   - ❌ `runFilters.m` → `examples/single_sensor.rs`
-   - ❌ `runMultisensorFilters.m` → `examples/multi_sensor.rs`
+2. **Phase 4.6: Multisensor Fixtures** (0/3 tasks - 0%)
+   - ❌ Multisensor accuracy trials (IC/PU/GA/AA-LMB, LMBM)
+   - ❌ Multisensor clutter sensitivity trials
+   - ❌ Multisensor detection probability trials
 
-3. **Validation Tests** (0/5)
-   - ❌ `evaluateSmallExamples.m` - LBP vs Murty's validation
-   - ❌ `evaluateMarginalDistributions.m`
-   - ❌ `evaluateMarginalDistrubtionsVariableObjects.m`
-   - ❌ `generateAssociationMatrices.m` (test utility)
-   - ❌ `generateSimplifiedModel.m` (test utility)
+3. **Phase 4.7: Step-by-Step Algorithm Data** (0/5 tasks - 0%)
+   - ❌ LMB step-by-step data (prediction, association, update, cardinality)
+   - ❌ LMBM step-by-step data (all hypothesis management steps)
+   - ❌ Multi-sensor LMB step-by-step data (IC/PU/GA/AA merging)
+   - ❌ Multi-sensor LMBM step-by-step data
+   - ❌ Rust step-by-step validation tests (~800-1000 lines)
 
-4. **Performance Trials** (1/7 - 14%)
-   - ✅ `lmbFilterTimeTrials.m` → `benches/lmb_performance.rs` (partial)
-   - ❌ `singleSensorAccuracyTrial.m`
-   - ❌ `singleSensorClutterTrial.m`
-   - ❌ `singleSensorDetectionProbabilityTrial.m`
-   - ❌ `multiSensorAccuracyTrial.m`
-   - ❌ `multiSensorClutterTrial.m`
-   - ❌ `multiSensorDetectionProbabilityTrial.m`
+4. **Phase 5: Detailed Verification** (0/3 tasks - 0%)
+   - ❌ File-by-file logic comparison (40+ file pairs)
+   - ❌ Numerical equivalence testing (9 filter variants)
+   - ❌ Cross-algorithm validation
 
 ### ⚠️ FILES TO REMOVE (4 empty stubs)
 
@@ -475,9 +472,14 @@ fn main() {
 - ✅ Parameter variation tests (clutter rates, detection probabilities)
 - ✅ Critical PU-LMB merging bug fixed
 - ✅ Task 4.1: LBP vs Murty's marginal evaluation (complete with cross-language validation)
-- ✅ Task 4.2: Accuracy trials (**COMPLETE** - 5/5 variants validated, all bugs fixed)
-- ✅ Task 4.3: Clutter sensitivity trials (**COMPLETE** - 5/5 variants validated, 2 clutter rates)
-- ✅ Task 4.4: Detection probability trials (**COMPLETE** - 5/5 variants validated, 2 detection probs)
+- ✅ Task 4.2: Accuracy trials (COMPLETE - 5/5 single-sensor variants validated, all bugs fixed)
+- ✅ Task 4.3: Clutter sensitivity trials (COMPLETE - 5/5 single-sensor variants validated, 2 clutter rates)
+- ✅ Task 4.4: Detection probability trials (COMPLETE - 5/5 single-sensor variants validated, 2 detection probs)
+
+**What is NOT complete** (new phases):
+- ❌ Phase 4.5: Broken tests (7 failing accuracy tests due to missing fixtures)
+- ❌ Phase 4.6: Multisensor fixtures (no multisensor accuracy/clutter/detection trials yet)
+- ❌ Phase 4.7: Step-by-step algorithm data (no intermediate state validation)
 
 **Fixture Strategy**:
 - **Balanced approach**: Representative seed validation (exact match) + full trial statistics (aggregate match)
@@ -809,6 +811,328 @@ r_fused = numerator / denominator
 ```
 
 **Resolution**: Test validates PU-LMB merging implementation is correct.
+
+---
+
+### Phase 4.5: Fix All Broken Tests ❌ NOT STARTED
+
+**Priority: CRITICAL | Effort: LOW | Deterministic: Yes**
+
+**Purpose**: Ensure all tests pass before continuing - no phase is complete until tests pass.
+
+**Status**: ❌ Not started. Current test results: 97/104 passing (93.3%).
+
+**Current Issues**:
+1. **7 failing tests in `tests/accuracy_trials.rs`**: Missing fixture files for seeds 1, 5, 10, 50, 100, 500
+2. **1 broken assertion in `test_single_sensor_determinism`**: Logic error despite identical values
+
+#### Task 4.5.1: Generate missing accuracy fixtures ❌
+
+**MATLAB**: Update `generateSingleSensorAccuracyFixtures_quick.m`
+
+- [ ] Batch-generate fixtures for seeds: 1, 5, 10, 50, 100, 500
+- [ ] Save to `tests/data/single_trial_{seed}.json` (6 new files)
+- [ ] Use same format as existing `single_trial_42.json`
+- [ ] Variable-length arrays: LMB=100 timesteps, LMBM=10 timesteps
+
+#### Task 4.5.2: Fix determinism test assertion ❌
+
+**Rust**: Fix `tests/accuracy_trials.rs::test_single_sensor_determinism`
+
+- [ ] Investigate line 186 assertion failure
+- [ ] Root cause: Both values are 3.873389356589557 but assertion fails
+- [ ] Fix comparison logic or tolerance
+- [ ] Verify test passes after fix
+
+#### Task 4.5.3: Verify all tests pass ❌
+
+- [ ] Run `cargo test --release` (should be 104/104 passing)
+- [ ] Document any remaining issues
+- [ ] Mark Phase 4.5 as COMPLETE only when all tests pass
+
+**Expected Outcome**: 104/104 tests passing (100%)
+
+---
+
+### Phase 4.6: Multisensor Fixtures (Accuracy, Clutter, Detection) ❌ NOT STARTED
+
+**Priority: HIGH | Effort: HIGH | Deterministic: Yes**
+
+**Purpose**: Create multisensor equivalents of Phases 4.2-4.4, validating IC/PU/GA/AA-LMB and LMBM against MATLAB with exact numerical equivalence.
+
+**Status**: ❌ Not started. No multisensor fixtures exist yet.
+
+**Fixture Strategy**: Same as 4.2-4.4 - representative seed validation (exact match) for seed 42.
+
+#### Task 4.6.1: Multisensor Accuracy Trials ❌
+
+**MATLAB Reference**: `multiSensorAccuracyTrial.m` (132 lines)
+
+**What MATLAB does**:
+- Runs 1000 trials for LMB variants, 100 trials for LMBM
+- Uses 3 sensors with varied parameters per sensor:
+  - Clutter rates: [5, 5, 5]
+  - Detection probabilities: [0.67, 0.70, 0.73]
+  - Q values: [4, 3, 2]
+- Collects E-OSPA, H-OSPA, cardinality for all 100 timesteps
+- Filter variants: IC-LMB, PU-LMB, GA-LMB, AA-LMB, LMBM
+
+**Implementation**:
+
+✅ **MATLAB Fixture Generation**:
+- [ ] Create `generateMultisensorAccuracyFixtures_quick.m` (~150 lines)
+- [ ] Full 100 timesteps for all variants (no reduction like single-sensor LMBM)
+- [ ] Generated fixture for seed 42
+- [ ] Save to `tests/data/multisensor_trial_42.json` (~20KB estimated)
+
+✅ **Rust Test Infrastructure**:
+- [ ] Create `tests/multisensor_accuracy_trials.rs` (~350 lines)
+- [ ] Fixture loading with `serde_json`
+- [ ] Helper functions for running multisensor trials
+- [ ] Test all 5 filter variants: IC-LMB, PU-LMB, GA-LMB, AA-LMB, LMBM
+- [ ] Exact match test for seed 42 (< 1e-10 tolerance)
+- [ ] Determinism verification test
+
+**Expected Results**: 5/5 filter variants validated with exact numerical equivalence
+
+#### Task 4.6.2: Multisensor Clutter Sensitivity Tests ❌
+
+**MATLAB Reference**: `multiSensorClutterTrial.m` (95 lines)
+
+**What MATLAB does**:
+- Runs 100 trials per clutter rate
+- **Parameter sweep**: Clutter returns = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] per sensor
+- Fixed detection probabilities: [0.67, 0.70, 0.73]
+- Collects **mean E-OSPA and mean H-OSPA** across 100 timesteps
+- Filter variants: IC-LMB, PU-LMB, GA-LMB, AA-LMB
+
+**Implementation**:
+
+✅ **MATLAB Fixture Generation**:
+- [ ] Create `generateMultisensorClutterFixtures_quick.m` (~150 lines)
+- [ ] Quick validation with 2 clutter rates: [10, 60] (representative endpoints)
+- [ ] Generated fixture in ~3 minutes
+- [ ] Save to `tests/data/multisensor_clutter_trial_42_quick.json` (~800 bytes estimated)
+
+✅ **Rust Test Infrastructure**:
+- [ ] Create `tests/multisensor_clutter_trials.rs` (~340 lines)
+- [ ] Fixture loading with `serde_json`
+- [ ] Helper functions for running clutter sweep
+- [ ] Exact match test for seed 42 across 2 clutter rates (< 1e-9 tolerance)
+- [ ] Determinism verification test
+
+**Expected Results**: 4/4 filter variants validated with exact numerical equivalence
+
+#### Task 4.6.3: Multisensor Detection Probability Tests ❌
+
+**MATLAB Reference**: `multiSensorDetectionProbabilityTrial.m` (93 lines)
+
+**What MATLAB does**:
+- Runs 100 trials per detection probability
+- **Parameter sweep**: Detection probabilities = [0.5, 0.6, 0.7, 0.8, 0.9, 0.999] per sensor
+- Fixed clutter returns: [5, 5, 5]
+- Collects **mean E-OSPA and mean H-OSPA** across 100 timesteps
+- Filter variants: IC-LMB, PU-LMB, GA-LMB, AA-LMB
+
+**Implementation**:
+
+✅ **MATLAB Fixture Generation**:
+- [ ] Create `generateMultisensorDetectionFixtures_quick.m` (~150 lines)
+- [ ] Quick validation with 2 detection probabilities: [0.5, 0.999] (representative endpoints)
+- [ ] Generated fixture in ~3 minutes
+- [ ] Save to `tests/data/multisensor_detection_trial_42_quick.json` (~800 bytes estimated)
+
+✅ **Rust Test Infrastructure**:
+- [ ] Create `tests/multisensor_detection_trials.rs` (~340 lines)
+- [ ] Fixture loading with `serde_json`
+- [ ] Helper functions for running detection sweep
+- [ ] Exact match test for seed 42 across 2 detection probabilities (< 1e-8 tolerance)
+- [ ] Determinism verification test
+
+**Expected Results**: 4/4 filter variants validated with exact numerical equivalence
+
+**Testing Strategy**:
+- ✅ **100% deterministic** - each trial uses `SimpleRng(trialNumber)` as seed
+- **Exact validation**: Seed 42 verifies bit-for-bit equivalence
+- **Multi-sensor parameters**: Each sensor has independent clutter, detection prob, Q value
+- **Note**: MATLAB aggregates to means (not per-timestep), so fixtures are lightweight
+
+---
+
+### Phase 4.7: Comprehensive Step-by-Step Algorithm Data ❌ NOT STARTED
+
+**Priority: CRITICAL | Effort: VERY HIGH | Deterministic: Yes**
+
+**Purpose**: Generate complete intermediate state data for ALL algorithms to enable step-by-step validation of internal logic, not just final outputs. This is the deepest level of verification.
+
+**Status**: ❌ Not started. This phase requires comprehensive MATLAB instrumentation.
+
+**Scope**: Generate MATLAB .json fixtures containing:
+- **All inputs** to each algorithm step
+- **All outputs** from each algorithm step
+- At least 2 sensors (for multisensor algorithms)
+- At least 2 objects with imperfect detection (to test gating/association edge cases)
+
+**Why This Matters**: Phases 4.2-4.6 validate end-to-end filter outputs. Phase 4.7 validates **every intermediate step**, enabling us to pinpoint bugs to specific algorithm components (e.g., "prediction is correct but association matrix has a bug in row 3").
+
+#### Task 4.7.1: Single-Sensor LMB Step-by-Step Data ❌
+
+**MATLAB Reference**: All LMB filter functions
+
+**Create**: `generateLmbStepByStepData.m` (~200 lines)
+
+- [ ] **Prediction step** (`lmbPredictionStep.m`):
+  - Inputs: prior objects (r, m, P, label), model (F, Q, P_s)
+  - Outputs: predicted objects (r_pred, m_pred, P_pred, label_pred)
+
+- [ ] **Association matrices** (`generateLmbAssociationMatrices.m`):
+  - Inputs: predicted objects, measurements, model (H, R, P_d, clutter_per_unit_volume)
+  - Outputs: C (cost matrix), L (likelihood matrix), R (existence probs), P (joint matrix), eta (normalization)
+
+- [ ] **Data association - LBP** (`loopyBeliefPropagation.m`):
+  - Inputs: association matrices (C, L, R, P, eta)
+  - Outputs: r (marginal existence), W (marginal association weights)
+
+- [ ] **Data association - Gibbs** (`lmbGibbsSampling.m`, `lmbGibbsFrequencySampling.m`):
+  - Inputs: association matrices, number of samples
+  - Outputs: r (marginal existence), W (marginal association weights)
+
+- [ ] **Data association - Murty's** (`lmbMurtysAlgorithm.m`):
+  - Inputs: association matrices, number of hypotheses
+  - Outputs: r (exact marginal existence), W (exact marginal association weights)
+
+- [ ] **Update step** (`computePosteriorLmbSpatialDistributions.m`):
+  - Inputs: r, W, predicted objects, measurements, model (H, R)
+  - Outputs: posterior objects (r_post, m_post, P_post, label_post)
+
+- [ ] **Cardinality estimation** (`lmbMapCardinalityEstimate.m`):
+  - Inputs: posterior objects (r values)
+  - Outputs: n_estimated, selected_indices, extracted_states
+
+- [ ] Save to `tests/data/lmb_step_by_step_seed42.json` (~30KB estimated)
+
+#### Task 4.7.2: Single-Sensor LMBM Step-by-Step Data ❌
+
+**MATLAB Reference**: All LMBM filter functions
+
+**Create**: `generateLmbmStepByStepData.m` (~200 lines)
+
+- [ ] **Prediction step** (`lmbmPredictionStep.m`):
+  - Inputs: prior hypotheses, model
+  - Outputs: predicted hypotheses
+
+- [ ] **Association matrices** (`generateLmbmAssociationMatrices.m`):
+  - Inputs: predicted hypotheses, measurements, model
+  - Outputs: association matrices for each hypothesis
+
+- [ ] **Gibbs sampling** (`lmbmGibbsSampling.m`):
+  - Inputs: association matrices, number of samples
+  - Outputs: sampled association events, frequencies
+
+- [ ] **Hypothesis parameters** (`determinePosteriorHypothesisParameters.m`):
+  - Inputs: predicted hypotheses, association events, measurements, model
+  - Outputs: posterior hypothesis weights, object parameters
+
+- [ ] **Normalization and gating** (`lmbmNormalisationAndGating.m`):
+  - Inputs: unnormalized hypothesis weights
+  - Outputs: normalized weights, gated hypothesis indices
+
+- [ ] **State extraction EAP** (`lmbmStateExtraction.m` with 'eap'):
+  - Inputs: gated hypotheses
+  - Outputs: extracted states (EAP estimates)
+
+- [ ] **State extraction MAP** (`lmbmStateExtraction.m` with 'map'):
+  - Inputs: gated hypotheses
+  - Outputs: extracted states (MAP estimates)
+
+- [ ] Save to `tests/data/lmbm_step_by_step_seed42.json` (~50KB estimated)
+
+#### Task 4.7.3: Multi-Sensor LMB Step-by-Step Data (IC/PU/GA/AA) ❌
+
+**MATLAB Reference**: All multi-sensor LMB filter functions
+
+**Create**: `generateMultisensorLmbStepByStepData.m` (~300 lines)
+
+- [ ] **Per-sensor association matrices** (`generateLmbSensorAssociationMatrices.m`):
+  - Inputs: predicted objects, measurements per sensor, model per sensor
+  - Outputs: association matrices for each sensor
+
+- [ ] **IC-LMB iterations** (`runIcLmbFilter.m`):
+  - Inputs: prior objects (or previous iteration), measurements all sensors, models
+  - Outputs: updated objects after each sensor (iteration 1, 2, ..., N_sensors)
+  - Track intermediate state after each sensor update
+
+- [ ] **PU-LMB sensor updates** (`runParallelUpdateLmbFilter.m`):
+  - Inputs: prior objects, measurements per sensor, model per sensor
+  - Outputs: per-sensor posterior objects (before merging)
+
+- [ ] **PU-LMB track merging** (`puLmbTrackMerging.m`):
+  - Inputs: prior objects, per-sensor posterior objects
+  - Outputs: fused posterior objects
+  - Track decorrelation factors, GM component selection
+
+- [ ] **GA-LMB track merging** (`gaLmbTrackMerging.m`):
+  - Inputs: prior objects, per-sensor posterior objects
+  - Outputs: fused posterior objects (geometric average)
+
+- [ ] **AA-LMB track merging** (`aaLmbTrackMerging.m`):
+  - Inputs: prior objects, per-sensor posterior objects
+  - Outputs: fused posterior objects (arithmetic average)
+
+- [ ] Save to `tests/data/multisensor_lmb_step_by_step_seed42.json` (~80KB estimated)
+
+#### Task 4.7.4: Multi-Sensor LMBM Step-by-Step Data ❌
+
+**MATLAB Reference**: All multi-sensor LMBM filter functions
+
+**Create**: `generateMultisensorLmbmStepByStepData.m` (~250 lines)
+
+- [ ] **Multi-sensor association matrices** (`generateMultisensorLmbmAssociationMatrices.m`):
+  - Inputs: predicted hypotheses, measurements all sensors, models
+  - Outputs: multi-sensor association matrices
+
+- [ ] **Multi-sensor Gibbs sampling** (`multisensorLmbmGibbsSampling.m`):
+  - Inputs: multi-sensor association matrices, number of samples
+  - Outputs: sampled multi-sensor association events
+  - Track per-sensor association vectors
+
+- [ ] **Multi-sensor hypothesis parameters** (`determineMultisensorPosteriorHypothesisParameters.m`):
+  - Inputs: predicted hypotheses, multi-sensor events, measurements, models
+  - Outputs: posterior hypothesis weights, object parameters
+
+- [ ] **State extraction** (from `runMultisensorLmbmFilter.m`):
+  - Inputs: posterior hypotheses
+  - Outputs: extracted states (EAP or MAP)
+
+- [ ] Save to `tests/data/multisensor_lmbm_step_by_step_seed42.json` (~100KB estimated)
+
+#### Task 4.7.5: Create Rust Step-by-Step Validation Tests ❌
+
+**Create**: `tests/step_by_step_validation.rs` (~800-1000 lines)
+
+- [ ] Load all step-by-step JSON fixtures
+- [ ] Implement validation functions for each algorithm component:
+  - `validate_lmb_prediction()`
+  - `validate_lmb_association_matrices()`
+  - `validate_lmb_lbp()`
+  - `validate_lmb_gibbs()`
+  - `validate_lmb_murtys()`
+  - `validate_lmb_update()`
+  - `validate_lmb_cardinality()`
+  - (similar for LMBM, multisensor LMB, multisensor LMBM)
+
+- [ ] Test each step independently with exact numerical equivalence (< 1e-10)
+- [ ] If a step fails, pinpoint the exact line/calculation that differs from MATLAB
+- [ ] Document any discovered bugs with step-level reproduction
+
+**Expected Outcome**: Complete validation of every algorithm component with exact numerical equivalence.
+
+**Testing Strategy**:
+- ✅ **100% deterministic** - uses `SimpleRng(42)` for all random operations
+- **Deep validation**: Every intermediate calculation verified
+- **Bug isolation**: Failed tests pinpoint exact algorithm step
+- **Fixtures are large**: ~260KB total (vs ~197KB for Phases 4.2-4.4)
+- **Enables refactoring**: Can confidently optimize knowing step-by-step tests will catch regressions
 
 ---
 
@@ -1211,7 +1535,7 @@ With `SimpleRng`, **every test** achieves exact numerical equivalence:
 - [ ] README updated with usage instructions (deferred)
 - [ ] Example output matches MATLAB **exactly** (same seed) - to be verified in Phase 5
 
-### Phase 4: Integration Tests ✅ SUBSTANTIALLY COMPLETE
+### Phase 4: Integration Tests (Single-Sensor) ✅ COMPLETE
 
 **Completed**:
 - [x] Created `tests/integration_tests.rs` with 10 single-sensor tests (all passing with --release)
@@ -1219,41 +1543,28 @@ With `SimpleRng`, **every test** achieves exact numerical equivalence:
 - [x] Tests verify filters run without crashing and produce reasonable outputs
 - [x] Determinism tests verify same seed produces same results
 - [x] Task 4.1: LBP vs Murty's marginal evaluation (COMPLETE - validates LBP approximation quality)
-- [x] Task 4.2: Accuracy trials (SUBSTANTIALLY COMPLETE)
-  - [x] Created `generateSingleSensorAccuracyFixtures_quick.m` for fixture generation
-  - [x] Generated fixture for seed 42 (tests/data/single_trial_42.json, 13KB)
-  - [x] Created `tests/accuracy_trials.rs` with fixture validation (323 lines)
-  - [x] **CRITICAL BUG FIXED**: `clutter_per_unit_volume` vs `clutter_rate` (40,000× impact)
-  - [x] **4 out of 5 filter variants validated** with exact numerical equivalence (<1e-10):
-    - ✅ LMB-LBP: All 100 timesteps pass
-    - ✅ LMB-Gibbs: All 100 timesteps pass
-    - ✅ LMBM-Gibbs: All 10 timesteps pass
-    - ✅ LMBM-Murty: All 10 timesteps pass
-  - [ ] Debug LMB-Murty mismatch at timestep 25 (deferred)
-  - [ ] Generate fixtures for additional seeds (deferred)
-  - [ ] Generate baseline statistics from full trials (deferred)
+- [x] Task 4.2: Single-sensor accuracy trials (COMPLETE - 5/5 variants validated)
+- [x] Task 4.3: Single-sensor clutter sensitivity trials (COMPLETE - 5/5 variants validated)
+- [x] Task 4.4: Single-sensor detection probability trials (COMPLETE - 5/5 variants validated)
 
-**Remaining Tasks**:
-- [x] Task 4.3: Clutter sensitivity trials (COMPLETE)
-  - [x] Created `generateSingleSensorClutterFixtures_quick.m` for fixture generation
-  - [x] Generated fixture for seed 42 (2 clutter rates: 10, 60)
-  - [x] Created `tests/clutter_trials.rs` with exact validation (330 lines)
-  - [x] All 5 filter variants validated with exact numerical equivalence (<1e-9)
-  - [x] Variable simulation lengths: Gibbs=3 steps, Others=100 steps
-  - [ ] Extend to full 10 clutter rates (deferred)
-  - [ ] Generate baseline from 100 trials (deferred)
-- [x] Task 4.4: Detection probability trials (COMPLETE)
-  - [x] Created `generateSingleSensorDetectionFixtures_quick.m` for fixture generation
-  - [x] Generated fixture for seed 42 (2 detection probabilities: 0.5, 0.999)
-  - [x] Created `tests/detection_trials.rs` with exact validation (335 lines)
-  - [x] All 5 filter variants validated with exact numerical equivalence (<1e-8)
-  - [x] Variable simulation lengths: Gibbs=3 steps, Others=100 steps
-  - [ ] Extend to full 6 detection probabilities (deferred)
-  - [ ] Generate baseline from 100 trials (deferred)
+### Phase 4.5: Fix All Broken Tests ❌ NOT STARTED
+- [ ] Task 4.5.1: Generate missing accuracy fixtures (seeds 1, 5, 10, 50, 100, 500)
+- [ ] Task 4.5.2: Fix determinism test assertion bug (line 186)
+- [ ] Task 4.5.3: Verify all tests pass (104/104 passing)
 
-**Strategy**: Balanced approach using representative seed fixtures for exact validation. Quick validation with seed 42 demonstrates core implementation correctness.
+### Phase 4.6: Multisensor Fixtures ❌ NOT STARTED
+- [ ] Task 4.6.1: Multisensor accuracy trials (5 variants: IC/PU/GA/AA-LMB, LMBM)
+- [ ] Task 4.6.2: Multisensor clutter sensitivity trials (4 variants: IC/PU/GA/AA-LMB)
+- [ ] Task 4.6.3: Multisensor detection probability trials (4 variants: IC/PU/GA/AA-LMB)
 
-### Phase 5: Verification
+### Phase 4.7: Step-by-Step Algorithm Data ❌ NOT STARTED
+- [ ] Task 4.7.1: LMB step-by-step data (all algorithm steps)
+- [ ] Task 4.7.2: LMBM step-by-step data (all algorithm steps)
+- [ ] Task 4.7.3: Multi-sensor LMB step-by-step data (IC/PU/GA/AA)
+- [ ] Task 4.7.4: Multi-sensor LMBM step-by-step data
+- [ ] Task 4.7.5: Rust step-by-step validation tests (~800-1000 lines)
+
+### Phase 5: Verification ❌ NOT STARTED
 - [ ] All 40+ file pairs compared line-by-line
 - [ ] Numerical fixtures generated from MATLAB with `SimpleRng`
 - [ ] All fixtures pass with **exact match** (<1e-15 tolerance)
