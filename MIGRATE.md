@@ -167,62 +167,7 @@
 
 - [x] Implement Xorshift64 PRNG as MATLAB class
 - [x] Methods: `rand()`, `randn()`, `poissrnd(lambda)`
-- [x] Constructor takes seed (uint64)
-- [x] Avoid zero state (use 1 if seed=0)
-
-**Implementation**:
-```matlab
-classdef SimpleRng
-    properties
-        state  % uint64
-    end
-    methods
-        function obj = SimpleRng(seed)
-            obj.state = uint64(seed);
-            if obj.state == 0
-                obj.state = uint64(1);
-            end
-        end
-
-        function [obj, val] = next_u64(obj)
-            x = obj.state;
-            x = bitxor(x, bitshift(x, 13));
-            x = bitxor(x, bitshift(x, -7));
-            x = bitxor(x, bitshift(x, 17));
-            obj.state = x;
-            val = x;
-        end
-
-        function [obj, val] = rand(obj)
-            [obj, u] = obj.next_u64();
-            val = double(u) / (2^64);
-        end
-
-        function [obj, val] = randn(obj)
-            % Box-Muller transform
-            [obj, u1] = obj.rand();
-            [obj, u2] = obj.rand();
-            val = sqrt(-2*log(u1)) * cos(2*pi*u2);
-        end
-
-        function [obj, val] = poissrnd(obj, lambda)
-            % Knuth algorithm
-            L = exp(-lambda);
-            k = 0;
-            p = 1.0;
-            while true
-                [obj, u] = obj.rand();
-                p = p * u;
-                if p <= L
-                    break;
-                end
-                k = k + 1;
-            end
-            val = k;
-        end
-    end
-end
-```
+- [x] Constructor takes seed (uint64), uses 1 if seed=0
 
 #### Task 0.2: Implement SimpleRng in Rust ✅ COMPLETE
 
@@ -232,56 +177,6 @@ end
 - [x] Implement `SimpleRng` struct with Xorshift64
 - [x] Match MATLAB implementation exactly
 - [x] Allow trait swapping for future improvements
-
-**Implementation**:
-```rust
-pub trait Rng {
-    fn next_u64(&mut self) -> u64;
-
-    fn rand(&mut self) -> f64 {
-        self.next_u64() as f64 / (u64::MAX as f64 + 1.0)
-    }
-
-    fn randn(&mut self) -> f64 {
-        let u1 = self.rand();
-        let u2 = self.rand();
-        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
-    }
-
-    fn poissrnd(&mut self, lambda: f64) -> usize {
-        let l = (-lambda).exp();
-        let mut k = 0;
-        let mut p = 1.0;
-        loop {
-            p *= self.rand();
-            if p <= l { break; }
-            k += 1;
-        }
-        k
-    }
-}
-
-pub struct SimpleRng {
-    state: u64,
-}
-
-impl SimpleRng {
-    pub fn new(seed: u64) -> Self {
-        Self { state: if seed == 0 { 1 } else { seed } }
-    }
-}
-
-impl Rng for SimpleRng {
-    fn next_u64(&mut self) -> u64 {
-        let mut x = self.state;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.state = x;
-        x
-    }
-}
-```
 
 #### Task 0.3: Cross-language validation ✅ COMPLETE
 
@@ -367,34 +262,7 @@ impl Rng for SimpleRng {
 1. **Murty's algorithm dummy cost**: Rust used `∞` instead of `0` for dummy block (line 71: `-(-1.0).ln()` → `-(1.0).ln()` = 0)
 2. **Gibbs initialization**: Rust used Hungarian algorithm instead of Murty's - now matches MATLAB `murtysAlgorithmWrapper(C, 1)`
 
-**Verification**: Cross-language test with `SimpleRng(42)` and 1000 samples achieves exact numerical equivalence (within 1e-6).
-
-**Implementation Notes**:
-```matlab
-% MATLAB approach (frequency counting):
-for i = 1:numberOfSamples
-    ell = n * v + eta;  % Compute linear index
-    Sigma(ell) = Sigma(ell) + (1 / numberOfSamples);  % Tally frequencies
-    [rng, v, w] = generateGibbsSample(rng, associationMatrices.P, v, w);
-end
-```
-
-Current Rust approach (unique samples):
-```rust
-// Rust approach (unique deduplication):
-for _ in 0..num_samples {
-    (v, w) = generate_gibbs_sample(rng, &matrices.p, v, w);
-    v_samples_vec.push(v.clone());
-}
-// Find unique samples
-let mut unique_samples: HashMap<Vec<usize>, usize> = HashMap::new();
-```
-
-**Testing Strategy**:
-- ✅ **NOW DETERMINISTIC** with `SimpleRng`
-- Generate MATLAB fixture with `SimpleRng(42)`
-- Compare Rust output with same seed
-- Assert exact numerical equivalence (within 1e-10)
+**Verification**: Cross-language test with `SimpleRng(42)` and 1000 samples achieves exact numerical equivalence (within 1e-6). Both frequency-counting and unique-sampling approaches implemented.
 
 ---
 
@@ -417,26 +285,6 @@ let mut unique_samples: HashMap<Vec<usize>, usize> = HashMap::new();
 - [x] Output results to console (skip plotting)
 - [x] Add CLI arguments (clap) for all parameters: seed, filter type, clutter rate, detection probability, data association, scenario type
 
-**Implementation**:
-```rust
-// examples/single_sensor_lmb.rs
-use prak::common::rng::SimpleRng;
-use prak::common::model::generate_model;
-use prak::common::ground_truth::generate_ground_truth;
-use prak::lmb::filter::run_lmb_filter;
-use prak::lmbm::filter::run_lmbm_filter;
-
-fn main() {
-    let mut rng = SimpleRng::new(42);
-    // Port runFilters.m logic here
-}
-```
-
-**Testing Strategy**:
-- ✅ **100% deterministic** with `SimpleRng(seed)`
-- Output matches MATLAB with same seed exactly
-- Can create regression tests with known seed outputs
-
 #### Task 3.2: Create multi-sensor example ✅ COMPLETE
 
 **MATLAB Reference**: `runMultisensorFilters.m` (29 lines)
@@ -449,14 +297,7 @@ fn main() {
 - [x] Run selected filter
 - [x] Output results to console
 - [x] Add CLI arguments (clap) for all parameters: seed, filter type, number of sensors, data association, scenario type
-
-**Testing Strategy**: ✅ Same as Task 3.1 - fully deterministic
-
-**Implementation Notes**:
-- Added `clap` dependency (v4.5) for command-line argument parsing
-- Both examples support `--help` flag for usage information
-- Examples can be run with: `cargo run --example single_sensor` or `cargo run --example multi_sensor`
-- All parameters have sensible defaults matching MATLAB examples
+- [x] Both examples fully deterministic with `SimpleRng` and support `--help` flag
 
 ---
 
@@ -522,35 +363,8 @@ fn main() {
 - [x] Run Murty's to exhaustively compute exact marginals
 - [x] Compute KL divergence and Hellinger distance errors
 - [x] Assert errors are within acceptable bounds
-
-**Implementation Notes**:
-```matlab
-% Key MATLAB logic:
-rng = SimpleRng(42);
-[rng, associationMatrices] = generateAssociationMatrices(rng, model);
-[rLbp, WLbp] = loopyBeliefPropagation(associationMatrices, ...);
-[~, ~, V] = lmbMurtysAlgorithm(associationMatrices, numberOfEvents);
-% Compute exact marginals from V
-% Compare LBP vs Murty's
-rKl(t, n) = averageKullbackLeiblerDivergence([1-rMurty rMurty], [1-rLbp rLbp]);
-WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
-```
-
-**Testing Strategy**:
-- ✅ **100% deterministic** with `SimpleRng(42)`
-- Generate MATLAB fixtures with known seeds
-- Rust tests use same seeds for exact comparison
-- Helper functions implemented:
-  - [x] `calculate_number_of_association_events()` - in `tests/test_utils.rs`
-  - [x] `average_kullback_leibler_divergence()` - in `tests/test_utils.rs`
-  - [x] `average_hellinger_distance()` - in `tests/test_utils.rs`
-
-**Test Results**:
-- ✅ **n=1**: r_KL=0.000000, w_KL=0.000000 (exact, as expected)
-- ✅ **n=2**: r_KL=0.000019, w_KL=0.003855 (excellent approximation)
-- ✅ **n=3**: r_KL=0.007795, w_KL=0.063939 (good approximation)
-- ✅ All tests pass within specified error bounds
-- ✅ Created `tests/test_utils.rs` with helper functions for `generate_simplified_model()` and `generate_association_matrices()`
+- [x] All tests pass (n=1: exact, n=2-3: good approximation within bounds)
+- [x] Created `tests/test_utils.rs` with helper functions
 
 #### Task 4.2: Accuracy trial tests ✅ SUBSTANTIALLY COMPLETE
 
@@ -558,188 +372,32 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 - `singleSensorAccuracyTrial.m` (125 lines)
 - `multiSensorAccuracyTrial.m` (132 lines)
 
-**Status**: ✅ Quick validation complete (seed 42, mixed-length fixtures). 4 out of 5 filter variants validated with exact numerical equivalence.
+**Status**: ✅ Quick validation complete (seed 42, mixed-length fixtures). 5/5 filter variants validated with exact numerical equivalence.
 
-**What MATLAB does**:
-- Runs 100 trials for single-sensor (line 17: `numberOfTrials = 100`)
-- Runs 1000 trials for multi-sensor LMB (line 16: `numberOfLmbTrials = 1000`)
-- Runs 100 trials for multi-sensor LMBM (line 17: `numberOfLmbmTrials = 100`)
-- Collects E-OSPA, H-OSPA, and cardinality for ALL 100 timesteps
-- Computes mean across all trials
-- Single-sensor: 5 filter variants (LMB: LBP, Gibbs, Murty; LMBM: Gibbs, Murty)
-- Multi-sensor: 5 filter variants (LMB: IC, PU, GA, AA; LMBM: 1 variant)
+**Implementation**: MATLAB fixture generator created, Rust tests infrastructure complete (`tests/accuracy_trials.rs`, 323 lines). LMB filters use 100 timesteps, LMBM uses 10 timesteps (performance optimization).
 
-**Implementation Complete**:
+**Test Results**: All 5 filter variants pass with exact numerical equivalence (< 1e-10 tolerance): LMB-LBP, LMB-Gibbs, LMB-Murty, LMBM-Gibbs, LMBM-Murty.
 
-✅ **MATLAB Fixture Generation**:
-- [x] Created `generateSingleSensorAccuracyFixtures_quick.m` (142 lines)
-- [x] Full 100 timesteps for LMB filters (LBP, Gibbs, Murty)
-- [x] Reduced 10 timesteps for LMBM filters (Gibbs, Murty) - 100× faster
-- [x] Generated fixture in ~2.2 minutes
-- [x] Saved to `tests/data/single_trial_42.json` (13KB)
-
-✅ **Rust Test Infrastructure**:
-- [x] Completely rewrote `tests/accuracy_trials.rs` (323 lines)
-- [x] Fixture loading with `serde_json`
-- [x] Helper functions for running trials and comparing results
-- [x] Variable-length array support (LMB: 100, LMBM: 10 timesteps)
-- [x] Determinism verification test included
-
-✅ **Critical Bug Fixed** (`src/lmb/association.rs`):
-- **Issue**: Used `model.clutter_rate` instead of `model.clutter_per_unit_volume` in log-likelihood calculations
-- **Impact**: 40,000× difference in values, ~10.6 difference in log-likelihood
-- **Result**: Existence probabilities were 1000× too low (0.0015 vs 0.86)
-- **Symptom**: LMB filter detected 0 objects at t=0 (all failed gating threshold)
-- **Fix**: Changed lines 108 and 138 from `clutter_rate.ln()` to `clutter_per_unit_volume.ln()`
-- **Files affected**: `src/lmb/association.rs` (2 lines changed)
-- **Verification**: After fix, existence probabilities match MATLAB exactly
-
-**Test Results** (seed 42):
-- ✅ **LMB-LBP**: All 100 timesteps pass (< 1e-10 tolerance)
-- ✅ **LMB-Gibbs**: All 100 timesteps pass (< 1e-10 tolerance)
-- ✅ **LMB-Murty**: All 100 timesteps pass (< 1e-10 tolerance) ✅ **FIXED**
-- ✅ **LMBM-Gibbs**: All 10 timesteps pass (< 1e-10 tolerance)
-- ✅ **LMBM-Murty**: All 10 timesteps pass (< 1e-10 tolerance)
-
-**Summary**: **5 out of 5 filter variants validated** with exact numerical equivalence (E-OSPA, H-OSPA, cardinality).
-
-**Critical Bugs Fixed**:
-1. **Murty's algorithm in-place modification bug** (`src/common/association/murtys.rs:168,206-215`):
-   - **Issue**: `p_now` was not mutable, so the "enforce current assignment" logic created `p_now_mut` but never used it
-   - **Impact**: Problem matrix not modified in place between loop iterations, causing duplicate assignments
-   - **Root cause**: Misunderstanding of MATLAB's in-place modification semantics
-   - **Fix**: Changed `let p_now` to `let mut p_now` and removed unused `p_now_mut` variable
-   - **MATLAB reference**: Lines 109-112 of `murtysAlgorithm.m` modify `P_now` in place
-   - **Result**: LMB-Murty now passes all 100 timesteps with exact numerical equivalence
-
-2. **Cost matrix infinity handling** (`src/lmb/association.rs:218`):
-   - **Issue**: Used `1e10` for very small likelihoods instead of `f64::INFINITY`
-   - **Impact**: Murty's algorithm received finite costs instead of infinity for impossible assignments
-   - **Fix**: Changed `1e10` to `f64::INFINITY` to match MATLAB's `-log(0) = Inf`
-   - **MATLAB reference**: Line 82 of `generateLmbAssociationMatrices.m`: `C = -log(L)`
-
-**Next Steps** (deferred until after Phase 5):
-- [ ] Generate fixtures for additional seeds (1, 5, 10, 50, 100, 500)
-- [ ] Generate baseline statistics from full 100/1000 trial runs
-- [ ] Extend LMBM validation to full 100 timesteps
-
-**Testing Strategy**:
-- ✅ **100% deterministic** - each trial uses `SimpleRng(trialNumber)` as seed
-- ✅ **Exact validation**: Seed 42 verifies bit-for-bit equivalence
-- ✅ **Incremental approach**: Core implementation validated quickly
-- ✅ **Mixed-length fixtures**: Pragmatic solution avoiding multi-hour LMBM runs
+**Bugs Fixed**:
+1. Clutter parameter bug in `src/lmb/association.rs` (used `clutter_rate` instead of `clutter_per_unit_volume`)
+2. Murty's algorithm in-place modification bug (missing `mut`)
+3. Cost matrix infinity handling (used `1e10` instead of `f64::INFINITY`)
 
 ---
 
 #### Task 4.3: Clutter sensitivity tests ✅ COMPLETE
 
-**MATLAB References**:
-- `singleSensorClutterTrial.m` (113 lines)
-- `multiSensorClutterTrial.m` (95 lines)
+**Status**: ✅ All 5 filter variants validated with exact numerical equivalence (seed 42, 2 clutter rates: [10, 60]).
 
-**Status**: ✅ Quick validation complete (seed 42, 2 clutter rates). All 5 filter variants validated with exact numerical equivalence.
-
-**What MATLAB does**:
-- Runs 100 trials per clutter rate
-- **Parameter sweep**: Clutter returns = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] (10 values)
-- Fixed detection probability = 0.95 (single-sensor), [0.67, 0.7, 0.73] (multi-sensor)
-- Collects **mean E-OSPA and mean H-OSPA** across 100 timesteps (aggregated, not per-timestep)
-- Single-sensor: 5 filter variants (LMB: LBP, Gibbs, Murty; LMBM: Gibbs, Murty)
-- Multi-sensor: 4 filter variants (LMB: IC, PU, GA, AA)
-
-**Implementation Complete**:
-
-✅ **MATLAB Fixture Generation**:
-- [x] Created `generateSingleSensorClutterFixtures_quick.m` (~143 lines)
-- [x] Variable simulation lengths: Gibbs=3 steps, Others=100 steps
-- [x] Quick validation with 2 clutter rates: [10, 60] (representative endpoints)
-- [x] Generated fixture in ~2 minutes
-- [x] Saved to `tests/data/single_trial_42_quick.json` (~600 bytes)
-
-✅ **Rust Test Infrastructure**:
-- [x] Created `tests/clutter_trials.rs` (~330 lines)
-- [x] Fixture loading with `serde_json`
-- [x] Helper functions for running trials with variable simulation lengths
-- [x] Exact match test for seed 42 across 2 clutter rates (< 1e-9 tolerance)
-- [x] Determinism verification test included
-
-**Test Results** (seed 42, 2 clutter rates):
-- ✅ **LMB-LBP**: Both rates match (max diff: 6.76e-10)
-- ✅ **LMB-Gibbs**: Both rates match exactly
-- ✅ **LMB-Murty**: Both rates match (max diff: 6.76e-10)
-- ✅ **LMBM-Gibbs**: Both rates match exactly
-- ✅ **LMBM-Murty**: Both rates match (max diff: 6.76e-10)
-
-**Summary**: **5 out of 5 filter variants validated** with exact numerical equivalence for mean E-OSPA and H-OSPA.
-
-**Next Steps** (deferred):
-- [ ] Extend to full 10 clutter rates if needed
-- [ ] Generate multi-sensor clutter fixtures
-- [ ] Generate baseline statistics from full 100 trial runs
-
-**Testing Strategy**:
-- ✅ **100% deterministic** - each trial uses `SimpleRng(trialNumber)` as seed
-- **Exact validation**: Seed 42 verifies bit-for-bit equivalence across clutter sweep
-- **Statistical validation**: 100 trials verify mean trends match MATLAB
-- **Note**: MATLAB aggregates to means (not per-timestep), so fixtures are very lightweight
+**Implementation**: Created `tests/clutter_trials.rs` (~330 lines) and MATLAB fixture generator. Variable simulation lengths for performance (Gibbs=3 steps, Others=100 steps).
 
 ---
 
 #### Task 4.4: Detection probability tests ✅ COMPLETE
 
-**MATLAB References**:
-- `singleSensorDetectionProbabilityTrial.m` (111 lines)
-- `multiSensorDetectionProbabilityTrial.m` (93 lines)
+**Status**: ✅ All 5 filter variants validated with exact numerical equivalence (seed 42, 2 detection probabilities: [0.5, 0.999]).
 
-**Status**: ✅ Quick validation complete (seed 42, 2 detection probabilities). All 5 filter variants validated with exact numerical equivalence.
-
-**What MATLAB does**:
-- Runs 100 trials per detection probability
-- **Parameter sweep**: Detection probabilities = [0.5, 0.6, 0.7, 0.8, 0.9, 0.999] (6 values)
-- Fixed clutter returns = 5 (single-sensor), [5, 5, 5] (multi-sensor)
-- Collects **mean E-OSPA and mean H-OSPA** across 100 timesteps (aggregated, not per-timestep)
-- Single-sensor: 5 filter variants (LMB: LBP, Gibbs, Murty; LMBM: Gibbs, Murty)
-- Multi-sensor: 4 filter variants (LMB: IC, PU, GA, AA)
-
-**Implementation Complete**:
-
-✅ **MATLAB Fixture Generation**:
-- [x] Created `generateSingleSensorDetectionFixtures_quick.m` (~171 lines)
-- [x] Variable simulation lengths: Gibbs=3 steps, Others=100 steps
-- [x] Quick validation with 2 detection probabilities: [0.5, 0.999] (representative endpoints)
-- [x] Generated fixture in ~2 minutes
-- [x] Saved to `tests/data/single_detection_trial_42_quick.json` (~660 bytes)
-
-✅ **Rust Test Infrastructure**:
-- [x] Created `tests/detection_trials.rs` (~335 lines)
-- [x] Fixture loading with `serde_json`
-- [x] Helper functions for running trials with variable simulation lengths
-- [x] Exact match test for seed 42 across 2 detection probabilities (< 1e-8 tolerance)
-- [x] Determinism verification test included
-
-**Test Results** (seed 42, 2 detection probabilities):
-- ✅ **LMB-LBP**: Both probabilities match (max diff: 9.25e-10)
-- ✅ **LMB-Gibbs**: Both probabilities match (max diff: 2.48e-9)
-- ✅ **LMB-Murty**: Both probabilities match (max diff: 9.25e-10)
-- ✅ **LMBM-Gibbs**: Both probabilities match (max diff: 2.48e-9)
-- ✅ **LMBM-Murty**: Both probabilities match (max diff: 7.76e-10)
-
-**Summary**: **5 out of 5 filter variants validated** with exact numerical equivalence for mean E-OSPA and H-OSPA.
-
-**Performance Trend Validation**:
-- Higher detection probability (0.999) → Lower OSPA (better tracking) ✓
-- Lower detection probability (0.5) → Higher OSPA (worse tracking) ✓
-
-**Next Steps** (deferred):
-- [ ] Extend to full 6 detection probabilities if needed
-- [ ] Generate multi-sensor detection fixtures
-- [ ] Generate baseline statistics from full 100 trial runs
-
-**Testing Strategy**:
-- ✅ **100% deterministic** - each trial uses `SimpleRng(trialNumber)` as seed
-- **Exact validation**: Seed 42 verifies bit-for-bit equivalence across detection sweep
-- **Statistical validation**: 100 trials verify mean trends match MATLAB
-- **Note**: MATLAB aggregates to means (not per-timestep), so fixtures are very lightweight
+**Implementation**: Created `tests/detection_trials.rs` (~335 lines) and MATLAB fixture generator. Performance trends validated (higher P_d → lower OSPA).
 
 ---
 
@@ -747,70 +405,11 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 
 ### Bug 1: Gibbs Methods Produce Different Results - ✅ RESOLVED (Not a Bug)
 
-**Status**: ✅ RESOLVED - Both implementations are mathematically correct
+**Status**: ✅ RESOLVED - Both implementations mathematically correct. Frequency method approximates sampling distribution, unique method approximates posterior distribution. Cross-language equivalence verified for both.
 
-**Location**: `src/common/association/gibbs.rs`
+### Bug 2: PU-LMB Track Merging Test - ✅ FIXED
 
-**Original Concern**: Two Gibbs sampling methods produce significantly different existence probabilities
-- Frequency method: r = [0.6922, 0.6400]
-- Unique method: r = [0.9283, 0.9283]
-- Difference: ~0.24-0.29
-
-**Root Cause Analysis**: The methods use fundamentally different mathematical approaches:
-1. **Frequency sampling** (`lmb_gibbs_frequency_sampling`):
-   - Tallies ALL samples with equal weight (1/N per sample)
-   - Formula: `Tau = Sigma .* R` (no normalization of Sigma)
-   - Approximates the **sampling distribution** directly
-   - Faster, simpler, but samples may not be independent
-
-2. **Unique sampling** (`lmb_gibbs_sampling`):
-   - Weights unique samples by their likelihood
-   - Formula: `Tau = (Sigma .* R) ./ sum(Sigma, 2)` (normalizes by likelihood sum)
-   - Approximates the **posterior distribution** more accurately
-   - MATLAB-optimized (faster in MATLAB due to vectorization)
-
-**Resolution**:
-- ✅ Cross-language equivalence verified: Rust matches Octave exactly for both methods
-- ✅ Both methods produce **valid** probabilities (r ∈ [0, 1])
-- ✅ Difference is **mathematically expected** and acceptable
-- ✅ Tests pass: `test_gibbs_frequency_cross_language_equivalence`
-- ℹ️ Commented-out comparison test documents the difference (lines 408-422)
-
-**Recommendation**: Use frequency method in Rust (faster), unique method in MATLAB (faster there).
-
----
-
-### Bug 2: PU-LMB Track Merging Test Ignored - ✅ FIXED
-
-**Status**: ✅ FIXED - Test setup corrected, `#[ignore]` removed
-
-**Location**: `src/multisensor_lmb/merging.rs::tests::test_pu_lmb_track_merging()`
-
-**Original Symptom**: Test gives r ≈ 0.0000000002 instead of expected r = 0.88
-
-**Root Cause**: Test used **identical** values for prior and sensor posteriors
-- All used `birth_parameters`: r_prior = r_sensor1 = r_sensor2 = 0.03
-- PU fusion uses decorrelation: `r_fused ∝ r_prior^(-1) * r_sensor1 * r_sensor2`
-- When all equal: `r ∝ r^(-1) * r * r = r` (but numerical issues cause near-zero)
-
-**Fix Applied**:
-1. Created realistic test data with **different** existence probabilities:
-   - prior: r = 0.5 (moderate initial belief)
-   - sensor1: r = 0.7 (improved after measurement)
-   - sensor2: r = 0.6 (improved after measurement)
-2. Updated expected result based on PU decorrelation formula
-3. Removed `#[ignore]` attribute
-4. Test now passes ✅
-
-**Mathematical Verification**:
-```
-decorr_factor = 1 - num_sensors = -1
-numerator = eta * r_prior^(-1) * r_sensor1 * r_sensor2
-denominator = numerator + (1-r_prior)^(-1) * (1-r_sensor1) * (1-r_sensor2)
-r_fused = numerator / denominator
-```
-
-**Resolution**: Test validates PU-LMB merging implementation is correct.
+**Status**: ✅ FIXED - Test was using identical values for prior and sensors, causing numerical issues with decorrelation formula. Fixed with realistic test data, `#[ignore]` removed.
 
 ---
 
@@ -1230,322 +829,30 @@ For EACH of the 40+ corresponding MATLAB/Rust file pairs, perform detailed compa
 
 ---
 
-## RNG Strategy - 100% Deterministic Testing
-
-### Files Using Random Number Generation
-
-All RNG calls will be replaced with `SimpleRng` for 100% determinism across MATLAB/Octave and Rust.
-
-**Ground Truth Generation**:
-1. `generateGroundTruth.m` (111 lines)
-   - Line 57: `[rng, vals] = rng.randn(...)` - Initial velocities
-   - Line 71: `[rng, vals] = rng.rand(...)` - Clutter measurements
-   - Line 98: `[rng, vals] = rng.randn(...)` - Measurement noise
-
-2. `generateMultisensorGroundTruth.m` (130 lines)
-   - Line 57: `[rng, vals] = rng.randn(...)` - Initial velocities
-   - Line 72: `[rng, vals] = rng.rand(...)` - Clutter measurements
-   - Line 98: `[rng, vals] = rng.rand(...)` - Detection success
-   - Line 108: `[rng, vals] = rng.randn(...)` - Measurement noise
-
-**Model Generation**:
-3. `generateModel.m` (182 lines)
-   - Line 93: `[rng, vals] = rng.rand(...)` - Birth locations
-
-4. `generateMultisensorModel.m` (194 lines)
-   - Line 103: `[rng, vals] = rng.rand(...)` - Birth locations
-
-**Data Association (NOW DETERMINISTIC)**:
-5. `generateGibbsSample.m` (42 lines)
-   - Line 30: `[rng, u] = rng.rand(); if u < P(i, j)` - Sampling decisions
-
-6. `generateMultisensorAssociationEvent.m` (49 lines)
-   - Line 27: `[rng, u] = rng.rand(); if u < P` - Association sampling
-
-### SimpleRng Implementation
-
-**Algorithm**: Xorshift64 - minimal, fast, cross-language compatible
-
-**Key Properties**:
-- **Simplicity**: ~5 lines of bit operations
-- **Speed**: No lookup tables, no heavy math
-- **Determinism**: Identical output for same seed across languages
-- **Quality**: Passes basic randomness tests (sufficient for testing)
-
-**Cross-Language Compatibility**:
-```matlab
-% MATLAB/Octave
-rng = SimpleRng(42);
-[rng, val] = rng.rand();  % Returns: 0.123456789...
-```
-
-```rust
-// Rust
-let mut rng = SimpleRng::new(42);
-let val = rng.rand();  // Returns: 0.123456789... (EXACT SAME)
-```
-
-### Testing Strategy - Zero Statistical Validation
-
-✅ **ALL tests are now deterministic**:
-
-1. **Unit tests**: Use `SimpleRng(42)` for reproducible scenarios
-2. **Integration tests**: MATLAB fixtures with `SimpleRng(seed)` → Rust with same seed → exact match
-3. **Trial scripts**: Each trial uses fixed seed → 100% reproducible
-4. **Gibbs sampling**: No longer stochastic in testing - same seed = same samples
-5. **Examples**: Deterministic output for documentation/validation
-
-**Migration Benefits**:
-- ❌ **Eliminate** statistical validation complexity
-- ❌ **Eliminate** tolerance-based testing for RNG-dependent code
-- ✅ **Enable** exact numerical equivalence testing
-- ✅ **Enable** bit-for-bit regression tests
-- ✅ **Simplify** debugging (reproducible failures)
-
----
-
 ## Detailed File Mapping
 
-### MATLAB Files → Rust Files
-
-#### Common Utilities (18→12)
-| MATLAB | Lines | Rust | Lines | Status |
-|--------|-------|------|-------|--------|
-| Hungarian.m | 280 | hungarian.rs | 447 | ✅ Complete |
-| munkres.m | 132 | hungarian.rs | 447 | ✅ Merged |
-| loopyBeliefPropagation.m | 47 | lbp.rs | 282 | ✅ Complete |
-| fixedLoopyBeliefPropagation.m | 40 | lbp.rs | 282 | ✅ Merged |
-| generateGibbsSample.m | 42 | gibbs.rs | 268 | ✅ Complete |
-| initialiseGibbsAssociationVectors.m | 29 | gibbs.rs | 268 | ✅ Merged |
-| murtysAlgorithm.m | 127 | murtys.rs | 268 | ✅ Complete |
-| murtysAlgorithmWrapper.m | 59 | murtys.rs | 268 | ✅ Merged |
-| generateModel.m | 182 | model.rs | 485 | ✅ Complete |
-| generateMultisensorModel.m | 194 | model.rs | 485 | ✅ Merged |
-| generateGroundTruth.m | 111 | ground_truth.rs | 584 | ✅ Complete |
-| generateMultisensorGroundTruth.m | 130 | ground_truth.rs | 584 | ✅ Merged |
-| ospa.m | 72 | metrics.rs | 263 | ✅ Complete |
-| computeSimulationOspa.m | 35 | metrics.rs | 263 | ✅ Merged |
-| esf.m | 39 | utils.rs | 289 | ✅ Complete |
-| lmbMapCardinalityEstimate.m | 28 | cardinality.rs | 190 | ✅ Complete |
-| plotResults.m | 277 | - | - | ❌ Skipped (viz) |
-| plotMultisensorResults.m | 291 | - | - | ❌ Skipped (viz) |
-
-#### Single-Sensor LMB (6→9)
-| MATLAB | Lines | Rust | Lines | Status |
-|--------|-------|------|-------|--------|
-| runLmbFilter.m | 91 | filter.rs | 230 | ✅ Complete |
-| lmbPredictionStep.m | 32 | prediction.rs | 144 | ✅ Complete |
-| generateLmbAssociationMatrices.m | 82 | association.rs | 314 | ✅ Complete |
-| computePosteriorLmbSpatialDistributions.m | 51 | update.rs | 208 | ✅ Complete |
-| lmbGibbsSampling.m | 51 | data_association.rs | 280 | ✅ Complete |
-| lmbGibbsFrequencySampling.m | 46 | - | - | ❌ MISSING |
-| lmbMurtysAlgorithm.m | 39 | data_association.rs | 280 | ✅ Complete |
-| - | - | cardinality.rs | 190 | ✅ Extra |
-| - | - | gibbs_sampling.rs | 2 | ⚠️ REMOVE |
-| - | - | murtys.rs | 2 | ⚠️ REMOVE |
-
-#### Single-Sensor LMBM (7→6)
-| MATLAB | Lines | Rust | Lines | Status |
-|--------|-------|------|-------|--------|
-| runLmbmFilter.m | 91 | filter.rs | 266 | ✅ Complete |
-| lmbmPredictionStep.m | 33 | prediction.rs | 132 | ✅ Complete |
-| generateLmbmAssociationMatrices.m | 63 | association.rs | 352 | ✅ Complete |
-| determinePosteriorHypothesisParameters.m | 47 | hypothesis.rs | 404 | ✅ Complete |
-| lmbmGibbsSampling.m | 35 | association.rs | 352 | ✅ Merged |
-| lmbmNormalisationAndGating.m | 55 | hypothesis.rs | 404 | ✅ Merged |
-| lmbmStateExtraction.m | 32 | hypothesis.rs | 404 | ✅ Merged |
-| - | - | update.rs | 2 | ⚠️ REMOVE |
-
-#### Multi-Sensor LMB (6→5)
-| MATLAB | Lines | Rust | Lines | Status |
-|--------|-------|------|-------|--------|
-| runParallelUpdateLmbFilter.m | 105 | parallel_update.rs | 389 | ✅ Complete |
-| runIcLmbFilter.m | 91 | iterated_corrector.rs | 260 | ✅ Complete |
-| puLmbTrackMerging.m | 93 | merging.rs | 447 | ✅ Complete |
-| gaLmbTrackMerging.m | 73 | merging.rs | 447 | ✅ Merged |
-| aaLmbTrackMerging.m | 40 | merging.rs | 447 | ✅ Merged |
-| generateLmbSensorAssociationMatrices.m | 84 | association.rs | 273 | ✅ Complete |
-
-#### Multi-Sensor LMBM (5→6)
-| MATLAB | Lines | Rust | Lines | Status |
-|--------|-------|------|-------|--------|
-| runMultisensorLmbmFilter.m | 95 | filter.rs | 266 | ✅ Complete |
-| generateMultisensorLmbmAssociationMatrices.m | 113 | association.rs | 277 | ✅ Complete |
-| determineMultisensorPosteriorHypothesisParameters.m | 60 | hypothesis.rs | 200 | ✅ Complete |
-| multisensorLmbmGibbsSampling.m | 40 | gibbs.rs | 225 | ✅ Complete |
-| generateMultisensorAssociationEvent.m | 49 | association.rs | 277 | ✅ Merged |
-| - | - | update.rs | 2 | ⚠️ REMOVE |
-
-#### Tests/Validation (12→1)
-| MATLAB | Lines | Rust | Lines | Status |
-|--------|-------|------|-------|--------|
-| evaluateSmallExamples.m | 117 | - | - | ❌ Missing |
-| evaluateMarginalDistributions.m | 148 | - | - | ❌ Missing |
-| evaluateMarginalDistrubtionsVariableObjects.m | 123 | - | - | ❌ Missing |
-| generateAssociationMatrices.m | 65 | - | - | ❌ Missing |
-| generateSimplifiedModel.m | 61 | - | - | ❌ Missing |
-| lmbFilterTimeTrials.m | 203 | lmb_performance.rs | ~50 | ⚠️ Partial |
-| singleSensorAccuracyTrial.m | 125 | - | - | ❌ Missing |
-| singleSensorClutterTrial.m | 113 | - | - | ❌ Missing |
-| singleSensorDetectionProbabilityTrial.m | 111 | - | - | ❌ Missing |
-| multiSensorAccuracyTrial.m | 132 | - | - | ❌ Missing |
-| multiSensorClutterTrial.m | 95 | - | - | ❌ Missing |
-| multiSensorDetectionProbabilityTrial.m | 93 | - | - | ❌ Missing |
-
-#### Examples (2→0)
-| MATLAB | Lines | Rust | Lines | Status |
-|--------|-------|------|-------|--------|
-| runFilters.m | 19 | - | - | ❌ Missing |
-| runMultisensorFilters.m | 29 | - | - | ❌ Missing |
+**Summary**: MATLAB functionality ported to Rust with consolidation (many MATLAB files merged into fewer Rust modules). See Appendix for full file paths.
 
 ---
 
 ## Key Differences Between MATLAB and Rust
 
-### 1. File Organization
-- **MATLAB**: Flat structure, one function per file
-- **Rust**: Modular structure, multiple related functions per file
-- **Impact**: Several MATLAB files merged into single Rust files
-- **Verification**: Must ensure ALL MATLAB functions have Rust equivalents
-
-### 2. MEX Binaries
-- **MATLAB**: Uses MEX (C/C++) for Hungarian assignment (`assignmentoptimal.c/cc`)
-- **Rust**: Pure Rust implementation of Hungarian algorithm
-- **Impact**: Must verify numerical equivalence
-- **Status**: ✅ Verified by existing unit tests
-
-### 3. Gibbs Sampling Variants
-- **MATLAB**: TWO implementations
-  - `lmbGibbsSampling.m` - Uses unique() to deduplicate samples
-  - `lmbGibbsFrequencySampling.m` - Uses frequency counting (faster in non-MATLAB)
-- **Rust**: ONE implementation (unique samples approach)
-- **Impact**: ❌ Missing frequency variant
-- **Action**: Implement frequency variant in Phase 2
-
-### 4. Testing Approach
-- **MATLAB**: Separate trial/validation scripts
-- **Rust**: Inline unit tests + separate integration tests
-- **Impact**: Must port trial scripts as integration tests
-- **Status**: ❌ Only 1/7 partially done
-
-### 5. Visualization
-- **MATLAB**: Built-in plotting with `plotResults.m`
-- **Rust**: No visualization (out of scope)
-- **Impact**: None (intentionally skipped)
-
----
-
-## Critical Observations & Concerns
-
-### 1. Empty Stub Files
-**Issue**: 4 files with only comment headers (2 lines each)
-- `src/lmb/gibbs_sampling.rs`
-- `src/lmb/murtys.rs`
-- `src/lmbm/update.rs`
-- `src/multisensor_lmbm/update.rs`
-
-**Action**: DELETE in Phase 1 (cleanup)
-
-### 2. Missing Gibbs Variant
-**Issue**: `lmbGibbsFrequencySampling.m` not implemented
-**Impact**: MATLAB has 2 Gibbs variants, Rust has only 1
-**Action**: IMPLEMENT in Phase 2
-
-### 3. No Examples
-**Issue**: Entry points (`runFilters.m`, `runMultisensorFilters.m`) not ported
-**Impact**: No executable demos of the library
-**Action**: CREATE in Phase 3
-
-### 4. No Integration Tests
-**Issue**: 12 MATLAB test/trial scripts not ported
-**Impact**: Cannot verify MATLAB↔Rust numerical equivalence
-**Action**: CREATE in Phase 4
-
-### 5. RNG Compatibility Critical
-**Issue**: Ground truth generation MUST produce identical results
-**Status**: ⚠️ Will be replaced with SimpleRng in Phase 0
-**Action**: IMPLEMENT SimpleRng for 100% cross-language determinism
-
----
-
-## Testing Strategy Summary
-
-### ALL Tests Are Deterministic (100% Equivalence)
-
-With `SimpleRng`, **every test** achieves exact numerical equivalence:
-
-1. **Pure algorithms** (no RNG):
-   - Hungarian assignment
-   - Loopy Belief Propagation (given fixed input)
-   - Murty's algorithm
-   - Kalman filter operations
-   - OSPA metrics
-
-2. **RNG-dependent algorithms** (NOW deterministic with SimpleRng):
-   - Ground truth generation
-   - Clutter generation
-   - Detection simulation
-   - Gibbs sampling
-   - All trial scripts
-
-3. **Testing approach**:
-   - MATLAB: Use `rng = SimpleRng(seed)` for all random operations
-   - Rust: Use `rng = SimpleRng::new(seed)` with same seed
-   - Assert: Exact match (within float precision 1e-15)
-
-### Fixture-Based Testing
-1. **Generation**: Run MATLAB with `SimpleRng(seed)` → save outputs to JSON/CSV
-2. **Validation**: Run Rust with `SimpleRng::new(seed)` → compare against fixtures
-3. **Regression**: Fixtures are **reproducible** - can regenerate when algorithm changes
-4. **Debugging**: Failed test? Re-run with same seed → identical failure mode
-
-### No Statistical Validation Required
-- ❌ No Monte Carlo averaging
-- ❌ No tolerance thresholds for stochastic tests
-- ❌ No t-tests or convergence checks
-- ✅ Simple: `assert_eq!(matlab_output, rust_output)` for ALL tests
+1. **File Organization**: MATLAB uses flat structure (one function per file), Rust uses modular structure (multiple related functions per file)
+2. **Hungarian Algorithm**: MATLAB uses MEX binaries, Rust uses pure Rust implementation (verified equivalent)
+3. **Testing**: MATLAB uses separate trial scripts, Rust uses inline unit tests + integration tests
+4. **Visualization**: MATLAB has plotting, Rust omits visualization (out of scope)
+5. **Deterministic Testing**: Both use `SimpleRng` for 100% reproducible results across languages
 
 ---
 
 ## Completion Criteria
 
-### Phase 0: RNG Foundation
-- [ ] `SimpleRng` class implemented in MATLAB
-- [ ] `SimpleRng` struct + `Rng` trait implemented in Rust
-- [ ] Cross-language equivalence test passes (10,000 values, exact match)
-- [ ] All MATLAB functions accept `rng` parameter
-- [ ] All Rust functions accept `rng: &mut impl Rng` parameter
-- [ ] Validation: `SimpleRng(42)` produces identical sequences
-
-### Phase 1: Cleanup ✅ COMPLETE
-- [x] All 4 stub files deleted
-- [x] No broken module references
-- [x] All tests still pass
-
-### Phase 2: Missing Algorithm ✅ COMPLETE
-- [x] `lmb_gibbs_frequency_sampling()` implemented
-- [x] Matches MATLAB `lmbGibbsFrequencySampling.m` logic
-- [x] Deterministic tests pass with `SimpleRng(42)`
-- [x] Documentation added
-
-### Phase 3: Examples ✅ COMPLETE
-- [x] `examples/single_sensor.rs` runs successfully
-- [x] `examples/multi_sensor.rs` runs successfully
-- [x] Both examples compile and execute without errors
-- [ ] README updated with usage instructions (deferred)
-- [ ] Example output matches MATLAB **exactly** (same seed) - to be verified in Phase 5
-
-### Phase 4: Integration Tests (Single-Sensor) ✅ COMPLETE
-
-**Completed**:
-- [x] Created `tests/integration_tests.rs` with 10 single-sensor tests (all passing with --release)
-- [x] Created `tests/multisensor_integration_tests.rs` with 8 multi-sensor tests (all passing)
-- [x] Tests verify filters run without crashing and produce reasonable outputs
-- [x] Determinism tests verify same seed produces same results
-- [x] Task 4.1: LBP vs Murty's marginal evaluation (COMPLETE - validates LBP approximation quality)
-- [x] Task 4.2: Single-sensor accuracy trials (COMPLETE - 5/5 variants validated)
-- [x] Task 4.3: Single-sensor clutter sensitivity trials (COMPLETE - 5/5 variants validated)
-- [x] Task 4.4: Single-sensor detection probability trials (COMPLETE - 5/5 variants validated)
+### Completed Phases ✅
+- **Phase 0**: SimpleRng implemented in both languages with cross-language validation
+- **Phase 1**: Stub files deleted, all tests pass
+- **Phase 2**: Gibbs frequency sampling implemented
+- **Phase 3**: Single-sensor and multi-sensor examples created
+- **Phase 4**: Integration tests complete (Tasks 4.1-4.4, all 5 single-sensor variants validated)
 
 ### Phase 4.5: Fix All Broken Tests ❌ NOT STARTED
 - [ ] Task 4.5.1: Generate missing accuracy fixtures (seeds 1, 5, 10, 50, 100, 500)
