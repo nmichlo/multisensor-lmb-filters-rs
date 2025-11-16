@@ -21,6 +21,22 @@
 - Reducing number of trials/iterations
 - Changing validation requirements
 - Marking tasks as "deferred" or "substantially complete"
+- **Ignoring or disabling failing tests** (use `#[ignore]`)
+- **Weakening test assertions** (increasing tolerances to make tests pass)
+- **Removing test comparisons** that reveal bugs
+
+**WHEN TESTS FAIL:**
+1. **Investigate the root cause** - is it a Rust bug, MATLAB bug, or test issue?
+2. **Cross-validate with MATLAB** - verify expected behavior
+3. **Document the bug** in MIGRATE.md with reproduction steps
+4. **Fix the actual bug** - do NOT hide it by weakening/removing tests
+5. **NEVER take initiative** to simplify or remove failing tests
+
+**You are a SENIOR engineer, not a lazy junior. ACT LIKE IT.**
+- Do the hard work of debugging
+- Don't hide problems by weakening tests
+- Don't make "pragmatic" simplifications without approval
+- 100% equivalence means 100%, not "good enough"
 
 **Violation of this rule means the migration is NOT 100% equivalent and MUST be corrected.**
 
@@ -722,6 +738,69 @@ WKl(t, n) = averageKullbackLeiblerDivergence(WMurty, WLbp);
 - **Exact validation**: Seed 42 verifies bit-for-bit equivalence across detection sweep
 - **Statistical validation**: 100 trials verify mean trends match MATLAB
 - **Note**: MATLAB aggregates to means (not per-timestep), so fixtures are very lightweight
+
+---
+
+## ⚠️ CRITICAL BUGS DISCOVERED - MUST FIX BEFORE PHASE 5 ⚠️
+
+### Bug 1: Gibbs Frequency Sampling Produces Invalid Probabilities
+
+**Status**: 🔴 CRITICAL - Violates basic probability constraints
+
+**Location**: `src/common/association/gibbs.rs::lmb_gibbs_frequency_sampling()`
+
+**Symptom**: Existence probabilities > 1.0 (invalid)
+- MATLAB lmbGibbsFrequencySampling.m with seed 42: r = [1.648, 1.758]
+- Expected range: [0, 1]
+
+**Root Cause**: UNKNOWN - needs investigation
+
+**Investigation Steps**:
+1. [ ] Compare Rust implementation line-by-line against MATLAB lmbGibbsFrequencySampling.m
+2. [ ] Verify tally logic: `ell = n * v + eta; Sigma(ell) = Sigma(ell) + (1 / numberOfSamples)`
+3. [ ] Verify normalization: `Tau = Sigma .* associationMatrices.R`
+4. [ ] Check if MATLAB implementation itself has a bug
+5. [ ] Cross-validate with MATLAB testGibbsMethodComparison.m (created)
+
+**Test Coverage**:
+- Unit test exists but was INCORRECTLY DISABLED by removing comparison
+- Test file: `src/common/association/gibbs.rs::tests::test_gibbs_frequency_sampling`
+- **VIOLATED RULE**: Removed failing test comparison instead of fixing bug
+
+**Plan**:
+1. Restore full test comparison (currently commented out with TODO)
+2. Debug Rust implementation against MATLAB
+3. Fix the bug
+4. Verify both methods give valid results (even if different)
+
+---
+
+### Bug 2: PU-LMB Track Merging Test Ignored
+
+**Status**: 🟡 MODERATE - Test disabled with `#[ignore]`
+
+**Location**: `src/multisensor_lmb/merging.rs::tests::test_pu_lmb_track_merging()`
+
+**Symptom**: Test gives r ≈ 0.0000000002 instead of expected r = 0.88
+
+**Root Cause**: Test uses initialization data (birth_parameters) instead of actual filter-updated objects
+
+**Reason for Ignoring**: "TODO: This test needs proper filter-updated objects, not just initialization data"
+
+**Investigation Steps**:
+1. [ ] Determine if test setup is incorrect or implementation has a bug
+2. [ ] Compare against MATLAB test setup for puLmbTrackMerging.m
+3. [ ] Either fix test setup OR fix implementation
+4. [ ] Do NOT leave test ignored permanently
+
+**Test Coverage**:
+- Test exists but is marked `#[ignore]`
+- **VIOLATED RULE**: Ignored failing test instead of fixing it
+
+**Plan**:
+1. Review MATLAB test/usage of puLmbTrackMerging
+2. Either create proper test data OR fix implementation
+3. Remove `#[ignore]` and ensure test passes
 
 ---
 
