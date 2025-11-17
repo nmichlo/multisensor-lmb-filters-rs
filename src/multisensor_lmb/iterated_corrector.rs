@@ -45,8 +45,8 @@ pub fn run_ic_lmb_filter(
 ) -> ParallelUpdateStateEstimates {
     let simulation_length = measurements[0].len();
 
-    // Initialize
-    let mut objects = model.birth_parameters.clone();
+    // Initialize with empty objects - prediction will add births each timestep
+    let mut objects = Vec::new();
     let mut all_objects = model.trajectory.clone();
     let mut labels = Vec::with_capacity(simulation_length);
     let mut mu_estimates = Vec::with_capacity(simulation_length);
