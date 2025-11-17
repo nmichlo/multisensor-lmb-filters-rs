@@ -15,7 +15,15 @@ use serde::Deserialize;
 use std::fs;
 
 // Import filter modules
+use prak::common::rng::SimpleRng;
+use prak::common::types::{Model, Object};
+use prak::lmb::association::generate_lmb_association_matrices;
 use prak::lmb::cardinality;
+use prak::lmb::data_association::{lmb_gibbs, lmb_lbp, lmb_murtys};
+use prak::lmb::prediction::lmb_prediction_step;
+use prak::lmb::update::compute_posterior_lmb_spatial_distributions;
+
+use nalgebra::{DMatrix, DVector};
 
 const TOLERANCE: f64 = 1e-10; // Exact numerical equivalence
 
@@ -55,6 +63,54 @@ struct ModelData {
     clutter_per_unit_volume: f64,
 }
 
+// Helper to deserialize w as either scalar or vector
+fn deserialize_w<'de, D>(deserializer: D) -> Result<Vec<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Deserialize};
+
+    struct WVisitor;
+
+    impl<'de> de::Visitor<'de> for WVisitor {
+        type Value = Vec<f64>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a number or array of numbers")
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Vec<f64>, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value])
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Vec<f64>, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value as f64])
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Vec<f64>, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value as f64])
+        }
+
+        fn visit_seq<A>(self, seq: A) -> Result<Vec<f64>, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            Deserialize::deserialize(de::value::SeqAccessDeserializer::new(seq))
+        }
+    }
+
+    deserializer.deserialize_any(WVisitor)
+}
+
 #[derive(Debug, Deserialize)]
 struct ObjectData {
     r: f64,
@@ -62,6 +118,7 @@ struct ObjectData {
     mu: Vec<Vec<f64>>,
     #[serde(rename = "Sigma")]
     sigma: Vec<Vec<Vec<f64>>>,
+    #[serde(deserialize_with = "deserialize_w")]
     w: Vec<f64>,
 }
 
@@ -101,27 +158,96 @@ struct AssociationInput {
     model_clutter: f64,
 }
 
+// Helper to deserialize matrix elements, converting null to f64::INFINITY
+fn deserialize_matrix<'de, D>(deserializer: D) -> Result<Vec<Vec<f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    let matrix: Vec<Vec<Option<f64>>> = Deserialize::deserialize(deserializer)?;
+    Ok(matrix.iter()
+        .map(|row| row.iter().map(|&v| v.unwrap_or(f64::INFINITY)).collect())
+        .collect())
+}
+
 #[derive(Debug, Deserialize)]
 struct AssociationOutput {
-    #[serde(rename = "C")]
+    #[serde(rename = "C", deserialize_with = "deserialize_matrix")]
     c: Vec<Vec<f64>>,
-    #[serde(rename = "L")]
+    #[serde(rename = "L", deserialize_with = "deserialize_matrix")]
     l: Vec<Vec<f64>>,
-    #[serde(rename = "R")]
+    #[serde(rename = "R", deserialize_with = "deserialize_matrix")]
     r: Vec<Vec<f64>>,
-    #[serde(rename = "P")]
+    #[serde(rename = "P", deserialize_with = "deserialize_matrix")]
     p: Vec<Vec<f64>>,
     eta: Vec<f64>,
     #[serde(rename = "posteriorParameters")]
     posterior_parameters: Vec<PosteriorParams>,
 }
 
+// Helper to deserialize w in PosteriorParams (can be 1D or 2D)
+fn deserialize_posterior_w<'de, D>(deserializer: D) -> Result<Vec<Vec<f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Deserialize};
+
+    struct WVisitor;
+
+    impl<'de> de::Visitor<'de> for WVisitor {
+        type Value = Vec<Vec<f64>>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a 1D or 2D array of numbers")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<Vec<f64>>, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut result = Vec::new();
+
+            // Peek at first element to determine if 1D or 2D
+            if let Some(first) = seq.next_element::<serde_json::Value>()? {
+                if first.is_array() {
+                    // 2D array
+                    let first_row: Vec<f64> = serde_json::from_value(first)
+                        .map_err(|e| de::Error::custom(format!("Failed to parse first row: {}", e)))?;
+                    result.push(first_row);
+
+                    while let Some(row) = seq.next_element::<Vec<f64>>()? {
+                        result.push(row);
+                    }
+                } else {
+                    // 1D array - treat as single row
+                    let first_val: f64 = serde_json::from_value(first)
+                        .map_err(|e| de::Error::custom(format!("Failed to parse first value: {}", e)))?;
+                    let mut row = vec![first_val];
+
+                    while let Some(val) = seq.next_element::<f64>()? {
+                        row.push(val);
+                    }
+                    result.push(row);
+                }
+            }
+
+            Ok(result)
+        }
+    }
+
+    deserializer.deserialize_seq(WVisitor)
+}
+
 #[derive(Debug, Deserialize)]
 struct PosteriorParams {
+    // MATLAB flattens: mu is ((m+1) * num_components) x state_dim
     mu: Vec<Vec<f64>>,
+    // MATLAB flattens: Sigma is ((m+1) * num_components) x state_dim x state_dim
     #[serde(rename = "Sigma")]
-    sigma: Vec<Vec<f64>>,
-    w: Vec<f64>,
+    sigma: Vec<Vec<Vec<f64>>>,
+    // w can be (m+1) x num_components (2D) or just a 1D array for single component
+    #[serde(deserialize_with = "deserialize_posterior_w")]
+    w: Vec<Vec<f64>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,13 +258,13 @@ struct LbpStep {
 
 #[derive(Debug, Deserialize)]
 struct LbpInput {
-    #[serde(rename = "C")]
+    #[serde(rename = "C", deserialize_with = "deserialize_matrix")]
     c: Vec<Vec<f64>>,
-    #[serde(rename = "L")]
+    #[serde(rename = "L", deserialize_with = "deserialize_matrix")]
     l: Vec<Vec<f64>>,
-    #[serde(rename = "R")]
+    #[serde(rename = "R", deserialize_with = "deserialize_matrix")]
     r: Vec<Vec<f64>>,
-    #[serde(rename = "P")]
+    #[serde(rename = "P", deserialize_with = "deserialize_matrix")]
     p: Vec<Vec<f64>>,
     eta: Vec<f64>,
     convergence_tolerance: f64,
@@ -148,7 +274,7 @@ struct LbpInput {
 #[derive(Debug, Deserialize)]
 struct LbpOutput {
     r: Vec<f64>,
-    #[serde(rename = "W")]
+    #[serde(rename = "W", deserialize_with = "deserialize_matrix")]
     w: Vec<Vec<f64>>,
 }
 
@@ -160,13 +286,13 @@ struct GibbsStep {
 
 #[derive(Debug, Deserialize)]
 struct GibbsInput {
-    #[serde(rename = "C")]
+    #[serde(rename = "C", deserialize_with = "deserialize_matrix")]
     c: Vec<Vec<f64>>,
-    #[serde(rename = "L")]
+    #[serde(rename = "L", deserialize_with = "deserialize_matrix")]
     l: Vec<Vec<f64>>,
-    #[serde(rename = "R")]
+    #[serde(rename = "R", deserialize_with = "deserialize_matrix")]
     r: Vec<Vec<f64>>,
-    #[serde(rename = "P")]
+    #[serde(rename = "P", deserialize_with = "deserialize_matrix")]
     p: Vec<Vec<f64>>,
     eta: Vec<f64>,
     #[serde(rename = "numberOfSamples")]
@@ -177,7 +303,7 @@ struct GibbsInput {
 #[derive(Debug, Deserialize)]
 struct GibbsOutput {
     r: Vec<f64>,
-    #[serde(rename = "W")]
+    #[serde(rename = "W", deserialize_with = "deserialize_matrix")]
     w: Vec<Vec<f64>>,
 }
 
@@ -189,13 +315,13 @@ struct MurtysStep {
 
 #[derive(Debug, Deserialize)]
 struct MurtysInput {
-    #[serde(rename = "C")]
+    #[serde(rename = "C", deserialize_with = "deserialize_matrix")]
     c: Vec<Vec<f64>>,
-    #[serde(rename = "L")]
+    #[serde(rename = "L", deserialize_with = "deserialize_matrix")]
     l: Vec<Vec<f64>>,
-    #[serde(rename = "R")]
+    #[serde(rename = "R", deserialize_with = "deserialize_matrix")]
     r: Vec<Vec<f64>>,
-    #[serde(rename = "P")]
+    #[serde(rename = "P", deserialize_with = "deserialize_matrix")]
     p: Vec<Vec<f64>>,
     eta: Vec<f64>,
     #[serde(rename = "numberOfAssignments")]
@@ -205,7 +331,7 @@ struct MurtysInput {
 #[derive(Debug, Deserialize)]
 struct MurtysOutput {
     r: Vec<f64>,
-    #[serde(rename = "W")]
+    #[serde(rename = "W", deserialize_with = "deserialize_matrix")]
     w: Vec<Vec<f64>>,
 }
 
@@ -278,6 +404,115 @@ fn matlab_to_rust_indices(indices: &[usize]) -> Vec<usize> {
     indices.iter().map(|&i| i - 1).collect()
 }
 
+//=============================================================================
+// MATLAB → Rust Conversion Helpers
+//=============================================================================
+
+/// Convert MATLAB ObjectData to Rust Object
+fn object_data_to_rust(obj_data: &ObjectData) -> Object {
+    let num_components = obj_data.w.len();
+
+    // Convert mu from Vec<Vec<f64>> to Vec<DVector<f64>>
+    let mu: Vec<DVector<f64>> = obj_data.mu.iter()
+        .map(|v| DVector::from_vec(v.clone()))
+        .collect();
+
+    // Convert sigma from Vec<Vec<Vec<f64>>> to Vec<DMatrix<f64>>
+    let sigma: Vec<DMatrix<f64>> = obj_data.sigma.iter()
+        .map(|mat| {
+            let n = mat.len();
+            let m = mat[0].len();
+            DMatrix::from_row_slice(n, m, &mat.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>())
+        })
+        .collect();
+
+    // Extract label (assuming single value for now, MATLAB uses [location, time])
+    let birth_location = if obj_data.label.len() >= 1 { obj_data.label[0] } else { 0 };
+    let birth_time = if obj_data.label.len() >= 2 { obj_data.label[1] } else { 0 };
+
+    // Determine state dimension from first mu
+    let x_dim = if !mu.is_empty() { mu[0].len() } else { 4 };
+
+    Object {
+        birth_location,
+        birth_time,
+        r: obj_data.r,
+        number_of_gm_components: num_components,
+        w: obj_data.w.clone(),
+        mu,
+        sigma,
+        trajectory_length: 0,
+        trajectory: DMatrix::zeros(x_dim, 100),
+        timestamps: Vec::new(),
+    }
+}
+
+/// Convert MATLAB ModelData to Rust Model (minimal fields for testing)
+fn model_data_to_rust(model_data: &ModelData) -> Model {
+    let x_dim = model_data.a.len();
+    let z_dim = model_data.c.len();
+
+    use prak::common::types::{DataAssociationMethod, ScenarioType, OspaParameters};
+
+    Model {
+        scenario_type: ScenarioType::Fixed,
+        x_dimension: x_dim,
+        z_dimension: z_dim,
+        t: 1.0,
+        survival_probability: model_data.p_s,
+        existence_threshold: 1e-3,
+        a: DMatrix::from_row_slice(x_dim, x_dim, &model_data.a.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
+        u: DVector::zeros(x_dim),
+        r: DMatrix::from_row_slice(x_dim, x_dim, &model_data.r.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
+        c: DMatrix::from_row_slice(z_dim, x_dim, &model_data.c.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
+        q: DMatrix::from_row_slice(z_dim, z_dim, &model_data.q.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
+        detection_probability: model_data.p_d,
+        observation_space_limits: DMatrix::zeros(2, 2),
+        observation_space_volume: 40000.0,
+        clutter_rate: 5.0,
+        clutter_per_unit_volume: model_data.clutter_per_unit_volume,
+        number_of_birth_locations: 0,
+        birth_location_labels: Vec::new(),
+        r_b: Vec::new(),
+        r_b_lmbm: Vec::new(),
+        mu_b: Vec::new(),
+        sigma_b: Vec::new(),
+        object: Vec::new(),
+        birth_parameters: Vec::new(),
+        hypotheses: prak::common::types::Hypothesis::empty(),
+        trajectory: Vec::new(),
+        birth_trajectory: Vec::new(),
+        gm_weight_threshold: 1e-3,
+        maximum_number_of_gm_components: 100,
+        minimum_trajectory_length: 1,
+        data_association_method: DataAssociationMethod::LBP,
+        maximum_number_of_lbp_iterations: 100,
+        lbp_convergence_tolerance: 1e-3,
+        number_of_samples: 1000,
+        number_of_assignments: 100,
+        maximum_number_of_posterior_hypotheses: 100,
+        posterior_hypothesis_weight_threshold: 1e-6,
+        use_eap_on_lmbm: true,
+        ospa_parameters: OspaParameters { e_c: 30.0, e_p: 1.0, h_c: 30.0, h_p: 1.0 },
+        number_of_sensors: None,
+        c_multisensor: None,
+        q_multisensor: None,
+        detection_probability_multisensor: None,
+        clutter_rate_multisensor: None,
+        clutter_per_unit_volume_multisensor: None,
+        lmb_parallel_update_mode: None,
+        aa_sensor_weights: None,
+        ga_sensor_weights: None,
+    }
+}
+
+/// Convert MATLAB measurements to Rust
+fn measurements_to_rust(measurements: &[Vec<f64>]) -> Vec<DVector<f64>> {
+    measurements.iter()
+        .map(|m| DVector::from_vec(m.clone()))
+        .collect()
+}
+
 #[test]
 fn test_lmb_step_by_step_validation() {
     // Load fixture
@@ -321,34 +556,332 @@ fn test_lmb_step_by_step_validation() {
 }
 
 fn validate_lmb_prediction(fixture: &LmbFixture) {
-    // TODO: Implement LMB prediction validation
-    // This requires converting fixture data to Rust types and calling lmb::prediction::lmb_prediction_step
-    println!("    LMB prediction validation: TODO");
+    // Convert MATLAB fixture data to Rust types
+    let prior_objects: Vec<Object> = fixture.step1_prediction.input.prior_objects.iter()
+        .map(object_data_to_rust)
+        .collect();
+
+    // Use model from fixture (will have correct A, R, P_s from step input)
+    let mut model = model_data_to_rust(&fixture.model);
+
+    // Override with prediction-specific parameters from fixture
+    model.a = DMatrix::from_row_slice(
+        fixture.step1_prediction.input.model_A.len(),
+        fixture.step1_prediction.input.model_A[0].len(),
+        &fixture.step1_prediction.input.model_A.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()
+    );
+    model.r = DMatrix::from_row_slice(
+        fixture.step1_prediction.input.model_R.len(),
+        fixture.step1_prediction.input.model_R[0].len(),
+        &fixture.step1_prediction.input.model_R.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()
+    );
+    model.survival_probability = fixture.step1_prediction.input.model_P_s;
+
+    // Run Rust prediction
+    let predicted_objects = lmb_prediction_step(prior_objects, &model, fixture.step1_prediction.input.timestep);
+
+    // Compare with MATLAB output
+    let expected_objects: Vec<Object> = fixture.step1_prediction.output.predicted_objects.iter()
+        .map(object_data_to_rust)
+        .collect();
+
+    assert_eq!(predicted_objects.len(), expected_objects.len(), "Number of predicted objects mismatch");
+
+    for (i, (actual, expected)) in predicted_objects.iter().zip(expected_objects.iter()).enumerate() {
+        assert!((actual.r - expected.r).abs() <= TOLERANCE,
+            "Object {}: existence probability mismatch: {} vs {}", i, actual.r, expected.r);
+
+        assert_eq!(actual.number_of_gm_components, expected.number_of_gm_components,
+            "Object {}: number of GM components mismatch", i);
+
+        for j in 0..actual.number_of_gm_components {
+            assert!((actual.w[j] - expected.w[j]).abs() <= TOLERANCE,
+                "Object {}, component {}: weight mismatch", i, j);
+
+            assert_vec_close(actual.mu[j].as_slice(), expected.mu[j].as_slice(), TOLERANCE,
+                &format!("Object {}, component {}: mean", i, j));
+
+            assert_matrix_close(
+                &vec![actual.sigma[j].row(0).iter().copied().collect(),
+                      actual.sigma[j].row(1).iter().copied().collect(),
+                      actual.sigma[j].row(2).iter().copied().collect(),
+                      actual.sigma[j].row(3).iter().copied().collect()],
+                &vec![expected.sigma[j].row(0).iter().copied().collect(),
+                      expected.sigma[j].row(1).iter().copied().collect(),
+                      expected.sigma[j].row(2).iter().copied().collect(),
+                      expected.sigma[j].row(3).iter().copied().collect()],
+                TOLERANCE,
+                &format!("Object {}, component {}: covariance", i, j)
+            );
+        }
+    }
+
+    println!("    ✓ Prediction validation passed ({} objects)", predicted_objects.len());
 }
 
 fn validate_lmb_association(fixture: &LmbFixture) {
-    // TODO: Implement LMB association validation
-    println!("    LMB association validation: TODO");
+    // Convert inputs
+    let predicted_objects: Vec<Object> = fixture.step2_association.input.predicted_objects.iter()
+        .map(object_data_to_rust)
+        .collect();
+    let measurements = measurements_to_rust(&fixture.step2_association.input.measurements);
+    let model = model_data_to_rust(&fixture.model);
+
+    // Run Rust association matrix generation
+    let association_result = generate_lmb_association_matrices(&predicted_objects, &measurements, &model);
+
+    // Extract expected outputs
+    let expected_c = &fixture.step2_association.output.c;
+    let expected_l = &fixture.step2_association.output.l;
+    let expected_r = &fixture.step2_association.output.r;
+    let expected_p = &fixture.step2_association.output.p;
+    let expected_eta = &fixture.step2_association.output.eta;
+
+    // Validate cost matrix C (negative of Rust's cost matrix)
+    let actual_cost: Vec<Vec<f64>> = (0..association_result.cost.nrows())
+        .map(|i| association_result.cost.row(i).iter().copied().collect())
+        .collect();
+    assert_matrix_close(&actual_cost, expected_c, TOLERANCE, "Cost matrix C");
+
+    // Validate L matrix (stored in gibbs.l, need to extract column 1 onwards)
+    let actual_l: Vec<Vec<f64>> = (0..association_result.gibbs.l.nrows())
+        .map(|i| {
+            // Skip first column (eta), take columns 1..end
+            (1..association_result.gibbs.l.ncols()).map(|j| association_result.gibbs.l[(i, j)]).collect()
+        })
+        .collect();
+    assert_matrix_close(&actual_l, expected_l, TOLERANCE, "Likelihood matrix L");
+
+    // Validate R matrix (stored in gibbs.r)
+    let actual_r: Vec<Vec<f64>> = (0..association_result.gibbs.r.nrows())
+        .map(|i| association_result.gibbs.r.row(i).iter().copied().collect())
+        .collect();
+    assert_matrix_close(&actual_r, expected_r, TOLERANCE, "R matrix");
+
+    // Validate P matrix (stored in gibbs.p)
+    let actual_p: Vec<Vec<f64>> = (0..association_result.gibbs.p.nrows())
+        .map(|i| association_result.gibbs.p.row(i).iter().copied().collect())
+        .collect();
+    assert_matrix_close(&actual_p, expected_p, TOLERANCE, "P matrix");
+
+    // Validate eta vector (stored in lbp.eta)
+    assert_vec_close(association_result.lbp.eta.as_slice(), expected_eta, TOLERANCE, "eta vector");
+
+    // Validate posterior parameters structure (just check dimensions for now)
+    assert_eq!(association_result.posterior_parameters.len(), fixture.step2_association.output.posterior_parameters.len(),
+        "Number of posterior parameter sets mismatch");
+
+    println!("    ✓ Association validation passed ({} objects, {} measurements)",
+        predicted_objects.len(), measurements.len());
 }
 
 fn validate_lmb_lbp(fixture: &LmbFixture) {
-    // TODO: Implement LBP validation
-    println!("    LBP validation: TODO");
+    // Convert inputs - need to reconstruct association result
+    let predicted_objects: Vec<Object> = fixture.step2_association.input.predicted_objects.iter()
+        .map(object_data_to_rust)
+        .collect();
+    let measurements = measurements_to_rust(&fixture.step2_association.input.measurements);
+    let model = model_data_to_rust(&fixture.model);
+
+    let association_result = generate_lmb_association_matrices(&predicted_objects, &measurements, &model);
+
+    // Run LBP with parameters from fixture
+    let epsilon = fixture.step3a_lbp.input.convergence_tolerance;
+    let max_iterations = fixture.step3a_lbp.input.max_iterations;
+    let (actual_r, actual_w) = lmb_lbp(&association_result, epsilon, max_iterations);
+
+    // Compare with expected outputs
+    let expected_r = &fixture.step3a_lbp.output.r;
+    let expected_w = &fixture.step3a_lbp.output.w;
+
+    assert_vec_close(actual_r.as_slice(), expected_r, TOLERANCE, "LBP existence probabilities r");
+
+    let actual_w_vec: Vec<Vec<f64>> = (0..actual_w.nrows())
+        .map(|i| actual_w.row(i).iter().copied().collect())
+        .collect();
+    assert_matrix_close(&actual_w_vec, expected_w, TOLERANCE, "LBP marginal weights W");
+
+    println!("    ✓ LBP validation passed");
 }
 
 fn validate_lmb_gibbs(fixture: &LmbFixture) {
-    // TODO: Implement Gibbs validation
-    println!("    Gibbs validation: TODO");
+    // Convert inputs
+    let predicted_objects: Vec<Object> = fixture.step2_association.input.predicted_objects.iter()
+        .map(object_data_to_rust)
+        .collect();
+    let measurements = measurements_to_rust(&fixture.step2_association.input.measurements);
+    let model = model_data_to_rust(&fixture.model);
+
+    let association_result = generate_lmb_association_matrices(&predicted_objects, &measurements, &model);
+
+    // Create deterministic RNG with same seed as MATLAB
+    let mut rng = SimpleRng::new(fixture.step3b_gibbs.input.rng_seed);
+    let num_samples = fixture.step3b_gibbs.input.number_of_samples;
+
+    let (actual_r, actual_w) = lmb_gibbs(&mut rng, &association_result, num_samples);
+
+    // Compare with expected outputs
+    let expected_r = &fixture.step3b_gibbs.output.r;
+    let expected_w = &fixture.step3b_gibbs.output.w;
+
+    assert_vec_close(actual_r.as_slice(), expected_r, TOLERANCE, "Gibbs existence probabilities r");
+
+    let actual_w_vec: Vec<Vec<f64>> = (0..actual_w.nrows())
+        .map(|i| actual_w.row(i).iter().copied().collect())
+        .collect();
+    assert_matrix_close(&actual_w_vec, expected_w, TOLERANCE, "Gibbs marginal weights W");
+
+    println!("    ✓ Gibbs validation passed");
 }
 
 fn validate_lmb_murtys(fixture: &LmbFixture) {
-    // TODO: Implement Murty's validation
-    println!("    Murty's validation: TODO");
+    // Convert inputs
+    let predicted_objects: Vec<Object> = fixture.step2_association.input.predicted_objects.iter()
+        .map(object_data_to_rust)
+        .collect();
+    let measurements = measurements_to_rust(&fixture.step2_association.input.measurements);
+    let model = model_data_to_rust(&fixture.model);
+
+    let association_result = generate_lmb_association_matrices(&predicted_objects, &measurements, &model);
+
+    // Run Murty's algorithm
+    let num_assignments = fixture.step3c_murtys.input.number_of_assignments;
+    let (actual_r, actual_w, _assignments) = lmb_murtys(&association_result, num_assignments);
+
+    // Compare with expected outputs
+    let expected_r = &fixture.step3c_murtys.output.r;
+    let expected_w = &fixture.step3c_murtys.output.w;
+
+    assert_vec_close(actual_r.as_slice(), expected_r, TOLERANCE, "Murty's existence probabilities r");
+
+    let actual_w_vec: Vec<Vec<f64>> = (0..actual_w.nrows())
+        .map(|i| actual_w.row(i).iter().copied().collect())
+        .collect();
+    assert_matrix_close(&actual_w_vec, expected_w, TOLERANCE, "Murty's marginal weights W");
+
+    println!("    ✓ Murty's validation passed");
 }
 
 fn validate_lmb_update(fixture: &LmbFixture) {
-    // TODO: Implement update validation
-    println!("    Update validation: TODO");
+    // Convert inputs
+    let predicted_objects: Vec<Object> = fixture.step4_update.input.predicted_objects.iter()
+        .map(object_data_to_rust)
+        .collect();
+
+    // Convert r and W from fixture
+    let r = DVector::from_vec(fixture.step4_update.input.r.clone());
+    let w_rows = fixture.step4_update.input.w.len();
+    let w_cols = fixture.step4_update.input.w[0].len();
+    let w = DMatrix::from_row_slice(w_rows, w_cols,
+        &fixture.step4_update.input.w.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>());
+
+    // Convert posterior parameters from fixture
+    let posterior_parameters: Vec<_> = fixture.step4_update.input.posterior_parameters.iter()
+        .map(|pp| {
+            // w can be (m+1) x num_components (2D) or a single row (1D) for single-component objects
+            let (num_meas_plus_one, num_components) = if pp.w.len() == 1 {
+                // 1D case: infer num_meas_plus_one from flattened mu length
+                let total_flat_rows = pp.mu.len();
+                let first_row_len = pp.w[0].len();
+                (first_row_len, 1)  // num_components = 1, num_meas_plus_one = length of w array
+            } else {
+                // 2D case
+                (pp.w.len(), pp.w[0].len())
+            };
+
+            let w_mat = if pp.w.len() == 1 {
+                // Reshape 1D array to column vector (num_meas_plus_one x 1)
+                DMatrix::from_vec(num_meas_plus_one, 1, pp.w[0].clone())
+            } else {
+                // Already 2D, just flatten row-wise
+                DMatrix::from_row_slice(
+                    num_meas_plus_one,
+                    num_components,
+                    &pp.w.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()
+                )
+            };
+
+            // MATLAB flattened mu and sigma: need to unflatten
+            // mu is ((m+1) * num_components) x state_dim, need to unflatten to (m+1) x num_components x state_dim
+            let mut mu: Vec<Vec<DVector<f64>>> = Vec::with_capacity(num_meas_plus_one);
+            for i in 0..num_meas_plus_one {
+                let mut row: Vec<DVector<f64>> = Vec::with_capacity(num_components);
+                for j in 0..num_components {
+                    let flat_idx = i * num_components + j;
+                    row.push(DVector::from_vec(pp.mu[flat_idx].clone()));
+                }
+                mu.push(row);
+            }
+
+            // sigma is ((m+1) * num_components) x state_dim x state_dim, unflatten to (m+1) x num_components x state_dim x state_dim
+            let mut sigma: Vec<Vec<DMatrix<f64>>> = Vec::with_capacity(num_meas_plus_one);
+            for i in 0..num_meas_plus_one {
+                let mut row: Vec<DMatrix<f64>> = Vec::with_capacity(num_components);
+                for j in 0..num_components {
+                    let flat_idx = i * num_components + j;
+                    let mat = &pp.sigma[flat_idx];
+                    let n = mat.len();
+                    let m = mat[0].len();
+                    row.push(DMatrix::from_row_slice(n, m,
+                        &mat.iter().flat_map(|r| r.iter()).copied().collect::<Vec<_>>()));
+                }
+                sigma.push(row);
+            }
+
+            prak::lmb::association::PosteriorParameters {
+                w: w_mat,
+                mu,
+                sigma,
+            }
+        })
+        .collect();
+
+    let model = model_data_to_rust(&fixture.model);
+
+    // Run Rust update
+    let posterior_objects = compute_posterior_lmb_spatial_distributions(
+        predicted_objects.clone(),
+        &r,
+        &w,
+        &posterior_parameters,
+        &model
+    );
+
+    // Compare with expected outputs
+    let expected_objects: Vec<Object> = fixture.step4_update.output.posterior_objects.iter()
+        .map(object_data_to_rust)
+        .collect();
+
+    assert_eq!(posterior_objects.len(), expected_objects.len(), "Number of posterior objects mismatch");
+
+    for (i, (actual, expected)) in posterior_objects.iter().zip(expected_objects.iter()).enumerate() {
+        assert!((actual.r - expected.r).abs() <= TOLERANCE,
+            "Object {}: existence probability mismatch: {} vs {}", i, actual.r, expected.r);
+
+        assert_eq!(actual.number_of_gm_components, expected.number_of_gm_components,
+            "Object {}: number of GM components mismatch", i);
+
+        for j in 0..actual.number_of_gm_components {
+            assert!((actual.w[j] - expected.w[j]).abs() <= TOLERANCE,
+                "Object {}, component {}: weight mismatch: {} vs {}", i, j, actual.w[j], expected.w[j]);
+
+            assert_vec_close(actual.mu[j].as_slice(), expected.mu[j].as_slice(), TOLERANCE,
+                &format!("Object {}, component {}: mean", i, j));
+
+            // Convert DMatrix to Vec<Vec<f64>> for comparison
+            let actual_sigma_vec: Vec<Vec<f64>> = (0..actual.sigma[j].nrows())
+                .map(|row| actual.sigma[j].row(row).iter().copied().collect())
+                .collect();
+            let expected_sigma_vec: Vec<Vec<f64>> = (0..expected.sigma[j].nrows())
+                .map(|row| expected.sigma[j].row(row).iter().copied().collect())
+                .collect();
+
+            assert_matrix_close(&actual_sigma_vec, &expected_sigma_vec, TOLERANCE,
+                &format!("Object {}, component {}: covariance", i, j));
+        }
+    }
+
+    println!("    ✓ Update validation passed ({} objects)", posterior_objects.len());
 }
 
 fn validate_lmb_cardinality(fixture: &LmbFixture) {
