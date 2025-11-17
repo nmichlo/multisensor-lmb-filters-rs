@@ -489,8 +489,8 @@ fn model_data_to_rust(model_data: &ModelData) -> Model {
         hypotheses: prak::common::types::Hypothesis::empty(),
         trajectory: Vec::new(),
         birth_trajectory: Vec::new(),
-        gm_weight_threshold: 1e-3,
-        maximum_number_of_gm_components: 100,
+        gm_weight_threshold: 1e-6,  // Match MATLAB default
+        maximum_number_of_gm_components: 5,  // Match MATLAB default (NOT 100!)
         minimum_trajectory_length: 1,
         data_association_method: DataAssociationMethod::LBP,
         maximum_number_of_lbp_iterations: 100,
@@ -521,7 +521,6 @@ fn measurements_to_rust(measurements: &[Vec<f64>]) -> Vec<DVector<f64>> {
 }
 
 #[test]
-#[ignore] // TODO: Debug association matrix C/L mismatch (prediction passes, association has matrix structure confusion)
 fn test_lmb_step_by_step_validation() {
     // Load fixture
     let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
@@ -689,12 +688,10 @@ fn validate_lmb_association(fixture: &LmbFixture) {
 
     assert_matrix_close(&actual_cost, expected_c, TOLERANCE, "Cost matrix C");
 
-    // Validate L matrix (stored in gibbs.l, need to extract column 1 onwards)
+    // Validate L matrix (stored in gibbs.l, includes eta as first column)
+    // MATLAB: L = [eta L], so fixture contains full matrix with eta
     let actual_l: Vec<Vec<f64>> = (0..association_result.gibbs.l.nrows())
-        .map(|i| {
-            // Skip first column (eta), take columns 1..end
-            (1..association_result.gibbs.l.ncols()).map(|j| association_result.gibbs.l[(i, j)]).collect()
-        })
+        .map(|i| association_result.gibbs.l.row(i).iter().copied().collect())
         .collect();
     assert_matrix_close(&actual_l, expected_l, TOLERANCE, "Likelihood matrix L");
 
@@ -823,11 +820,12 @@ fn validate_lmb_update(fixture: &LmbFixture) {
 
     // Convert posterior parameters from fixture
     let posterior_parameters: Vec<_> = fixture.step4_update.input.posterior_parameters.iter()
-        .map(|pp| {
+        .enumerate()
+        .map(|(obj_idx, pp)| {
             // w can be (m+1) x num_components (2D) or a single row (1D) for single-component objects
             let (num_meas_plus_one, num_components) = if pp.w.len() == 1 {
                 // 1D case: infer num_meas_plus_one from flattened mu length
-                let total_flat_rows = pp.mu.len();
+                let _total_flat_rows = pp.mu.len();
                 let first_row_len = pp.w[0].len();
                 (first_row_len, 1)  // num_components = 1, num_meas_plus_one = length of w array
             } else {
@@ -848,23 +846,25 @@ fn validate_lmb_update(fixture: &LmbFixture) {
             };
 
             // MATLAB flattened mu and sigma: need to unflatten
-            // mu is ((m+1) * num_components) x state_dim, need to unflatten to (m+1) x num_components x state_dim
+            // IMPORTANT: MATLAB uses COLUMN-MAJOR ordering for cell arrays!
+            // mu is ((m+1) * num_components) x state_dim, flattened column-major
+            // Column-major: flat_idx = row + col * num_rows
             let mut mu: Vec<Vec<DVector<f64>>> = Vec::with_capacity(num_meas_plus_one);
             for i in 0..num_meas_plus_one {
                 let mut row: Vec<DVector<f64>> = Vec::with_capacity(num_components);
                 for j in 0..num_components {
-                    let flat_idx = i * num_components + j;
+                    let flat_idx = i + j * num_meas_plus_one;  // Column-major indexing
                     row.push(DVector::from_vec(pp.mu[flat_idx].clone()));
                 }
                 mu.push(row);
             }
 
-            // sigma is ((m+1) * num_components) x state_dim x state_dim, unflatten to (m+1) x num_components x state_dim x state_dim
+            // sigma is ((m+1) * num_components) x state_dim x state_dim, unflatten with column-major
             let mut sigma: Vec<Vec<DMatrix<f64>>> = Vec::with_capacity(num_meas_plus_one);
             for i in 0..num_meas_plus_one {
                 let mut row: Vec<DMatrix<f64>> = Vec::with_capacity(num_components);
                 for j in 0..num_components {
-                    let flat_idx = i * num_components + j;
+                    let flat_idx = i + j * num_meas_plus_one;  // Column-major indexing
                     let mat = &pp.sigma[flat_idx];
                     let n = mat.len();
                     let m = mat[0].len();

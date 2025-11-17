@@ -44,13 +44,14 @@ pub fn compute_posterior_lmb_spatial_distributions(
 
         // Reweight measurement-updated Gaussian mixtures
         let num_posterior_components = posterior_parameters[i].w.ncols();
-        let mut posterior_weights = Vec::with_capacity(
-            posterior_parameters[i].w.nrows() * num_posterior_components,
-        );
+        let num_meas_plus_one = posterior_parameters[i].w.nrows();
+        let mut posterior_weights = Vec::with_capacity(num_meas_plus_one * num_posterior_components);
 
         // Flatten: W(i, :)' .* posteriorParameters(i).w
-        for meas_idx in 0..posterior_parameters[i].w.nrows() {
-            for comp_idx in 0..num_posterior_components {
+        // IMPORTANT: MATLAB uses COLUMN-MAJOR ordering when reshaping!
+        // Column-major: iterate columns first, then rows
+        for comp_idx in 0..num_posterior_components {
+            for meas_idx in 0..num_meas_plus_one {
                 posterior_weights.push(
                     w[(i, meas_idx)] * posterior_parameters[i].w[(meas_idx, comp_idx)],
                 );
@@ -77,9 +78,10 @@ pub fn compute_posterior_lmb_spatial_distributions(
         objects[i].sigma = Vec::with_capacity(pruned.num_components);
 
         for &original_idx in &pruned.indices {
-            // Convert flat index to (row, col)
-            let meas_idx = original_idx / num_posterior_components;
-            let comp_idx = original_idx % num_posterior_components;
+            // Convert flat index to (meas_idx, comp_idx) using column-major ordering
+            // Column-major: flat_idx = meas_idx + comp_idx * num_rows
+            let comp_idx = original_idx / num_meas_plus_one;
+            let meas_idx = original_idx % num_meas_plus_one;
 
             objects[i].mu.push(posterior_parameters[i].mu[meas_idx][comp_idx].clone());
             objects[i].sigma.push(posterior_parameters[i].sigma[meas_idx][comp_idx].clone());

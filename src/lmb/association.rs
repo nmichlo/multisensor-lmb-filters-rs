@@ -214,8 +214,10 @@ pub fn generate_lmb_association_matrices(
     };
 
     // Murty's cost matrix: C = -log(L)
-    // Match MATLAB: -log(0) = Inf, not a finite value
-    let cost = l_matrix.map(|val| if val > 1e-300 { -val.ln() } else { f64::INFINITY });
+    // Match MATLAB: -log(0) = Inf, -log(very_small) = large_finite
+    // Rust: 0.0.ln() = -inf, so -(0.0.ln()) = inf ✓
+    //       tiny.ln() = -large, so -(tiny.ln()) = large ✓
+    let cost = l_matrix.map(|val| -val.ln());
 
     LmbAssociationResult {
         lbp,
