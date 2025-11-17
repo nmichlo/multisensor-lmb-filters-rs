@@ -810,6 +810,106 @@
 
 **Significance**: These bugs would have caused subtle errors across ALL filter variants. The fixes significantly improve correctness of the entire Rust implementation.
 
+---
+
+#### 📚 Lessons Learned from LMB Test Debugging
+
+**✅ What WORKED during debugging**:
+
+1. **Step-by-step fixture validation approach**
+   - Validating each algorithm step independently isolated bugs quickly
+   - Exact JSON fixtures from MATLAB provided ground truth at every step
+   - Could pinpoint EXACTLY where Rust diverged from MATLAB
+
+2. **Adding debug output to understand actual values**
+   - Printing component counts, weight values, indices revealed mismatches immediately
+   - Example: `Object 1: 17 components (expected 5)` instantly showed the problem
+
+3. **Creating MATLAB debug scripts to reproduce behavior**
+   - `debug_object1_weights.m` let us verify MATLAB's exact pruning logic
+   - Running scripts in Octave confirmed MATLAB defaults (max_components=5, threshold=1e-6)
+   - Could test hypotheses about what MATLAB was doing without guessing
+
+4. **Systematic comparison of parameters**
+   - Checking MATLAB defaults vs Rust test configuration revealed mismatches
+   - Example: Found threshold 1e-3 vs 1e-6, max_components 100 vs 5
+
+5. **Understanding MATLAB's column-major array ordering**
+   - Once identified, applied consistently across all deserialization code
+   - Formula: `flat_idx = row + col * num_rows` for column-major
+   - Fixed both test parsing AND core algorithm code
+
+6. **Using deterministic RNG (SimpleRng with fixed seed)**
+   - Made Gibbs sampling reproducible and debuggable
+   - Could compare exact association vectors between MATLAB and Rust
+
+**❌ What DIDN'T WORK or was misleading**:
+
+1. **Claiming partial success ("7/9 objects passing")**
+   - FALSE CONFIDENCE: Test was still failing, claiming progress was wrong
+   - Lesson: **Don't mark tests as "mostly working" - they either PASS or FAIL**
+   - Fix: Debug until test actually passes 100%
+
+2. **Assuming Rust defaults matched MATLAB defaults**
+   - Rust test used `max_components=100` assuming "bigger is safer"
+   - MATLAB actually uses `max_components=5` (much smaller!)
+   - Lesson: **Always verify MATLAB defaults explicitly, don't assume**
+
+3. **Using threshold guards on mathematical operations**
+   - Cost matrix: `if val > 1e-300 { -val.ln() } else { f64::INFINITY }`
+   - MATLAB simply does `-log(val)` for all values
+   - Lesson: **Don't add "safety" logic that MATLAB doesn't have - it breaks equivalence**
+
+4. **Assuming row-major ordering for all arrays**
+   - MATLAB uses column-major for multi-dimensional arrays and cell arrays
+   - Rust defaults to row-major, causing silent index errors
+   - Lesson: **Always check MATLAB's array ordering - it's column-major!**
+
+5. **Not reading the actual MATLAB source code carefully enough**
+   - Early debugging focused on Rust code, not MATLAB reference
+   - Should have checked MATLAB `generateModel.m` for default parameters immediately
+   - Lesson: **When in doubt, check the MATLAB source code first**
+
+**🎯 Best Practices for Future Debugging**:
+
+1. **Start with MATLAB reference code**
+   - Check exact MATLAB defaults and parameters before writing Rust tests
+   - Read MATLAB comments and implementation notes carefully
+
+2. **Use MATLAB/Octave debug scripts liberally**
+   - Create small scripts to reproduce specific behavior
+   - Verify assumptions about MATLAB's logic before debugging Rust
+
+3. **Add comprehensive debug output early**
+   - Print shapes, sizes, counts, first/last values at each step
+   - Makes it obvious when values diverge from expected
+
+4. **Test in isolation first, then integrate**
+   - Each validation function tests ONE algorithm step
+   - Only move to next step when current step passes exactly
+
+5. **Don't trust assumptions - verify everything**
+   - Column-major vs row-major
+   - Default parameter values
+   - Mathematical operation details (log, infinity handling)
+   - Array indexing and reshaping logic
+
+6. **Use exact numerical comparison (1e-10 tolerance)**
+   - Catches subtle bugs that loose tolerances would hide
+   - Forces bit-level equivalence with MATLAB
+
+**⚠️ Common Pitfalls to Watch For**:
+
+- **MATLAB cell array serialization** → Always column-major, not row-major
+- **MATLAB defaults** → Don't assume, verify in `generateModel.m`
+- **Mathematical operations** → Match MATLAB exactly, no "safety" guards
+- **Threshold values** → 1e-6 not 1e-3, 1e-15 not 1e-10
+- **Cost matrices** → MATLAB uses `-log()` directly, handles Inf naturally
+- **Array reshaping** → MATLAB's `reshape()` uses column-major order
+- **Index conversion** → MATLAB 1-indexed, Rust 0-indexed (subtract 1!)
+
+---
+
 **✅ COMPLETED Infrastructure** (~490 lines):
 - [x] Test infrastructure and fixture loading - **COMPLETE** (loads and parses fixtures successfully)
 - [x] Serde deserialization structures - **COMPLETE** (handles all MATLAB JSON quirks)
