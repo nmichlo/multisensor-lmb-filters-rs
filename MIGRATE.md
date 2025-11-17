@@ -122,12 +122,12 @@
    - ✅ Multisensor clutter sensitivity trials (all 4 variants validated)
    - ✅ Multisensor detection probability trials (IC/PU/GA perfect, AA minor difference)
 
-3. **Phase 4.7: Step-by-Step Algorithm Data** ⚠️ SUBSTANTIALLY COMPLETE (4/5 tasks)
-   - ✅ LMB step-by-step data (211KB fixture with all 7 algorithm steps)
-   - ✅ LMBM step-by-step data (65KB fixture with all 6 hypothesis steps)
-   - ✅ Multi-sensor LMB step-by-step data (727KB IC-LMB fixture)
-   - ✅ Multi-sensor LMBM step-by-step data (70KB fixture, **3 critical MATLAB bugs fixed!**)
-   - ⚠️ Rust step-by-step validation tests (infrastructure complete, full implementation TODO ~800-1000 lines)
+3. **Phase 4.7: Step-by-Step Algorithm Data** ⚠️ FIXTURES COMPLETE (4/4 generators) - VALIDATION NOT STARTED (0/1 implementation)
+   - ✅ LMB fixture generator + 211KB fixture (Task 4.7.1)
+   - ✅ LMBM fixture generator + 65KB fixture (Task 4.7.2)
+   - ✅ Multi-sensor LMB fixture generator + 727KB IC-LMB fixture (Task 4.7.3)
+   - ✅ Multi-sensor LMBM fixture generator + 70KB fixture (**3 critical MATLAB bugs fixed!**) (Task 4.7.4)
+   - ❌ Rust step-by-step validation tests (Task 4.7.5) - **SKELETON ONLY, NO ACTUAL VALIDATION** (~800-1000 lines missing)
 
 4. **Phase 5: Detailed Verification** (0/3 tasks - 0%)
    - ❌ File-by-file logic comparison (40+ file pairs)
@@ -653,20 +653,24 @@
 
 ---
 
-### Phase 4.7: Comprehensive Step-by-Step Algorithm Data ✅ SUBSTANTIALLY COMPLETE
+### Phase 4.7: Comprehensive Step-by-Step Algorithm Data ⚠️ FIXTURES COMPLETE - VALIDATION TODO
 
 **Priority: CRITICAL | Effort: VERY HIGH | Deterministic: Yes**
 
 **Purpose**: Generate complete intermediate state data for ALL algorithms to enable step-by-step validation of internal logic, not just final outputs. This is the deepest level of verification.
 
-**Status**: ✅ Fixture infrastructure complete (4/4 generators created, all fixtures generated ~1.07MB total). Rust test skeleton in place. Full Rust validation implementation TODO (~800-1000 lines).
+**Status**: **FIXTURES ONLY**: All 4 MATLAB generators created and fixtures generated (1.07MB). **VALIDATION NOT IMPLEMENTED**: Rust tests are skeleton only with TODO placeholders. ~800-1000 lines of validation code required to actually verify Rust matches MATLAB step-by-step.
 
-**Achievements**:
+**What IS complete**:
 - ✅ All 4 MATLAB fixture generators created and tested (~1089 lines total)
 - ✅ All 4 fixtures generated successfully (LMB: 211KB, LMBM: 65KB, Multisensor LMB: 727KB, Multisensor LMBM: 70KB)
 - ✅ Fixed 3 critical bugs in MATLAB multisensor LMBM code (RNG parameters + variable collision)
-- ✅ Rust test infrastructure in place with skeleton tests (418 lines)
-- ⚠️ Full Rust validation implementation deferred (~800-1000 lines remaining)
+- ✅ Rust test infrastructure skeleton (418 lines with serde structures and helper functions)
+
+**What is NOT complete**:
+- ❌ Actual Rust validation implementation (~800-1000 lines of MATLAB→Rust conversion + step validation)
+- ❌ No tests actually verify Rust matches MATLAB (only TODOs and one cardinality example)
+- ❌ Cannot pinpoint bugs to specific algorithm steps (the whole point of Phase 4.7)
 
 **Scope**: Generate MATLAB .json fixtures containing:
 - **All inputs** to each algorithm step
@@ -757,34 +761,35 @@
 
 **Result**: Multisensor LMBM now fully deterministic and generates fixtures correctly. These bugs explain why Phase 4.6 noted "LMBM SKIPPED (bug in MATLAB code)".
 
-#### Task 4.7.5: Create Rust Step-by-Step Validation Tests ⚠️ INFRASTRUCTURE COMPLETE
+#### Task 4.7.5: Create Rust Step-by-Step Validation Tests ❌ NOT STARTED (skeleton only)
 
-**Created**: `tests/step_by_step_validation.rs` (418 lines - skeleton with TODO placeholders)
+**Created**: `tests/step_by_step_validation.rs` (418 lines - **ALL PLACEHOLDERS, NO ACTUAL VALIDATION**)
 
-- [x] Test infrastructure and fixture loading
-- [x] Serde deserialization structures for all 4 fixture types
-- [x] Helper functions (assert_vec_close, assert_matrix_close, matlab_to_rust_indices)
-- [x] Test skeleton for LMB with 7 validation functions:
-  - `test_lmb_step_by_step_validation()` - main test driver ✅
-  - `validate_lmb_prediction()` - TODO
-  - `validate_lmb_association()` - TODO
-  - `validate_lmb_lbp()` - TODO
-  - `validate_lmb_gibbs()` - TODO
-  - `validate_lmb_murtys()` - TODO
-  - `validate_lmb_update()` - TODO
-  - `validate_lmb_cardinality()` - ✅ IMPLEMENTED (working example)
+**Skeleton infrastructure** (not actual validation):
+- [ ] Test infrastructure and fixture loading - **PLACEHOLDER ONLY** (loads fixtures but doesn't validate)
+- [ ] Serde deserialization structures - **STRUCTURES ONLY** (no conversion to Rust types)
+- [ ] Helper functions - **EXISTS** (assert_vec_close, assert_matrix_close work)
+- [ ] Test skeleton for LMB with 7 validation functions - **ALL UNIMPLEMENTED**:
+  - `test_lmb_step_by_step_validation()` - exists but only prints TODOs
+  - `validate_lmb_prediction()` - **NOT IMPLEMENTED** (just prints "TODO")
+  - `validate_lmb_association()` - **NOT IMPLEMENTED** (just prints "TODO")
+  - `validate_lmb_lbp()` - **NOT IMPLEMENTED** (just prints "TODO")
+  - `validate_lmb_gibbs()` - **NOT IMPLEMENTED** (just prints "TODO")
+  - `validate_lmb_murtys()` - **NOT IMPLEMENTED** (just prints "TODO")
+  - `validate_lmb_update()` - **NOT IMPLEMENTED** (just prints "TODO")
+  - `validate_lmb_cardinality()` - **ONLY ONE IMPLEMENTED** (12 lines, trivial example)
 
-**Status**: Test compiles, fixtures load successfully. Full implementation requires detailed struct mapping from MATLAB JSON format to Rust types (~400-600 lines remaining).
+**Missing work** (~800-1000 lines):
+1. [ ] MATLAB→Rust conversion helpers for objects/hypotheses/parameters (~200 lines)
+2. [ ] Implement 6 remaining LMB validation functions (~200 lines)
+3. [ ] Add complete LMBM test suite (~300 lines)
+4. [ ] Add complete multisensor LMB test suite (~200 lines)
+5. [ ] Add complete multisensor LMBM test suite (~200 lines)
+6. [ ] Debug and fix any discrepancies found by tests
 
-**Blocked By**: MATLAB JSON uses different conventions (1-indexed, column-major, cell arrays) vs Rust (0-indexed, row-major, vectors). Need careful conversion layer.
+**Status**: Test file exists and compiles, but **DOES NOT VALIDATE ANYTHING**. Current test just loads fixture and prints TODOs. No actual verification of Rust vs MATLAB happens.
 
-**Next Steps** (deferred):
-1. Implement MATLAB→Rust conversion helpers for objects/hypotheses/parameters
-2. Implement remaining 6 LMB validation functions
-3. Add LMBM, multisensor LMB, multisensor LMBM test suites (~400 lines each)
-4. Run tests and debug any discrepancies
-
-**Estimated Effort**: ~800-1000 additional lines of careful mapping code
+**Critical gap**: Phase 4.7's purpose is "pinpoint bugs to specific algorithm steps" - this requires the validation implementation, which is 0% complete.
 
 ---
 
