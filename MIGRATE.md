@@ -463,6 +463,15 @@
 1. ✅ **Ground truth state format bug** (`src/common/ground_truth.rs:276-307`): Prior locations used `[x,vx,y,vy]` instead of `[x,y,vx,vy]`
 2. ✅ **Sensor-specific detection probability** (`src/multisensor_lmb/iterated_corrector.rs:149-155`, `parallel_update.rs:259-266`)
 3. ✅ **Sensor-specific association parameters** (`src/multisensor_lmb/association.rs:73-177`): Now uses per-sensor P_d, clutter, C, Q matrices
+4. Bug #1: Miss detection weight initialization (association.rs:116-121)
+  - Used r (existence) instead of w[j] (GM weight)
+  - Result: IC-LMB now achieves exact numerical equivalence!
+5. Bug #2: Double prediction in PU-LMB (parallel_update.rs:166,284)
+  - Called prediction twice, passing wrong prior to PU merging
+  - Result: PU merging now receives correct parameters
+6. Bug #3: Canonical-to-moment conversion (merging.rs:366)
+  - Used h_canonical instead of mu in g correction: -0.5 * h' * K * h → -0.5 * mu' * K * mu
+  - Result: Existence probabilities now reasonable (was 0 objects, now 4 instead of 2)
 
 #### Task 4.6.1: Multisensor Accuracy Trials ⚠️ PARTIALLY COMPLETE
 
@@ -493,14 +502,58 @@
 - [x] Test compiles and runs successfully
 - [x] Determinism verification test implemented and PASSING
 
-⚠️ **Remaining Issue**:
-- **t=0, t=1**: ✅ Exact numerical equivalence (within 1e-10)
-- **t=2+**: ⚠️ Small numerical differences accumulate over timesteps (grows to ~0.5 OSPA by t=22)
-- **Root cause**: Under investigation - likely minor implementation difference in sensor fusion that compounds
-- **Status**: Test marked as `#[ignore]` pending investigation
+✅ **3 Critical Bugs Found & Fixed**:
+
+**Bug #1: Miss Detection Weight Initialization** (src/multisensor_lmb/association.rs:116-121)
+- **Issue**: Used existence probability `r` instead of GM component weights in miss detection calculation
+- **MATLAB reference** (generateLmbSensorAssociationMatrices.m:40):
+  ```matlab
+  posteriorParameters(i).w = repmat(log(objects(i).w * (1 - model.detectionProbability(s))), numberOfMeasurements + 1, 1);
+  ```
+- **Original Rust bug**: `w_obj[0][j] = (objects[i].r * (1.0 - p_d)).ln()`
+- **Fixed to**: `w_obj[0][j] = (objects[i].w[j] * (1.0 - p_d)).ln()`
+- **Impact**: Caused incorrect posterior weight calculations that accumulated over time
+- **Result**: IC-LMB now achieves exact numerical equivalence! ✅
+
+**Bug #2: Double Prediction in PU-LMB** (src/multisensor_lmb/parallel_update.rs:165-166, 300)
+- **Issue**: Called `lmb_prediction_step()` twice - once at start of timestep, then again before PU merging
+- **MATLAB reference** (runParallelUpdateLmbFilter.m:70): `puLmbTrackMerging(measurementUpdatedDistributions, objects, model)`
+  - `objects` parameter is the PREDICTED objects from line 53, NOT the sensor-updated ones
+- **Original Rust bug**: Called `lmb_prediction_step(objects.clone(), model, t + 1)` at line 281, passing double-predicted objects to PU merging
+- **Fixed**: Saved `let predicted_objects = objects.clone()` at line 166 after first prediction, then passed `&predicted_objects` to PU merging at line 300
+- **Impact**: PU merging received incorrect prior, causing existence probability fusion to fail
+- **Result**: PU-LMB now extracts objects (was 0 before fix, though still has 4 vs 2 discrepancy)
+
+**Bug #3: Canonical-to-Moment Form Conversion** (src/multisensor_lmb/merging.rs:366-378)
+- **Issue**: Used canonical form `h` instead of moment form `mu` in g-value quadratic correction
+- **MATLAB reference** (puLmbTrackMerging.m:69-71):
+  ```matlab
+  K{j} = inv(K{j});  % K is now Sigma
+  h{j} = K{j} * h{j};  % h is now mu (MUTATES h!)
+  g(j) = g(j) + 0.5 * h{j}' * T * h{j} + 0.5 * log(det(2 * pi * K{j}));
+  ```
+- **Original Rust bug**: `let g = g_components[j] + 0.5 * h_components[j].dot(&(&k_temp * &h_components[j]))`
+  - Used `h_canonical` instead of `mu` in quadratic form
+  - Caused extremely negative g values (-1240 instead of reasonable -44)
+  - Led to eta ≈ 1e-18, causing fused_r ≈ 0 (no objects extracted)
+- **Fixed**: Compute `let mu = &sigma * &h_components[j]`, then use `mu.dot(&(&k_canonical * &mu))`
+- **Impact**: Objects now have reasonable existence probabilities instead of near-zero
+- **Result**: PU-LMB extracts objects with correct fusion formula
+
+⚠️ **Remaining Issue (PU-LMB only)**:
+- **IC-LMB**: ✅ **PERFECT** - exact numerical equivalence within 1e-6 tolerance across all timesteps
+- **PU-LMB**: ⚠️ Extracting 4 objects instead of 2 at t=0 (2 false positives with moderately high sensor r values)
+  - Objects 4-5 sensor r values: [0.151, 0.155, 0.188] and [0.010, 0.190, 0.201]
+  - These moderate values get amplified by PU fusion formula to fused_r = 0.994 and 0.822
+  - Existence fusion formula itself matches MATLAB exactly
+  - May require runtime value debugging to identify subtle numerical difference
+- **GA/AA-LMB**: Not yet tested with fixes
 - **Determinism**: ✅ Rust is internally consistent (same seed = same results)
 
-**Actual Results**: 1/2 tests passing (determinism ✅), accuracy test ignored pending numerical accumulation fix
+**Test Status**:
+- IC-LMB: ✅ PASSING (tolerance 1e-6)
+- PU-LMB: ❌ FAILING (Card=4 vs expected 2 at t=0, E-OSPA=4.55 vs 4.06)
+- Determinism: ✅ PASSING
 
 #### Task 4.6.2: Multisensor Clutter Sensitivity Tests ❌
 

@@ -69,6 +69,8 @@ fn main() {
     }
     
     // Compute OSPA for first few timesteps
+    println!("\n=== OSPA Comparison ===");
+    let expected = [4.057993, 4.829382, 5.000000];
     for t in 0..3 {
         let metrics = ospa(
             &ground_truth_output.ground_truth_rfs.x[t],
@@ -79,14 +81,22 @@ fn main() {
             &model.ospa_parameters,
         );
 
-        println!("\nOSPA at t={}:", t);
-        println!("  E-OSPA: {:.6}", metrics.e_ospa.total);
-        println!("  H-OSPA: {:.6}", metrics.h_ospa.total);
-        println!("  Ground truth objects: {}", ground_truth_output.ground_truth_rfs.x[t].len());
-        println!("  State estimates: {}", state_estimates.mu[t].len());
+        println!("\nt={}:", t);
+        println!("  Rust E-OSPA:    {:.6}", metrics.e_ospa.total);
+        println!("  MATLAB E-OSPA:  {:.6}", expected[t]);
+        println!("  Diff:           {:.6}", (metrics.e_ospa.total - expected[t]).abs());
+        println!("  H-OSPA:         {:.6}", metrics.h_ospa.total);
+        println!("  GT objects:     {}", ground_truth_output.ground_truth_rfs.x[t].len());
+        println!("  Estimates:      {}", state_estimates.mu[t].len());
+
+        if t < 2 {
+            println!("  State estimates:");
+            for (i, (mu, sigma)) in state_estimates.mu[t].iter().zip(state_estimates.sigma[t].iter()).enumerate() {
+                println!("    Est {}: pos=[{:.3}, {:.3}], vel=[{:.3}, {:.3}]",
+                    i, mu[0], mu[1], mu[2], mu[3]);
+                println!("            sigma_diag=[{:.3}, {:.3}, {:.3}, {:.3}]",
+                    sigma[(0,0)].sqrt(), sigma[(1,1)].sqrt(), sigma[(2,2)].sqrt(), sigma[(3,3)].sqrt());
+            }
+        }
     }
-    println!("\nExpected (from MATLAB):");
-    println!("  t=0: E-OSPA=4.057993");
-    println!("  t=1: E-OSPA=4.829382");
-    println!("  t=2: E-OSPA=5.000000");
 }
