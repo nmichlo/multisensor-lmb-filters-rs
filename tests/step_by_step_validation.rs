@@ -69,6 +69,26 @@ struct ModelData {
     clutter_per_unit_volume: f64,
 }
 
+// Multisensor model with per-sensor parameters
+#[derive(Debug, Deserialize)]
+struct MultisensorModelData {
+    #[serde(rename = "A")]
+    a: Vec<Vec<f64>>,
+    #[serde(rename = "R")]
+    r: Vec<Vec<f64>>,  // Process noise covariance (shared across sensors)
+    #[serde(rename = "C")]
+    c: Vec<Vec<Vec<f64>>>,  // Per-sensor C matrices
+    #[serde(rename = "Q")]
+    q: Vec<Vec<Vec<f64>>>,  // Per-sensor Q matrices
+    #[serde(rename = "P_s", deserialize_with = "deserialize_scalar_or_vec")]
+    p_s: Vec<f64>,  // Per-sensor survival probabilities (or scalar shared across sensors)
+    #[serde(rename = "P_d")]
+    p_d: Vec<f64>,  // Per-sensor detection probabilities
+    clutter_per_unit_volume: Vec<f64>,  // Per-sensor clutter rates
+    #[serde(rename = "numberOfSensors")]
+    number_of_sensors: usize,
+}
+
 // Helper to deserialize w as either scalar or vector
 fn deserialize_w<'de, D>(deserializer: D) -> Result<Vec<f64>, D::Error>
 where
@@ -117,6 +137,77 @@ where
     deserializer.deserialize_any(WVisitor)
 }
 
+// Helper to deserialize P_s as either scalar (single-sensor) or array (multisensor, use first)
+fn deserialize_p_s<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Deserialize};
+
+    struct PSVisitor;
+
+    impl<'de> de::Visitor<'de> for PSVisitor {
+        type Value = f64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a float or array of floats")
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(value)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            // For arrays (multisensor), take the first element (all should be equal)
+            seq.next_element()?
+                .ok_or_else(|| de::Error::custom("empty array for P_s"))
+        }
+    }
+
+    deserializer.deserialize_any(PSVisitor)
+}
+
+// Helper to deserialize P_s as either scalar or array (for MultisensorModelData)
+fn deserialize_scalar_or_vec<'de, D>(deserializer: D) -> Result<Vec<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Deserialize};
+
+    struct ScalarOrVecVisitor;
+
+    impl<'de> de::Visitor<'de> for ScalarOrVecVisitor {
+        type Value = Vec<f64>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a float or array of floats")
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            // Scalar - wrap in vector (will be duplicated for each sensor if needed)
+            Ok(vec![value])
+        }
+
+        fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            Deserialize::deserialize(de::value::SeqAccessDeserializer::new(seq))
+        }
+    }
+
+    deserializer.deserialize_any(ScalarOrVecVisitor)
+}
+
 #[derive(Debug, Deserialize)]
 struct ObjectData {
     r: f64,
@@ -139,6 +230,7 @@ struct PredictionInput {
     prior_objects: Vec<ObjectData>,
     model_A: Vec<Vec<f64>>,
     model_R: Vec<Vec<f64>>,
+    #[serde(deserialize_with = "deserialize_p_s")]
     model_P_s: f64,
     timestep: usize,
 }
@@ -551,6 +643,72 @@ fn hypothesis_data_to_rust(hyp_data: &HypothesisData) -> prak::common::types::Hy
         r: hyp_data.r.clone(),
         mu,
         sigma,
+    }
+}
+
+/// Convert MATLAB MultisensorModelData to Rust Model (uses first sensor's parameters for single-sensor functions)
+fn multisensor_model_data_to_rust(model_data: &MultisensorModelData, sensor_idx: usize) -> Model {
+    let x_dim = model_data.a.len();
+    let z_dim = model_data.c[sensor_idx].len();
+
+    use prak::common::types::{DataAssociationMethod, ScenarioType, OspaParameters};
+
+    // Handle p_s which might be a single-element vector (scalar) or per-sensor vector
+    let p_s = if model_data.p_s.len() == 1 {
+        model_data.p_s[0]
+    } else {
+        model_data.p_s[sensor_idx]
+    };
+
+    Model {
+        scenario_type: ScenarioType::Fixed,
+        x_dimension: x_dim,
+        z_dimension: z_dim,
+        t: 1.0,
+        survival_probability: p_s,
+        existence_threshold: 1e-3,
+        a: DMatrix::from_row_slice(x_dim, x_dim, &model_data.a.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
+        u: DVector::zeros(x_dim),
+        r: DMatrix::from_row_slice(x_dim, x_dim, &model_data.r.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
+        c: DMatrix::from_row_slice(z_dim, x_dim, &model_data.c[sensor_idx].iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
+        q: DMatrix::from_row_slice(z_dim, z_dim, &model_data.q[sensor_idx].iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
+        detection_probability: model_data.p_d[sensor_idx],
+        observation_space_limits: DMatrix::zeros(2, 2),
+        observation_space_volume: 40000.0,
+        clutter_rate: 5.0,
+        clutter_per_unit_volume: model_data.clutter_per_unit_volume[sensor_idx],
+        number_of_birth_locations: 0,
+        birth_location_labels: Vec::new(),
+        r_b: Vec::new(),
+        r_b_lmbm: Vec::new(),
+        mu_b: Vec::new(),
+        sigma_b: Vec::new(),
+        object: Vec::new(),
+        birth_parameters: Vec::new(),
+        hypotheses: prak::common::types::Hypothesis::empty(),
+        trajectory: Vec::new(),
+        birth_trajectory: Vec::new(),
+        gm_weight_threshold: 1e-6,
+        maximum_number_of_gm_components: 5,
+        minimum_trajectory_length: 1,
+        data_association_method: DataAssociationMethod::LBP,
+        maximum_number_of_lbp_iterations: 100,
+        lbp_convergence_tolerance: 1e-3,
+        number_of_samples: 1000,
+        number_of_assignments: 100,
+        maximum_number_of_posterior_hypotheses: 100,
+        posterior_hypothesis_weight_threshold: 1e-6,
+        use_eap_on_lmbm: true,
+        ospa_parameters: OspaParameters { e_c: 30.0, e_p: 1.0, h_c: 30.0, h_p: 1.0 },
+        number_of_sensors: Some(model_data.number_of_sensors),
+        c_multisensor: None,
+        q_multisensor: None,
+        detection_probability_multisensor: Some(model_data.p_d.clone()),
+        clutter_rate_multisensor: None,
+        clutter_per_unit_volume_multisensor: Some(model_data.clutter_per_unit_volume.clone()),
+        lmb_parallel_update_mode: None,
+        aa_sensor_weights: None,
+        ga_sensor_weights: None,
     }
 }
 
@@ -1026,6 +1184,7 @@ struct LmbmPredictionInput {
     prior_hypothesis: HypothesisData,
     model_A: Vec<Vec<f64>>,
     model_R: Vec<Vec<f64>>,
+    #[serde(deserialize_with = "deserialize_p_s")]
     model_P_s: f64,
     timestep: usize,
 }
@@ -1047,10 +1206,43 @@ struct LmbmAssociationInput {
     measurements: Vec<Vec<f64>>,
 }
 
+/// LMBM-specific posteriorParameters deserialization
+/// Unlike LMB which has Vec<Object>, LMBM has a single Object with Vec fields
+#[derive(Debug, Deserialize)]
+struct LmbmPosteriorParametersJson {
+    /// Miss detection existence probabilities [n]
+    r: Vec<f64>,
+    /// Flattened means [n * k][state_dim] where k varies per object based on gating
+    /// Each inner vec is a state vector
+    mu: Vec<Vec<f64>>,
+    /// Covariances [n][state_dim][state_dim] - one per object
+    #[serde(rename = "Sigma")]
+    sigma: Vec<Vec<Vec<f64>>>,
+}
+
+/// Multisensor LMBM-specific posteriorParameters deserialization
+/// Has extra sensor dimension in r field compared to single-sensor
+#[derive(Debug, Deserialize)]
+struct MultisensorLmbmPosteriorParametersJson {
+    /// Miss detection existence probabilities [sensors][n][m+1]
+    r: Vec<Vec<Vec<f64>>>,
+    /// Flattened means [total_components][state_dim]
+    mu: Vec<Vec<f64>>,
+    /// Covariances [total_components][state_dim][state_dim]
+    #[serde(rename = "Sigma")]
+    sigma: Vec<Vec<Vec<f64>>>,
+}
+
 #[derive(Debug, Deserialize)]
 struct LmbmAssociationOutput {
+    #[serde(rename = "C", deserialize_with = "deserialize_matrix")]
+    c: Vec<Vec<f64>>,
     #[serde(rename = "L", deserialize_with = "deserialize_matrix")]
     l: Vec<Vec<f64>>,
+    #[serde(rename = "P", deserialize_with = "deserialize_matrix")]
+    p: Vec<Vec<f64>>,
+    #[serde(rename = "posteriorParameters")]
+    posterior_parameters: LmbmPosteriorParametersJson,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1061,8 +1253,10 @@ struct LmbmGibbsStep {
 
 #[derive(Debug, Deserialize)]
 struct LmbmGibbsInput {
-    #[serde(rename = "L", deserialize_with = "deserialize_matrix")]
-    l: Vec<Vec<f64>>,
+    #[serde(rename = "P", deserialize_with = "deserialize_matrix")]
+    p: Vec<Vec<f64>>,
+    #[serde(rename = "C", deserialize_with = "deserialize_matrix")]
+    c: Vec<Vec<f64>>,
     #[serde(rename = "numberOfSamples")]
     number_of_samples: usize,
     rng_seed: u64,
@@ -1082,8 +1276,8 @@ struct LmbmMurtysStep {
 
 #[derive(Debug, Deserialize)]
 struct LmbmMurtysInput {
-    #[serde(rename = "L", deserialize_with = "deserialize_matrix")]
-    l: Vec<Vec<f64>>,
+    #[serde(rename = "C", deserialize_with = "deserialize_matrix")]
+    c: Vec<Vec<f64>>,
     #[serde(rename = "numberOfAssignments")]
     number_of_assignments: usize,
 }
@@ -1109,6 +1303,7 @@ struct LmbmHypothesisInput {
 
 #[derive(Debug, Deserialize)]
 struct LmbmHypothesisOutput {
+    #[serde(rename = "new_hypotheses")]
     posterior_hypotheses: Vec<HypothesisData>,
 }
 
@@ -1126,7 +1321,7 @@ struct LmbmNormalizationInput {
 #[derive(Debug, Deserialize)]
 struct LmbmNormalizationOutput {
     normalized_hypotheses: Vec<HypothesisData>,
-    gated_hypotheses: Vec<HypothesisData>,
+    objects_likely_to_exist: Vec<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1137,12 +1332,13 @@ struct LmbmExtractionStep {
 
 #[derive(Debug, Deserialize)]
 struct LmbmExtractionInput {
-    gated_hypotheses: Vec<HypothesisData>,
+    hypotheses: Vec<HypothesisData>,
+    use_map: bool,
 }
 
 #[derive(Debug, Deserialize)]
 struct LmbmExtractionOutput {
-    n_estimated: usize,
+    cardinality_estimate: usize,
     extraction_indices: Vec<usize>,
 }
 
@@ -1253,27 +1449,27 @@ fn validate_lmbm_normalization_gating(fixture: &LmbmFixture) {
 
     let (gated_hypotheses, _) = lmbm_normalisation_and_gating(posterior_hypotheses, &model);
 
-    let expected_gated: Vec<_> = fixture.step5_normalization.output.gated_hypotheses.iter()
+    let expected_normalized: Vec<_> = fixture.step5_normalization.output.normalized_hypotheses.iter()
         .map(hypothesis_data_to_rust)
         .collect();
 
-    assert_eq!(gated_hypotheses.len(), expected_gated.len(), "LMBM gated hypothesis count mismatch");
+    assert_eq!(gated_hypotheses.len(), expected_normalized.len(), "LMBM normalized hypothesis count mismatch");
 
-    for (i, (actual, expected)) in gated_hypotheses.iter().zip(expected_gated.iter()).enumerate() {
-        assert!((actual.w - expected.w).abs() <= TOLERANCE, "Gated hypothesis {}: weight mismatch", i);
+    for (i, (actual, expected)) in gated_hypotheses.iter().zip(expected_normalized.iter()).enumerate() {
+        assert!((actual.w - expected.w).abs() <= TOLERANCE, "Normalized hypothesis {}: weight mismatch", i);
     }
 
     println!("    ✓ LMBM normalization/gating validation passed ({} hypotheses)", gated_hypotheses.len());
 }
 
 fn validate_lmbm_state_extraction(fixture: &LmbmFixture) {
-    let gated_hypotheses: Vec<_> = fixture.step6_extraction.input.gated_hypotheses.iter()
+    let gated_hypotheses: Vec<_> = fixture.step6_extraction.input.hypotheses.iter()
         .map(hypothesis_data_to_rust)
         .collect();
     let model = model_data_to_rust(&fixture.model);
 
     let (actual_n, actual_indices) = lmbm_state_extraction(&gated_hypotheses, model.use_eap_on_lmbm);
-    let expected_n = fixture.step6_extraction.output.n_estimated;
+    let expected_n = fixture.step6_extraction.output.cardinality_estimate;
     let expected_indices = matlab_to_rust_indices(&fixture.step6_extraction.output.extraction_indices);
 
     assert_eq!(actual_n, expected_n, "LMBM cardinality estimate mismatch");
@@ -1326,7 +1522,7 @@ struct MultisensorLmbFixture {
     number_of_sensors: usize,
     #[serde(rename = "filterType")]
     filter_type: String,
-    model: ModelData,
+    model: MultisensorModelData,
     measurements: Vec<Vec<Vec<f64>>>, // Per-sensor measurements
     step1_prediction: PredictionStep,
     #[serde(rename = "sensorUpdates")]
@@ -1337,6 +1533,7 @@ struct MultisensorLmbFixture {
 
 #[derive(Debug, Deserialize)]
 struct SensorUpdate {
+    #[serde(rename = "sensorIndex")]
     sensor_index: usize,
     input: SensorUpdateInput,
     output: SensorUpdateOutput,
@@ -1344,12 +1541,18 @@ struct SensorUpdate {
 
 #[derive(Debug, Deserialize)]
 struct SensorUpdateInput {
+    #[serde(rename = "objects")]
     prior_objects: Vec<ObjectData>,
     measurements: Vec<Vec<f64>>,
+    model_C: Vec<Vec<Vec<f64>>>,  // All sensors' C matrices
+    model_Q: Vec<Vec<Vec<f64>>>,  // All sensors' Q matrices
+    model_P_d: f64,
+    model_clutter: f64,
 }
 
 #[derive(Debug, Deserialize)]
 struct SensorUpdateOutput {
+    #[serde(rename = "updated_objects")]
     posterior_objects: Vec<ObjectData>,
 }
 
@@ -1359,7 +1562,7 @@ fn validate_multisensor_lmb_prediction(fixture: &MultisensorLmbFixture) {
         .map(object_data_to_rust)
         .collect();
 
-    let mut model = model_data_to_rust(&fixture.model);
+    let mut model = multisensor_model_data_to_rust(&fixture.model, 0);
     model.a = DMatrix::from_row_slice(
         fixture.step1_prediction.input.model_A.len(),
         fixture.step1_prediction.input.model_A[0].len(),
@@ -1478,7 +1681,7 @@ fn test_multisensor_lmb_step_by_step_validation() {
     println!("  [1/{}] Validating prediction...", fixture.sensor_updates.len() + 2);
     validate_multisensor_lmb_prediction(&fixture);
 
-    let model = model_data_to_rust(&fixture.model);
+    let model = multisensor_model_data_to_rust(&fixture.model, 0);
 
     for (i, update) in fixture.sensor_updates.iter().enumerate() {
         println!("  [{}/{}] Validating sensor {} update...",
@@ -1507,12 +1710,12 @@ struct MultisensorLmbmFixture {
     filter_type: String,
     #[serde(rename = "priorHypothesisIndex")]
     prior_hypothesis_index: usize,
-    model: ModelData,
+    model: MultisensorModelData,
     measurements: Vec<Vec<Vec<f64>>>, // Per-sensor measurements
     step1_prediction: LmbmPredictionStep,
     step2_association: MultisensorLmbmAssociationStep,
     step3_gibbs: MultisensorLmbmGibbsStep,
-    step4_hypothesis: LmbmHypothesisStep,
+    step4_hypothesis: MultisensorLmbmHypothesisStep,
     step5_normalization: LmbmNormalizationStep,
     step6_extraction: LmbmExtractionStep,
 }
@@ -1531,8 +1734,10 @@ struct MultisensorLmbmAssociationInput {
 
 #[derive(Debug, Deserialize)]
 struct MultisensorLmbmAssociationOutput {
-    #[serde(rename = "L", deserialize_with = "deserialize_matrix")]
-    l: Vec<Vec<f64>>,
+    #[serde(rename = "L")]
+    l: Vec<Vec<Vec<f64>>>,  // Per-sensor L matrices [sensors][rows][cols]
+    #[serde(rename = "posteriorParameters")]
+    posterior_parameters: MultisensorLmbmPosteriorParametersJson,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1543,8 +1748,8 @@ struct MultisensorLmbmGibbsStep {
 
 #[derive(Debug, Deserialize)]
 struct MultisensorLmbmGibbsInput {
-    #[serde(rename = "L", deserialize_with = "deserialize_matrix")]
-    l: Vec<Vec<f64>>,
+    #[serde(rename = "L")]
+    l: Vec<Vec<Vec<f64>>>,  // Per-sensor L matrices [sensors][rows][cols]
     #[serde(rename = "numberOfSamples")]
     number_of_samples: usize,
     rng_seed: u64,
@@ -1553,13 +1758,30 @@ struct MultisensorLmbmGibbsInput {
 #[derive(Debug, Deserialize)]
 struct MultisensorLmbmGibbsOutput {
     #[serde(rename = "A")]
-    a: Vec<Vec<f64>>, // Multi-sensor association events
+    a: Vec<Vec<usize>>, // Association events (assignment matrices)
+}
+
+#[derive(Debug, Deserialize)]
+struct MultisensorLmbmHypothesisStep {
+    input: MultisensorLmbmHypothesisInput,
+    output: LmbmHypothesisOutput,  // Output is same as single-sensor
+}
+
+#[derive(Debug, Deserialize)]
+struct MultisensorLmbmHypothesisInput {
+    #[serde(rename = "A")]
+    a: Vec<Vec<usize>>,  // Association events from Gibbs
+    #[serde(rename = "L")]
+    l: Vec<Vec<Vec<f64>>>,  // Per-sensor L matrices
+    #[serde(rename = "posteriorParameters")]
+    posterior_parameters: MultisensorLmbmPosteriorParametersJson,
+    predicted_hypothesis: HypothesisData,
 }
 
 fn validate_multisensor_lmbm_prediction(fixture: &MultisensorLmbmFixture) {
     // Reuse LMBM prediction validation logic
     let prior_hypothesis = hypothesis_data_to_rust(&fixture.step1_prediction.input.prior_hypothesis);
-    let mut model = model_data_to_rust(&fixture.model);
+    let mut model = multisensor_model_data_to_rust(&fixture.model, 0);
 
     model.a = DMatrix::from_row_slice(
         fixture.step1_prediction.input.model_A.len(),
@@ -1591,7 +1813,7 @@ fn validate_multisensor_lmbm_association(fixture: &MultisensorLmbmFixture) {
         .map(|sensor_meas| measurements_to_rust(sensor_meas))
         .collect();
 
-    let model = model_data_to_rust(&fixture.model);
+    let model = multisensor_model_data_to_rust(&fixture.model, 0);
 
     let (l_vector, _posterior_params, _dimensions) = generate_multisensor_lmbm_association_matrices(
         &predicted_hypothesis,
@@ -1616,7 +1838,7 @@ fn validate_multisensor_lmbm_gibbs(fixture: &MultisensorLmbmFixture) {
         .map(|sensor_meas| measurements_to_rust(sensor_meas))
         .collect();
 
-    let model = model_data_to_rust(&fixture.model);
+    let model = multisensor_model_data_to_rust(&fixture.model, 0);
 
     let (l_vector, _posterior_params, dimensions) = generate_multisensor_lmbm_association_matrices(
         &predicted_hypothesis,
@@ -1629,20 +1851,23 @@ fn validate_multisensor_lmbm_gibbs(fixture: &MultisensorLmbmFixture) {
     let num_samples = fixture.step3_gibbs.input.number_of_samples;
 
     let actual_a = multisensor_lmbm_gibbs_sampling(&mut rng, &l_vector, &dimensions, num_samples);
-    let expected_a = &fixture.step3_gibbs.output.a;
 
-    // Convert DMatrix<usize> to Vec<Vec<f64>> for comparison
+    // Convert both actual and expected to Vec<Vec<f64>> for comparison
     let actual_a_vec: Vec<Vec<f64>> = (0..actual_a.nrows())
         .map(|i| actual_a.row(i).iter().map(|&x| x as f64).collect())
         .collect();
 
-    assert_matrix_close(&actual_a_vec, expected_a, TOLERANCE, "Multisensor LMBM Gibbs samples A");
+    let expected_a_vec: Vec<Vec<f64>> = fixture.step3_gibbs.output.a.iter()
+        .map(|row| row.iter().map(|&x| x as f64).collect())
+        .collect();
+
+    assert_matrix_close(&actual_a_vec, &expected_a_vec, TOLERANCE, "Multisensor LMBM Gibbs samples A");
     println!("    ✓ Multisensor LMBM Gibbs validation passed ({} samples)", actual_a.nrows());
 }
 
 fn validate_multisensor_lmbm_hypothesis_parameters(fixture: &MultisensorLmbmFixture) {
     let predicted_hypothesis = hypothesis_data_to_rust(&fixture.step4_hypothesis.input.predicted_hypothesis);
-    let model = model_data_to_rust(&fixture.model);
+    let model = multisensor_model_data_to_rust(&fixture.model, 0);
 
     let measurements: Vec<Vec<DVector<f64>>> = fixture.measurements.iter()
         .map(|sensor_meas| measurements_to_rust(sensor_meas))
@@ -1656,10 +1881,10 @@ fn validate_multisensor_lmbm_hypothesis_parameters(fixture: &MultisensorLmbmFixt
         fixture.number_of_sensors
     );
 
-    // Convert association events from Vec<Vec<f64>> to DMatrix<usize>
-    let association_events = &fixture.step4_hypothesis.input.v;
+    // Convert association events from Vec<Vec<usize>> to DMatrix<usize>
+    let association_events = &fixture.step4_hypothesis.input.a;
     let a_matrix = DMatrix::from_fn(association_events.len(), association_events[0].len(),
-        |i, j| association_events[i][j] as usize);
+        |i, j| association_events[i][j]);
 
     let posterior_hypotheses = determine_multisensor_posterior_hypothesis_parameters(
         &a_matrix,
@@ -1685,13 +1910,13 @@ fn validate_multisensor_lmbm_hypothesis_parameters(fixture: &MultisensorLmbmFixt
 
 fn validate_multisensor_lmbm_state_extraction(fixture: &MultisensorLmbmFixture) {
     // Reuse LMBM state extraction validation logic
-    let gated_hypotheses: Vec<_> = fixture.step6_extraction.input.gated_hypotheses.iter()
+    let gated_hypotheses: Vec<_> = fixture.step6_extraction.input.hypotheses.iter()
         .map(hypothesis_data_to_rust)
         .collect();
-    let model = model_data_to_rust(&fixture.model);
+    let model = multisensor_model_data_to_rust(&fixture.model, 0);
 
     let (actual_n, actual_indices) = lmbm_state_extraction(&gated_hypotheses, model.use_eap_on_lmbm);
-    let expected_n = fixture.step6_extraction.output.n_estimated;
+    let expected_n = fixture.step6_extraction.output.cardinality_estimate;
     let expected_indices = matlab_to_rust_indices(&fixture.step6_extraction.output.extraction_indices);
 
     assert_eq!(actual_n, expected_n, "Multisensor LMBM cardinality estimate mismatch");
