@@ -130,12 +130,12 @@
    - ⚠️ Rust step-by-step validation tests (Task 4.7.5) - **50% PASSING (2/4 tests, 1962 lines total)**
      - ✅ **test_lmb_step_by_step_validation** - 100% PASSING (all 9 objects, all algorithm steps)
      - ✅ **test_multisensor_lmb_step_by_step_validation** - 100% PASSING (10 objects, 2 sensors, IC-LMB)
-     - ❌ **test_lmbm_step_by_step_validation** - Gibbs mismatch (V[0][0]=12 vs 0) - RNG/input sync issue
-     - ❌ **test_multisensor_lmbm_step_by_step_validation** - Gibbs mismatch (A row count 7 vs 15) - sampling/deduplication issue
+     - ⚠️ **test_lmbm_step_by_step_validation** - **MAJOR PROGRESS**: Gibbs now passing! Fails at normalization (hypothesis count 7 vs 6)
+     - ⚠️ **test_multisensor_lmbm_step_by_step_validation** - **MAJOR PROGRESS**: Gibbs samples 10/15 (was 7/15)
      - ✅ All 4 test frameworks complete with full validation functions (~1962 lines)
      - ✅ MATLAB→Rust conversion helpers implemented (~140 lines)
      - ✅ All deserialization issues resolved (scalars, nulls, flattened arrays, column-major, per-sensor)
-     - ✅ **8 CRITICAL BUGS FIXED** in tests/core code:
+     - ✅ **12 CRITICAL BUGS FIXED** in tests/core code (5 fixed today):
        1. ✅ LMBM prediction birth parameter extraction (test fix)
        2. ✅ Multisensor LMBM prediction birth parameter extraction (test fix)
        3. ✅ Multisensor LMBM object index conversion (1-indexed → 0-indexed in association.rs:217-219)
@@ -144,6 +144,13 @@
        6. ✅ Multisensor LMBM association index conversion (missing `a = u - 1` in association.rs:217-219)
        7. ✅ Multisensor LMBM test L matrix dimension (2D → 3D in step_by_step_validation.rs:1888)
        8. ✅ 4 prior bugs in core code (cost matrix, column-major, GM threshold, max components)
+       9. ✅ **LMBM Gibbs row ordering** - unique samples not sorted (lmbm/association.rs:254)
+       10. ✅ **Multisensor LMBM column-major flattening** - loop order (multisensor_lmbm/gibbs.rs:58-61)
+       11. ✅ **Multisensor LMBM k calculation** - off-by-one in loop start (multisensor_lmbm/gibbs.rs:120)
+       12. ✅ **Multisensor LMBM W clearing** - unconditional clear (multisensor_lmbm/gibbs.rs:154)
+     - ⚠️ **REMAINING ISSUES (require runtime debugging)**:
+       - LMBM normalization: 7 vs 6 hypotheses (likely related to Gibbs sample sorting change)
+       - Multisensor LMBM Gibbs: 10 vs 15 samples (static analysis found no bugs - likely RNG/L matrix difference)
 
 4. **Phase 5: Detailed Verification** (0/3 tasks - 0%)
    - ❌ File-by-file logic comparison (40+ file pairs)

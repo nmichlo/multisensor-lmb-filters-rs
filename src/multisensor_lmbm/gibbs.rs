@@ -52,20 +52,24 @@ pub fn multisensor_lmbm_gibbs_sampling(
         // Generate new Gibbs sample
         generate_multisensor_association_event(rng, l, dimensions, &m, &mut v, &mut w);
 
-        // Store sample (flatten V row-wise)
+        // Store sample (flatten V column-major to match MATLAB's reshape behavior)
+        // MATLAB: reshape(V, 1, n * numberOfSensors) flattens column-major
         let mut sample = Vec::with_capacity(number_of_objects * number_of_sensors);
-        for i in 0..number_of_objects {
-            for s in 0..number_of_sensors {
+        for s in 0..number_of_sensors {
+            for i in 0..number_of_objects {
                 sample.push(v[(i, s)]);
             }
         }
         unique_samples.insert(sample);
     }
 
-    // Convert HashSet to DMatrix
-    let num_unique = unique_samples.len();
+    // Convert HashSet to sorted Vec to match MATLAB's unique(A, 'rows') behavior
+    let mut unique_vec: Vec<Vec<usize>> = unique_samples.into_iter().collect();
+    unique_vec.sort();
+
+    let num_unique = unique_vec.len();
     let mut a = DMatrix::zeros(num_unique, number_of_objects * number_of_sensors);
-    for (row_idx, sample) in unique_samples.iter().enumerate() {
+    for (row_idx, sample) in unique_vec.iter().enumerate() {
         for (col_idx, &val) in sample.iter().enumerate() {
             a[(row_idx, col_idx)] = val;
         }
@@ -109,7 +113,11 @@ fn generate_multisensor_association_event(
     for s in 0..number_of_sensors {
         // For each object
         for i in 0..number_of_objects {
-            let k = if v[(i, s)] == 0 { 0 } else { v[(i, s)] };
+            // k = V(i, s) + (V(i, s) == 0) in MATLAB
+            // If V=0 (miss): k=1 (start from measurement 1)
+            // If V=j (meas j): k=j (start from measurement j)
+            // In Rust (0-indexed): If v=0: k=0, If v=j (1-indexed): k=j-1 (convert to 0-indexed)
+            let k = if v[(i, s)] == 0 { 0 } else { v[(i, s)] - 1 };
 
             // Build association vector u = [v1+1, v2+1, ..., vs+1, i+1] (MATLAB 1-indexed)
             let mut u = vec![0; number_of_sensors + 1];
@@ -143,9 +151,7 @@ fn generate_multisensor_association_event(
                     } else {
                         // Object i did not generate measurement j
                         v[(i, s)] = 0;
-                        if w[(j, s)] == i + 1 {
-                            w[(j, s)] = 0;
-                        }
+                        w[(j, s)] = 0; // Unconditionally clear to match MATLAB line 36
                     }
                 }
             }

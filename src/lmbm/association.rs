@@ -250,6 +250,9 @@ pub fn lmbm_gibbs_sampling(
         }
     }
 
+    // Sort to match MATLAB's unique(V, 'rows') behavior
+    unique_samples.sort();
+
     // Convert to matrix
     let num_unique = unique_samples.len();
     let mut result = DMatrix::zeros(num_unique, n);
