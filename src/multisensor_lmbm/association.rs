@@ -82,7 +82,7 @@ fn determine_log_likelihood_ratio(
                 let start = model.z_dimension * counter;
                 let _end = start + model.z_dimension;
 
-                // Copy measurement
+                // Copy measurement (a is 1-indexed: 0=miss, 1+=measurement, so subtract 1 for array access)
                 z.rows_mut(start, model.z_dimension)
                     .copy_from(&measurements[s][a[s] - 1]);
 
@@ -210,10 +210,13 @@ pub fn generate_multisensor_lmbm_association_matrices(
 
     // Populate likelihood matrix
     for ell in 0..number_of_entries {
-        // Get association vector
+        // Get association vector (1-indexed from convert_from_linear_to_cartesian)
         let u = convert_from_linear_to_cartesian(ell, &page_sizes);
-        let i = u[number_of_sensors]; // Object index
-        let a: Vec<usize> = u[0..number_of_sensors].to_vec(); // Sensor assignments
+        // Object index: convert from 1-indexed to 0-indexed
+        let i = if u[number_of_sensors] > 0 { u[number_of_sensors] - 1 } else { 0 };
+        // Sensor assignments: keep as 1-indexed for now (0=miss, 1+=measurement index)
+        // Will convert to 0-indexed at point of use (line 87)
+        let a: Vec<usize> = u[0..number_of_sensors].to_vec();
 
         // Determine log likelihood and posterior
         let (l_val, r_val, mu_val, sigma_val) =

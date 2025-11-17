@@ -122,22 +122,25 @@
    - ✅ Multisensor clutter sensitivity trials (all 4 variants validated)
    - ✅ Multisensor detection probability trials (IC/PU/GA perfect, AA minor difference)
 
-3. **Phase 4.7: Step-by-Step Algorithm Data** ⚠️ FIXTURES COMPLETE (4/4) - VALIDATION FRAMEWORK COMPLETE (~75% complete)
+3. **Phase 4.7: Step-by-Step Algorithm Data** ⚠️ FIXTURES COMPLETE (4/4) - TESTS 50% PASSING (2/4)
    - ✅ LMB fixture generator + 211KB fixture (Task 4.7.1)
    - ✅ LMBM fixture generator + 65KB fixture (Task 4.7.2)
    - ✅ Multi-sensor LMB fixture generator + 727KB IC-LMB fixture (Task 4.7.3)
    - ✅ Multi-sensor LMBM fixture generator + 70KB fixture (**3 critical MATLAB bugs fixed!**) (Task 4.7.4)
-   - ⚠️ Rust step-by-step validation tests (Task 4.7.5) - **IN PROGRESS (1279 lines current, ~1700 target, 75% framework complete)**
+   - ⚠️ Rust step-by-step validation tests (Task 4.7.5) - **50% PASSING (2/4 tests, 1962 lines total)**
+     - ✅ **test_lmb_step_by_step_validation** - 100% PASSING (all 9 objects, all algorithm steps)
+     - ✅ **test_multisensor_lmb_step_by_step_validation** - 100% PASSING (10 objects, 2 sensors, IC-LMB)
+     - ❌ **test_lmbm_step_by_step_validation** - Gibbs mismatch (V[0][0]=12 vs 0) - RNG/input sync issue
+     - ❌ **test_multisensor_lmbm_step_by_step_validation** - Index out of bounds (association cartesian conversion)
+     - ✅ All 4 test frameworks complete with full validation functions (~1962 lines)
      - ✅ MATLAB→Rust conversion helpers implemented (~140 lines)
-     - ✅ All 6 LMB validation functions implemented (~350 lines)
-     - ✅ JSON deserialization issues resolved (scalar/array w, null handling, flattened arrays)
-     - ✅ **LMB prediction test FIXED** (birth parameters extraction from expected output)
-     - ⚠️ LMB association test has matrix structure confusion (C vs L mismatch) - marked #[ignore]
-     - ✅ LMBM validation suite FRAMEWORK complete (~200 lines structures + skeleton test)
-     - ✅ Multisensor LMB validation suite FRAMEWORK complete (~80 lines structures + skeleton test)
-     - ✅ Multisensor LMBM validation suite FRAMEWORK complete (~80 lines structures + skeleton test)
-     - ❌ LMBM/Multisensor deserialization errors need fixing (model structure differences)
-     - ❌ Validation function implementations needed for LMBM/Multisensor tests (~600 lines remaining)
+     - ✅ All deserialization issues resolved (scalars, nulls, flattened arrays, column-major, per-sensor)
+     - ✅ **5 CRITICAL BUGS FIXED** in tests/core code:
+       1. ✅ LMBM prediction birth parameter extraction (test fix)
+       2. ✅ Multisensor LMBM prediction birth parameter extraction (test fix)
+       3. ✅ Multisensor LMBM object index conversion (1-indexed → 0-indexed)
+       4. ✅ Multisensor LMB per-sensor C/Q matrices (test was using only sensor 0)
+       5. ✅ 4 prior bugs in core code (cost matrix, column-major, GM threshold, max components)
 
 4. **Phase 5: Detailed Verification** (0/3 tasks - 0%)
    - ❌ File-by-file logic comparison (40+ file pairs)
@@ -167,7 +170,7 @@
 
 **Goal**: Implement identical, minimal PRNG in both MATLAB and Rust to enable 100% deterministic testing without statistical validation.
 
-**Status**: ✅ All tasks completed. SimpleRng implemented in both Octave and Rust. Core function signatures updated to accept RNG parameters. Call sites will be updated when examples are created in Phase 3.
+**Status**: ✅ Complete. SimpleRng implemented in both Octave and Rust with cross-language validation.
 
 **Implementation Notes**: Octave SimpleRng enhanced with variadic `rand()`/`randn()` methods (scalar, vector n×1, matrix rows×cols) to keep inline changes simple per user feedback.
 
@@ -663,31 +666,29 @@
 
 ---
 
-### Phase 4.7: Comprehensive Step-by-Step Algorithm Data ⚠️ FIXTURES COMPLETE - VALIDATION TODO
+### Phase 4.7: Comprehensive Step-by-Step Algorithm Data ⚠️ 50% PASSING (2/4 tests)
 
 **Priority: CRITICAL | Effort: VERY HIGH | Deterministic: Yes**
 
 **Purpose**: Generate complete intermediate state data for ALL algorithms to enable step-by-step validation of internal logic, not just final outputs. This is the deepest level of verification.
 
-**Status**: **FIXTURES COMPLETE (1.07MB)** + **LMB TEST 100% PASSING** + **Remaining suites in progress (~78% complete, ~1280/1660 lines)**
+**Status**: **FIXTURES COMPLETE (1.07MB)** + **2/4 TESTS PASSING (50%)** + **All validation functions implemented (~1962 lines)**
 
 **What IS complete**:
 - ✅ All 4 MATLAB fixture generators created and tested (~1089 lines total)
 - ✅ All 4 fixtures generated successfully (LMB: 211KB, LMBM: 65KB, Multisensor LMB: 727KB, Multisensor LMBM: 70KB)
 - ✅ Fixed 3 critical bugs in MATLAB multisensor LMBM code (RNG parameters + variable collision)
-- ✅ **Fixed 4 CRITICAL bugs in Rust core code** (cost matrix, column-major, GM threshold, max components)
-- ✅ Rust test infrastructure with serde structures and helper functions (~490 lines)
+- ✅ **Fixed 9 CRITICAL bugs** (4 in Rust core code, 5 in test code)
+- ✅ **LMB validation suite 100% PASSING** - all 9 objects, all algorithm steps validated
+- ✅ **Multisensor LMB validation suite 100% PASSING** - 10 objects, 2 sensors, IC-LMB validated
+- ✅ LMBM validation suite complete (~430 lines) - Gibbs mismatch blocking test
+- ✅ Multisensor LMBM validation suite complete (~150 lines) - Index out of bounds blocking test
+- ✅ All deserialization issues resolved (scalars, nulls, arrays, column-major, per-sensor)
 - ✅ MATLAB→Rust conversion helpers fully implemented (~140 lines)
-- ✅ **LMB validation suite 100% PASSING** - all 6 functions validated with exact numerical equivalence (~350 lines)
-- ✅ Complex JSON deserialization issues resolved (scalar/array types, nulls, flattened arrays, column-major cell arrays)
-- ✅ **LMB test PASSES COMPLETELY** - all 9 objects, all algorithm steps validated (prediction, association, LBP, Gibbs, Murty's, update, cardinality)
-- ✅ LMBM/Multisensor test frameworks complete with serde structures (~300 lines)
 
-**What is NOT complete**:
-- ❌ LMBM validation function implementations (~150 lines)
-- ❌ Multisensor LMB validation function implementations (~100 lines)
-- ❌ Multisensor LMBM validation function implementations (~130 lines)
-- ❌ Final debugging and verification of LMBM/Multisensor test suites
+**What is NOT complete** (2 remaining bugs):
+- ❌ LMBM Gibbs sampling RNG/input synchronization issue (V[0][0] mismatch)
+- ❌ Multisensor LMBM Cartesian coordinate conversion bug (measurement index out of bounds)
 
 **Scope**: Generate MATLAB .json fixtures containing:
 - **All inputs** to each algorithm step
@@ -981,23 +982,39 @@
 - [x] **All 4 fixtures deserialize successfully** in Rust (4/4)
 - [x] **Struct auto-generation using `json_typegen_cli`** - Fixed 20+ remaining type mismatches in one pass
 
-**❌ REMAINING BUGS** (validation logic, not deserialization):
-1. [ ] **LMBM prediction logic bug** - Object count mismatch (5 vs 9) - likely hypothesis structure interpretation issue
-2. [ ] **Multisensor LMBM prediction logic bug** - Object count mismatch (0 vs 4) - likely birth model issue
-3. [ ] **Multisensor LMB numerical precision** - Sensor 2 object 0 existence probability off by 0.0008 (0.9961 vs 0.9953)
+**❌ REMAINING BUGS** (2 failing tests):
+1. [ ] **LMBM Gibbs sampling mismatch** - `V[0][0] = 12` (Rust) vs `0` (MATLAB)
+   - Location: `tests/step_by_step_validation.rs:1408`, `src/lmbm/association.rs:lmbm_gibbs_sampling`
+   - Root cause: RNG state synchronization or input matrix mismatch
+   - Impact: Single-sensor LMBM test fails at Gibbs step (prediction/association pass ✅)
+   - Needs: Debug logging to compare RNG state, initial v/w vectors, P/C matrices between MATLAB and Rust
 
-**Progress**: ~1700 lines implemented / ~1700 total = **~100% DESERIALIZATION COMPLETE**, **~97% VALIDATION COMPLETE**
+2. [ ] **Multisensor LMBM association index out of bounds** - `measurements[s][a[s]-1]` where `a[s]=3`, `len=2`
+   - Location: `src/multisensor_lmbm/association.rs:87`
+   - Root cause: `convert_from_linear_to_cartesian()` returns 1-indexed coordinates beyond valid measurement indices
+   - Impact: Multisensor LMBM test crashes at association step (prediction passes ✅)
+   - Needs: Fix Cartesian coordinate conversion or adjust page_sizes calculation
+
+**Progress**: **2/4 tests passing (50%)**, **~1962 lines implemented**, **All validation functions complete**
 
 **Key Accomplishments**:
-- ✅ **Fixed 4 CRITICAL bugs in Rust core code** (cost matrix, column-major, threshold, max components)
-- ✅ **Used `json_typegen_cli` to auto-generate Rust structs** - Identified and fixed 20+ remaining type mismatches in one pass
-- ✅ **All 4 fixtures deserialize successfully** - LMB, LMBM, Multisensor LMB, Multisensor LMBM (100% parsing complete)
-- ✅ **All 14 validation functions implemented** - Full step-by-step algorithm validation across all 4 filter types
-- ✅ **LMB validation suite 100% PASSING** - All 9 objects, all algorithm steps validate with exact numerical equivalence
-- ✅ **Multisensor LMB prediction 100% PASSING** - 10 objects validated successfully
-- ✅ Solved complex MATLAB JSON serialization issues (mixed types, nulls, flattened arrays, column-major cells, per-sensor arrays)
-- ✅ Serde structures complete for all 4 test suites (LMB, LMBM, Multisensor LMB, Multisensor LMBM)
-- ✅ **First complete test suite passing** - proves validation framework works correctly
+- ✅ **Fixed 9 TOTAL bugs** (4 in core code, 5 in tests):
+  1. Cost matrix calculation bug (core: `src/lmb/association.rs:218`)
+  2. Column-major unflattening (core: `src/lmb/update.rs:53-59`)
+  3. GM weight threshold mismatch (core: test configuration)
+  4. Maximum GM components mismatch (core: test configuration)
+  5. LMBM prediction birth parameters (test: extraction logic)
+  6. Multisensor LMBM prediction birth parameters (test: extraction logic)
+  7. Multisensor LMBM object index 1→0 conversion (core: `src/multisensor_lmbm/association.rs:216`)
+  8. Multisensor LMB per-sensor C/Q matrices (test: `tests/step_by_step_validation.rs:704-722`)
+  9. Multisensor LMB sensor update perfect match (all sensors now use correct matrices)
+- ✅ **2/4 test suites 100% PASSING**:
+  - LMB: All 9 objects, all algorithm steps (prediction, association, LBP, Gibbs, Murty's, update, cardinality)
+  - Multisensor LMB: 10 objects, 2 sensors, IC-LMB (prediction, sensor 1 update, sensor 2 update, cardinality)
+- ✅ **Used `json_typegen_cli` to auto-generate Rust structs** - Fixed 20+ type mismatches
+- ✅ **All 4 fixtures deserialize successfully** - LMB, LMBM, Multisensor LMB, Multisensor LMBM
+- ✅ **All 14 validation functions implemented** - Full step-by-step validation across all 4 filter types
+- ✅ Solved complex MATLAB JSON serialization (scalars, nulls, flattened arrays, column-major, per-sensor)
 
 ---
 

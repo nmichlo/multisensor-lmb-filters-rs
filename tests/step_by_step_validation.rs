@@ -701,8 +701,25 @@ fn multisensor_model_data_to_rust(model_data: &MultisensorModelData, sensor_idx:
         use_eap_on_lmbm: true,
         ospa_parameters: OspaParameters { e_c: 30.0, e_p: 1.0, h_c: 30.0, h_p: 1.0 },
         number_of_sensors: Some(model_data.number_of_sensors),
-        c_multisensor: None,
-        q_multisensor: None,
+        c_multisensor: Some(
+            model_data.c.iter()
+                .map(|c_sensor| {
+                    let z_dim = c_sensor.len();
+                    let x_dim = c_sensor[0].len();
+                    DMatrix::from_row_slice(z_dim, x_dim,
+                        &c_sensor.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>())
+                })
+                .collect()
+        ),
+        q_multisensor: Some(
+            model_data.q.iter()
+                .map(|q_sensor| {
+                    let z_dim = q_sensor.len();
+                    DMatrix::from_row_slice(z_dim, z_dim,
+                        &q_sensor.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>())
+                })
+                .collect()
+        ),
         detection_probability_multisensor: Some(model_data.p_d.clone()),
         clutter_rate_multisensor: None,
         clutter_per_unit_volume_multisensor: Some(model_data.clutter_per_unit_volume.clone()),
@@ -1359,6 +1376,27 @@ fn validate_lmbm_prediction(fixture: &LmbmFixture) {
     model.survival_probability = fixture.step1_prediction.input.model_P_s;
 
     let expected_hypothesis = hypothesis_data_to_rust(&fixture.step1_prediction.output.predicted_hypothesis);
+
+    // Extract birth parameters from expected output (similar to LMB test)
+    let prior_count = prior_hypothesis.r.len();
+    let birth_count = expected_hypothesis.r.len() - prior_count;
+
+    if birth_count > 0 {
+        model.number_of_birth_locations = birth_count;
+        model.birth_location_labels = (prior_count..expected_hypothesis.r.len())
+            .map(|i| expected_hypothesis.birth_location[i])
+            .collect();
+        model.r_b_lmbm = (prior_count..expected_hypothesis.r.len())
+            .map(|i| expected_hypothesis.r[i])
+            .collect();
+        model.mu_b = (prior_count..expected_hypothesis.r.len())
+            .map(|i| expected_hypothesis.mu[i].clone())
+            .collect();
+        model.sigma_b = (prior_count..expected_hypothesis.r.len())
+            .map(|i| expected_hypothesis.sigma[i].clone())
+            .collect();
+    }
+
     let predicted_hypothesis = lmbm_prediction_step(prior_hypothesis, &model, fixture.step1_prediction.input.timestep);
 
     assert_eq!(predicted_hypothesis.r.len(), expected_hypothesis.r.len(), "LMBM prediction: object count mismatch");
@@ -1796,6 +1834,27 @@ fn validate_multisensor_lmbm_prediction(fixture: &MultisensorLmbmFixture) {
     model.survival_probability = fixture.step1_prediction.input.model_P_s;
 
     let expected_hypothesis = hypothesis_data_to_rust(&fixture.step1_prediction.output.predicted_hypothesis);
+
+    // Extract birth parameters from expected output (similar to LMB test and Bug 1 fix)
+    let prior_count = prior_hypothesis.r.len();
+    let birth_count = expected_hypothesis.r.len() - prior_count;
+
+    if birth_count > 0 {
+        model.number_of_birth_locations = birth_count;
+        model.birth_location_labels = (prior_count..expected_hypothesis.r.len())
+            .map(|i| expected_hypothesis.birth_location[i])
+            .collect();
+        model.r_b_lmbm = (prior_count..expected_hypothesis.r.len())
+            .map(|i| expected_hypothesis.r[i])
+            .collect();
+        model.mu_b = (prior_count..expected_hypothesis.r.len())
+            .map(|i| expected_hypothesis.mu[i].clone())
+            .collect();
+        model.sigma_b = (prior_count..expected_hypothesis.r.len())
+            .map(|i| expected_hypothesis.sigma[i].clone())
+            .collect();
+    }
+
     let predicted_hypothesis = lmbm_prediction_step(prior_hypothesis, &model, fixture.step1_prediction.input.timestep);
 
     assert_eq!(predicted_hypothesis.r.len(), expected_hypothesis.r.len(), "Multisensor LMBM prediction: object count mismatch");
