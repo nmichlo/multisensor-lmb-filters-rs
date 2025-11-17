@@ -273,38 +273,38 @@ pub fn generate_multisensor_ground_truth(
                 let deaths = vec![70, 70, 80, 80, 90, 90, 100, 100, 100, 100];
                 let birth_locs = vec![1, 2, 3, 4, 1, 4, 1, 2, 3, 4];
 
-                // Prior locations: [x, vx, y, vy] for each object
+                // Prior locations: [x, y, vx, vy] for each object (matches MATLAB)
                 let mut locs = DMatrix::zeros(4, n_obj);
                 // Object 1
-                locs[(0, 0)] = -80.0; locs[(1, 0)] = 0.75;
-                locs[(2, 0)] = -20.0; locs[(3, 0)] = 1.5;
+                locs[(0, 0)] = -80.0; locs[(1, 0)] = -20.0;
+                locs[(2, 0)] = 0.75; locs[(3, 0)] = 1.5;
                 // Object 2
-                locs[(0, 1)] = -20.0; locs[(1, 1)] = -1.0;
-                locs[(2, 1)] = 80.0; locs[(3, 1)] = -2.0;
+                locs[(0, 1)] = -20.0; locs[(1, 1)] = 80.0;
+                locs[(2, 1)] = -1.0; locs[(3, 1)] = -2.0;
                 // Object 3
-                locs[(0, 2)] = 0.0; locs[(1, 2)] = -0.5;
-                locs[(2, 2)] = 0.0; locs[(3, 2)] = -1.0;
+                locs[(0, 2)] = 0.0; locs[(1, 2)] = 0.0;
+                locs[(2, 2)] = -0.5; locs[(3, 2)] = -1.0;
                 // Object 4
-                locs[(0, 3)] = 40.0; locs[(1, 3)] = -0.25;
-                locs[(2, 3)] = -60.0; locs[(3, 3)] = -0.5;
+                locs[(0, 3)] = 40.0; locs[(1, 3)] = -60.0;
+                locs[(2, 3)] = -0.25; locs[(3, 3)] = -0.5;
                 // Object 5
-                locs[(0, 4)] = -80.0; locs[(1, 4)] = 1.0;
-                locs[(2, 4)] = -20.0; locs[(3, 4)] = 1.0;
+                locs[(0, 4)] = -80.0; locs[(1, 4)] = -20.0;
+                locs[(2, 4)] = 1.0; locs[(3, 4)] = 1.0;
                 // Object 6
-                locs[(0, 5)] = 40.0; locs[(1, 5)] = -1.0;
-                locs[(2, 5)] = -60.0; locs[(3, 5)] = 2.0;
+                locs[(0, 5)] = 40.0; locs[(1, 5)] = -60.0;
+                locs[(2, 5)] = -1.0; locs[(3, 5)] = 2.0;
                 // Object 7
-                locs[(0, 6)] = -80.0; locs[(1, 6)] = 1.0;
-                locs[(2, 6)] = -20.0; locs[(3, 6)] = -0.5;
+                locs[(0, 6)] = -80.0; locs[(1, 6)] = -20.0;
+                locs[(2, 6)] = 1.0; locs[(3, 6)] = -0.5;
                 // Object 8
-                locs[(0, 7)] = -20.0; locs[(1, 7)] = 1.0;
-                locs[(2, 7)] = 80.0; locs[(3, 7)] = -1.0;
+                locs[(0, 7)] = -20.0; locs[(1, 7)] = 80.0;
+                locs[(2, 7)] = 1.0; locs[(3, 7)] = -1.0;
                 // Object 9
-                locs[(0, 8)] = 0.0; locs[(1, 8)] = 1.0;
-                locs[(2, 8)] = 0.0; locs[(3, 8)] = -1.0;
+                locs[(0, 8)] = 0.0; locs[(1, 8)] = 0.0;
+                locs[(2, 8)] = 1.0; locs[(3, 8)] = -1.0;
                 // Object 10
-                locs[(0, 9)] = 40.0; locs[(1, 9)] = -1.0;
-                locs[(2, 9)] = -60.0; locs[(3, 9)] = 0.5;
+                locs[(0, 9)] = 40.0; locs[(1, 9)] = -60.0;
+                locs[(2, 9)] = -1.0; locs[(3, 9)] = 0.5;
 
                 (sim_len, n_obj, births, deaths, birth_locs, locs)
             }

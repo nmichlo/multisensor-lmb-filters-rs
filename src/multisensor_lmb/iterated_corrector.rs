@@ -146,9 +146,12 @@ pub fn run_ic_lmb_filter(
                 );
             } else {
                 // No measurements - update existence probabilities
+                let p_d = model.detection_probability_multisensor.as_ref()
+                    .map(|v| v[s])
+                    .unwrap_or(model.detection_probability);
                 for obj in &mut objects {
-                    obj.r = (obj.r * (1.0 - model.detection_probability))
-                        / (1.0 - obj.r * model.detection_probability);
+                    obj.r = (obj.r * (1.0 - p_d))
+                        / (1.0 - obj.r * p_d);
                 }
             }
         }

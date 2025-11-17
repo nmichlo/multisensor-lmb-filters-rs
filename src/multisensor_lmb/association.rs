@@ -74,10 +74,24 @@ pub fn generate_lmb_sensor_association_matrices(
     objects: &[Object],
     measurements: &[DVector<f64>],
     model: &Model,
-    _sensor_idx: usize, // Reserved for future multi-sensor Model support
+    sensor_idx: usize,
 ) -> (LmbAssociationMatrices, LmbPosteriorParameters) {
     let number_of_objects = objects.len();
     let number_of_measurements = measurements.len();
+
+    // Get sensor-specific parameters (or fall back to single-sensor defaults)
+    let p_d = model.detection_probability_multisensor.as_ref()
+        .map(|v| v[sensor_idx])
+        .unwrap_or(model.detection_probability);
+    let clutter_pvu = model.clutter_per_unit_volume_multisensor.as_ref()
+        .map(|v| v[sensor_idx])
+        .unwrap_or(model.clutter_per_unit_volume);
+    let c_matrix = model.c_multisensor.as_ref()
+        .map(|v| &v[sensor_idx])
+        .unwrap_or(&model.c);
+    let q_matrix = model.q_multisensor.as_ref()
+        .map(|v| &v[sensor_idx])
+        .unwrap_or(&model.q);
 
     // Auxiliary matrices
     let mut l_matrix = DMatrix::zeros(number_of_objects, number_of_measurements);
@@ -99,7 +113,7 @@ pub fn generate_lmb_sensor_association_matrices(
         let mut sigma_obj = vec![vec![DMatrix::zeros(0, 0); num_gm]; number_of_measurements + 1];
 
         // Initialize with miss detection
-        let log_miss_weight = (objects[i].r * (1.0 - model.detection_probability)).ln();
+        let log_miss_weight = (objects[i].r * (1.0 - p_d)).ln();
         for j in 0..num_gm {
             w_obj[0][j] = log_miss_weight;
             mu_obj[0][j] = objects[i].mu[j].clone();
@@ -107,14 +121,14 @@ pub fn generate_lmb_sensor_association_matrices(
         }
 
         // Populate auxiliary parameters
-        phi[i] = (1.0 - model.detection_probability) * objects[i].r;
-        eta[i] = 1.0 - model.detection_probability * objects[i].r;
+        phi[i] = (1.0 - p_d) * objects[i].r;
+        eta[i] = 1.0 - p_d * objects[i].r;
 
         // For each GM component
         for j in 0..num_gm {
             // Predicted measurement and innovation covariance
-            let mu_z = &model.c * &objects[i].mu[j];
-            let z_cov = &model.c * &objects[i].sigma[j] * model.c.transpose() + &model.q;
+            let mu_z = c_matrix * &objects[i].mu[j];
+            let z_cov = c_matrix * &objects[i].sigma[j] * c_matrix.transpose() + q_matrix;
 
             // Log Gaussian normalizing constant
             let log_gauss_norm = if let Some(chol) = z_cov.clone().cholesky() {
@@ -126,9 +140,9 @@ pub fn generate_lmb_sensor_association_matrices(
             };
 
             let log_likelihood_ratio_terms = objects[i].r.ln()
-                + model.detection_probability.ln()
+                + p_d.ln()
                 + objects[i].w[j].ln()
-                - model.clutter_per_unit_volume.ln();
+                - clutter_pvu.ln();
 
             // Compute Z inverse and Kalman gain
             let z_inv = if let Some(chol) = z_cov.clone().cholesky() {
@@ -141,9 +155,9 @@ pub fn generate_lmb_sensor_association_matrices(
                 })
             };
 
-            let k = &objects[i].sigma[j] * model.c.transpose() * &z_inv;
+            let k = &objects[i].sigma[j] * c_matrix.transpose() * &z_inv;
             let sigma_updated = (DMatrix::identity(model.x_dimension, model.x_dimension)
-                - &k * &model.c)
+                - &k * c_matrix)
                 * &objects[i].sigma[j];
 
             // For each measurement
@@ -159,8 +173,8 @@ pub fn generate_lmb_sensor_association_matrices(
                 // Posterior weights (log space)
                 w_obj[k_idx + 1][j] = objects[i].w[j].ln()
                     + gauss_log_likelihood
-                    + model.detection_probability.ln()
-                    - model.clutter_per_unit_volume.ln();
+                    + p_d.ln()
+                    - clutter_pvu.ln();
 
                 // Posterior mean and covariance
                 mu_obj[k_idx + 1][j] = &objects[i].mu[j] + &k * &nu;

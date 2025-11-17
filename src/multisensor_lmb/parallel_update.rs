@@ -256,10 +256,13 @@ pub fn run_parallel_update_lmb_filter(
                 measurement_updated_distributions.push(updated);
             } else {
                 // No measurements - update existence probabilities
+                let p_d = model.detection_probability_multisensor.as_ref()
+                    .map(|v| v[s])
+                    .unwrap_or(model.detection_probability);
                 let mut updated = objects.clone();
                 for obj in &mut updated {
-                    obj.r = (obj.r * (1.0 - model.detection_probability))
-                        / (1.0 - obj.r * model.detection_probability);
+                    obj.r = (obj.r * (1.0 - p_d))
+                        / (1.0 - obj.r * p_d);
                 }
                 measurement_updated_distributions.push(updated);
             }
