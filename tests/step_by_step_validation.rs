@@ -1884,8 +1884,9 @@ fn validate_multisensor_lmbm_association(fixture: &MultisensorLmbmFixture) {
     // L is returned as a flat vector, need to reshape for comparison
     let expected_l = &fixture.step2_association.output.l;
 
-    // For now, just compare the flat vector lengths
-    assert_eq!(l_vector.len(), expected_l.len() * expected_l[0].len(), "Multisensor LMBM L vector length mismatch");
+    // L is 3D: [sensor1_measurements+1][sensor2_measurements+1][objects]
+    let expected_total = expected_l.len() * expected_l[0].len() * expected_l[0][0].len();
+    assert_eq!(l_vector.len(), expected_total, "Multisensor LMBM L vector length mismatch");
 
     println!("    ✓ Multisensor LMBM association validation passed");
 }

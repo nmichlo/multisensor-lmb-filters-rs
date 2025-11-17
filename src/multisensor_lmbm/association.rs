@@ -210,13 +210,13 @@ pub fn generate_multisensor_lmbm_association_matrices(
 
     // Populate likelihood matrix
     for ell in 0..number_of_entries {
-        // Get association vector (1-indexed from convert_from_linear_to_cartesian)
-        let u = convert_from_linear_to_cartesian(ell, &page_sizes);
-        // Object index: convert from 1-indexed to 0-indexed
-        let i = if u[number_of_sensors] > 0 { u[number_of_sensors] - 1 } else { 0 };
-        // Sensor assignments: keep as 1-indexed for now (0=miss, 1+=measurement index)
-        // Will convert to 0-indexed at point of use (line 87)
-        let a: Vec<usize> = u[0..number_of_sensors].to_vec();
+        // Get association vector (convert expects 1-indexed input like MATLAB, so add 1)
+        let u = convert_from_linear_to_cartesian(ell + 1, &page_sizes);
+        // Convert to 0-indexed like MATLAB: a = u(1:end-1) - 1, i = u(end) - 1
+        let i = u[number_of_sensors] - 1; // Object index (0-indexed)
+        let a: Vec<usize> = u[0..number_of_sensors].iter()
+            .map(|&x| x - 1) // Convert from 1-indexed to 0-indexed: 0=miss, 1=meas[0], 2=meas[1]
+            .collect();
 
         // Determine log likelihood and posterior
         let (l_val, r_val, mu_val, sigma_val) =

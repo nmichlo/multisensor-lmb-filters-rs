@@ -131,16 +131,19 @@
      - ✅ **test_lmb_step_by_step_validation** - 100% PASSING (all 9 objects, all algorithm steps)
      - ✅ **test_multisensor_lmb_step_by_step_validation** - 100% PASSING (10 objects, 2 sensors, IC-LMB)
      - ❌ **test_lmbm_step_by_step_validation** - Gibbs mismatch (V[0][0]=12 vs 0) - RNG/input sync issue
-     - ❌ **test_multisensor_lmbm_step_by_step_validation** - Index out of bounds (association cartesian conversion)
+     - ❌ **test_multisensor_lmbm_step_by_step_validation** - Gibbs mismatch (A row count 7 vs 15) - sampling/deduplication issue
      - ✅ All 4 test frameworks complete with full validation functions (~1962 lines)
      - ✅ MATLAB→Rust conversion helpers implemented (~140 lines)
      - ✅ All deserialization issues resolved (scalars, nulls, flattened arrays, column-major, per-sensor)
-     - ✅ **5 CRITICAL BUGS FIXED** in tests/core code:
+     - ✅ **8 CRITICAL BUGS FIXED** in tests/core code:
        1. ✅ LMBM prediction birth parameter extraction (test fix)
        2. ✅ Multisensor LMBM prediction birth parameter extraction (test fix)
-       3. ✅ Multisensor LMBM object index conversion (1-indexed → 0-indexed)
+       3. ✅ Multisensor LMBM object index conversion (1-indexed → 0-indexed in association.rs:217-219)
        4. ✅ Multisensor LMB per-sensor C/Q matrices (test was using only sensor 0)
-       5. ✅ 4 prior bugs in core code (cost matrix, column-major, GM threshold, max components)
+       5. ✅ Multisensor LMBM loop offset (ell vs ell+1 in association.rs:214)
+       6. ✅ Multisensor LMBM association index conversion (missing `a = u - 1` in association.rs:217-219)
+       7. ✅ Multisensor LMBM test L matrix dimension (2D → 3D in step_by_step_validation.rs:1888)
+       8. ✅ 4 prior bugs in core code (cost matrix, column-major, GM threshold, max components)
 
 4. **Phase 5: Detailed Verification** (0/3 tasks - 0%)
    - ❌ File-by-file logic comparison (40+ file pairs)
