@@ -162,6 +162,10 @@ pub fn run_parallel_update_lmb_filter(
         // Prediction
         objects = lmb_prediction_step(objects, model, t + 1);
 
+        // Save predicted objects for PU merging (need prior before sensor updates)
+        let predicted_objects = objects.clone();
+
+
         // Measurement update for each sensor
         let mut measurement_updated_distributions = Vec::with_capacity(number_of_sensors);
 
@@ -253,7 +257,7 @@ pub fn run_parallel_update_lmb_filter(
                     model,
                 );
 
-                measurement_updated_distributions.push(updated);
+                measurement_updated_distributions.push(updated.clone());
             } else {
                 // No measurements - update existence probabilities
                 let p_d = model.detection_probability_multisensor.as_ref()
@@ -277,9 +281,8 @@ pub fn run_parallel_update_lmb_filter(
                 ga_lmb_track_merging(&measurement_updated_distributions, model)
             }
             ParallelUpdateMode::PU => {
-                // For PU, we need the prior objects before sensor updates
-                let prior_objects = lmb_prediction_step(objects.clone(), model, t + 1);
-                pu_lmb_track_merging(&measurement_updated_distributions, &prior_objects, number_of_sensors)
+                // For PU, we need the prior (predicted) objects before sensor updates
+                pu_lmb_track_merging(&measurement_updated_distributions, &predicted_objects, number_of_sensors)
             }
         };
 

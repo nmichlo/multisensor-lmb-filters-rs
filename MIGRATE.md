@@ -1,6 +1,6 @@
 # MATLAB to Rust Migration Plan - 100% Equivalence
 
-**Goal**: Achieve 100% equivalence between the MATLAB implementation at `../multisensor-lmb-filters` and this Rust implementation.
+**Goal**: Achieve 100% equivalence between the MATLAB implementation at `../multisensor-lmb-filters` and this Rust implementation in `./`.
 
 **Ground Truth**: MATLAB code is the authoritative reference. Rust must contain NOTHING more and NOTHING less.
 
@@ -455,13 +455,16 @@
 
 **Purpose**: Create multisensor equivalents of Phases 4.2-4.4, validating IC/PU/GA/AA-LMB and LMBM against MATLAB with exact numerical equivalence.
 
-**Status**: ⚠️ **Partially complete**. Fixtures generated, test infrastructure created, **critical bug discovered in IC-LMB filter** (E-OSPA mismatch: Rust=5.0 vs MATLAB=4.058 at t=0). This is expected - Phase 4.6 is designed to detect such issues.
+**Status**: ⚠️ **Partially complete**. Fixtures generated, test infrastructure created, **3 critical bugs found and fixed** (state format, sensor-specific parameters). Remaining issue: numerical differences accumulate over time (t=0,1 exact, grows to 0.5 OSPA by t=22).
 
 **Fixture Strategy**: Same as 4.2-4.4 - representative seed validation (exact match) for seed 42.
 
-**Random Usage Verification**: ✅ Verified NO unmigrated random calls in MATLAB or Rust core filters. All use SimpleRng deterministically. Bug is NOT due to RNG.
+**Bugs Fixed**:
+1. ✅ **Ground truth state format bug** (`src/common/ground_truth.rs:276-307`): Prior locations used `[x,vx,y,vy]` instead of `[x,y,vx,vy]`
+2. ✅ **Sensor-specific detection probability** (`src/multisensor_lmb/iterated_corrector.rs:149-155`, `parallel_update.rs:259-266`)
+3. ✅ **Sensor-specific association parameters** (`src/multisensor_lmb/association.rs:73-177`): Now uses per-sensor P_d, clutter, C, Q matrices
 
-#### Task 4.6.1: Multisensor Accuracy Trials ⚠️ INFRASTRUCTURE COMPLETE / BUG FOUND
+#### Task 4.6.1: Multisensor Accuracy Trials ⚠️ PARTIALLY COMPLETE
 
 **MATLAB Reference**: `multiSensorAccuracyTrial.m` (132 lines)
 
@@ -488,15 +491,16 @@
 - [x] Fixture loading with `serde_json`
 - [x] Helper functions for running multisensor trials
 - [x] Test compiles and runs successfully
-- [x] Determinism verification test implemented
+- [x] Determinism verification test implemented and PASSING
 
-⚠️ **Critical Bug Found**:
-- **IC-LMB Filter**: E-OSPA mismatch at t=0 (Rust=5.0 vs MATLAB=4.058, diff=0.94)
-- **Root cause**: Algorithm implementation bug in Rust (NOT RNG-related, verified)
-- **Status**: Test marked as `#[ignore]` pending bug fix
-- **Tracked in**: Tests reveal exact discrepancy for debugging
+⚠️ **Remaining Issue**:
+- **t=0, t=1**: ✅ Exact numerical equivalence (within 1e-10)
+- **t=2+**: ⚠️ Small numerical differences accumulate over timesteps (grows to ~0.5 OSPA by t=22)
+- **Root cause**: Under investigation - likely minor implementation difference in sensor fusion that compounds
+- **Status**: Test marked as `#[ignore]` pending investigation
+- **Determinism**: ✅ Rust is internally consistent (same seed = same results)
 
-**Actual Results**: 0/4 LMB variants passing (IC-LMB fails immediately, others untested)
+**Actual Results**: 1/2 tests passing (determinism ✅), accuracy test ignored pending numerical accumulation fix
 
 #### Task 4.6.2: Multisensor Clutter Sensitivity Tests ❌
 

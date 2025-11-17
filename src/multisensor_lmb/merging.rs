@@ -311,9 +311,11 @@ pub fn pu_lmb_track_merging(
                     svd.pseudo_inverse(1e-10).unwrap()
                 });
                 let h_c = &k_c * mu;
-                let g_c = -0.5 * mu.dot(&(&k_c * mu))
-                    - 0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln()
-                    + w.ln();
+                let quad_term = -0.5 * mu.dot(&(&k_c * mu));
+                let det_term = -0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln();
+                let weight_term = w.ln();
+                let g_c = quad_term + det_term + weight_term;
+
 
                 // Combine with existing mixture
                 for k in 0..current_mixture_size {
@@ -331,13 +333,15 @@ pub fn pu_lmb_track_merging(
         let mut weights = Vec::with_capacity(num_posterior_gm);
 
         for j in 0..num_posterior_gm {
-            let k_temp = k_components[j].clone();
+            let k_canonical = k_components[j].clone();  // T in MATLAB
             let sigma = k_components[j].clone().try_inverse().unwrap_or_else(|| {
                 let svd = k_components[j].clone().svd(true, true);
                 svd.pseudo_inverse(1e-10).unwrap()
             });
-            let mu = &sigma * &h_components[j];
-            let g = g_components[j] + 0.5 * h_components[j].dot(&(&k_temp * &h_components[j]))
+            let mu = &sigma * &h_components[j];  // h{j} = K{j} * h{j} in MATLAB (line 70)
+            // MATLAB line 71: g(j) = g(j) + 0.5 * h{j}' * T * h{j} + 0.5 * log(det(2 * pi * K{j}))
+            // where h{j} is NOW mu (updated on line 70), T is K_canonical, and K{j} is Sigma
+            let g = g_components[j] + 0.5 * mu.dot(&(&k_canonical * &mu))
                 + 0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln();
 
             sigma_components.push(sigma);

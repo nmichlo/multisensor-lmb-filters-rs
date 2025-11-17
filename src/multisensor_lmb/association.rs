@@ -113,9 +113,9 @@ pub fn generate_lmb_sensor_association_matrices(
         let mut sigma_obj = vec![vec![DMatrix::zeros(0, 0); num_gm]; number_of_measurements + 1];
 
         // Initialize with miss detection
-        let log_miss_weight = (objects[i].r * (1.0 - p_d)).ln();
+        // Matches MATLAB line 40: log(objects(i).w * (1 - pd))
         for j in 0..num_gm {
-            w_obj[0][j] = log_miss_weight;
+            w_obj[0][j] = (objects[i].w[j] * (1.0 - p_d)).ln();
             mu_obj[0][j] = objects[i].mu[j].clone();
             sigma_obj[0][j] = objects[i].sigma[j].clone();
         }
