@@ -108,8 +108,19 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
     let n_map = std::cmp::min(max_cardinality_index, r.len());
 
     // Sort r in descending order and get indices
+    // IMPORTANT: Use stable sort with index as secondary key for deterministic tie-breaking
+    // This matches MATLAB's sort behavior where equal values preserve original order
     let mut indexed_r: Vec<(usize, f64)> = r.iter().enumerate().map(|(i, &val)| (i, val)).collect();
-    indexed_r.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap());
+    indexed_r.sort_by(|(i_a, a), (i_b, b)| {
+        // Primary: sort by value descending
+        match b.partial_cmp(a).unwrap() {
+            std::cmp::Ordering::Equal => {
+                // Secondary: sort by index ascending (stable sort)
+                i_a.cmp(i_b)
+            }
+            other => other,
+        }
+    });
 
     // Choose the nMap largest indices of r
     let map_indices: Vec<usize> = indexed_r.iter().take(n_map).map(|(i, _)| *i).collect();
