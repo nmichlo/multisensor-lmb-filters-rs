@@ -130,12 +130,12 @@
    - ⚠️ Rust step-by-step validation tests (Task 4.7.5) - **50% PASSING (2/4 tests, 1962 lines total)**
      - ✅ **test_lmb_step_by_step_validation** - 100% PASSING (all 9 objects, all algorithm steps)
      - ✅ **test_multisensor_lmb_step_by_step_validation** - 100% PASSING (10 objects, 2 sensors, IC-LMB)
-     - ⚠️ **test_lmbm_step_by_step_validation** - **MAJOR PROGRESS**: Gibbs now passing! Fails at normalization (hypothesis count 7 vs 6)
-     - ⚠️ **test_multisensor_lmbm_step_by_step_validation** - **MAJOR PROGRESS**: Gibbs samples 10/15 (was 7/15)
+     - ⚠️ **test_lmbm_step_by_step_validation** - **83% PASSING** (5/6 steps): Gibbs ✅, Hypothesis ✅, Normalization ❌ (7 vs 6 hypotheses)
+     - ⚠️ **test_multisensor_lmbm_step_by_step_validation** - **67% PASSING** (4/6 steps): Gibbs ✅ (15/15 samples), Hypothesis ❌
      - ✅ All 4 test frameworks complete with full validation functions (~1962 lines)
      - ✅ MATLAB→Rust conversion helpers implemented (~140 lines)
      - ✅ All deserialization issues resolved (scalars, nulls, flattened arrays, column-major, per-sensor)
-     - ✅ **12 CRITICAL BUGS FIXED** in tests/core code (5 fixed today):
+     - ✅ **13 CRITICAL BUGS FIXED** in tests/core code (6 fixed in this session):
        1. ✅ LMBM prediction birth parameter extraction (test fix)
        2. ✅ Multisensor LMBM prediction birth parameter extraction (test fix)
        3. ✅ Multisensor LMBM object index conversion (1-indexed → 0-indexed in association.rs:217-219)
@@ -148,9 +148,10 @@
        10. ✅ **Multisensor LMBM column-major flattening** - loop order (multisensor_lmbm/gibbs.rs:58-61)
        11. ✅ **Multisensor LMBM k calculation** - off-by-one in loop start (multisensor_lmbm/gibbs.rs:120)
        12. ✅ **Multisensor LMBM W clearing** - unconditional clear (multisensor_lmbm/gibbs.rs:154)
-     - ⚠️ **REMAINING ISSUES (require runtime debugging)**:
-       - LMBM normalization: 7 vs 6 hypotheses (likely related to Gibbs sample sorting change)
-       - Multisensor LMBM Gibbs: 10 vs 15 samples (static analysis found no bugs - likely RNG/L matrix difference)
+       13. ✅ **Multisensor LMBM test L matrix usage** - test regenerated L instead of using fixture (step_by_step_validation.rs:1894-1916)
+     - ⚠️ **REMAINING ISSUES**:
+       - LMBM: Normalization produces 7 hypotheses vs expected 6 (hypothesis generation creates different weights, requires investigation of association matrix generation or fixture regeneration)
+       - Multisensor LMBM: Hypothesis weight mismatch (similar root cause - association matrix differences)
 
 4. **Phase 5: Detailed Verification** (0/3 tasks - 0%)
    - ❌ File-by-file logic comparison (40+ file pairs)

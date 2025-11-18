@@ -1892,20 +1892,25 @@ fn validate_multisensor_lmbm_association(fixture: &MultisensorLmbmFixture) {
 }
 
 fn validate_multisensor_lmbm_gibbs(fixture: &MultisensorLmbmFixture) {
-    let predicted_hypothesis = hypothesis_data_to_rust(&fixture.step2_association.input.predicted_hypothesis);
+    // Use the L matrix from the fixture (don't regenerate it)
+    // Fixture L is stored as [m1+1][m2+1][n] in column-major order
+    // Flatten to 1D: for i in 0..m1+1: for j in 0..m2+1: for k in 0..n
+    let l_3d = &fixture.step3_gibbs.input.l;
+    let mut l_vector = Vec::new();
+    let dim1 = l_3d.len();  // m1+1
+    let dim2 = if dim1 > 0 { l_3d[0].len() } else { 0 };  // m2+1
+    let dim3 = if dim2 > 0 && dim1 > 0 { l_3d[0][0].len() } else { 0 };  // n
 
-    let measurements: Vec<Vec<DVector<f64>>> = fixture.step2_association.input.measurements.iter()
-        .map(|sensor_meas| measurements_to_rust(sensor_meas))
-        .collect();
+    // Flatten in column-major order (MATLAB style)
+    for k in 0..dim3 {
+        for j in 0..dim2 {
+            for i in 0..dim1 {
+                l_vector.push(l_3d[i][j][k]);
+            }
+        }
+    }
 
-    let model = multisensor_model_data_to_rust(&fixture.model, 0);
-
-    let (l_vector, _posterior_params, dimensions) = generate_multisensor_lmbm_association_matrices(
-        &predicted_hypothesis,
-        &measurements,
-        &model,
-        fixture.number_of_sensors
-    );
+    let dimensions = vec![dim1, dim2, dim3];
 
     let mut rng = SimpleRng::new(fixture.step3_gibbs.input.rng_seed);
     let num_samples = fixture.step3_gibbs.input.number_of_samples;
