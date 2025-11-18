@@ -91,7 +91,7 @@ pub fn determine_multisensor_posterior_hypothesis_parameters(
         posterior_hypotheses.push(Hypothesis {
             birth_location: prior_hypothesis.birth_location.clone(),
             birth_time: prior_hypothesis.birth_time.clone(),
-            w: hypothesis_weight.exp(), // Store as linear weight (will be normalized later)
+            w: hypothesis_weight, // Store in log space (will be normalized later)
             r,
             mu,
             sigma,
