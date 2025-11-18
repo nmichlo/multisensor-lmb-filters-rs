@@ -1933,14 +1933,32 @@ fn validate_multisensor_lmbm_gibbs(fixture: &MultisensorLmbmFixture) {
 fn validate_multisensor_lmbm_hypothesis_parameters(fixture: &MultisensorLmbmFixture) {
     let predicted_hypothesis = hypothesis_data_to_rust(&fixture.step4_hypothesis.input.predicted_hypothesis);
     let model = multisensor_model_data_to_rust(&fixture.model, 0);
-
     let measurements: Vec<Vec<DVector<f64>>> = fixture.measurements.iter()
         .map(|sensor_meas| measurements_to_rust(sensor_meas))
         .collect();
 
-    // Regenerate association matrices to get posterior parameters and dimensions
-    // Note: Small numerical differences expected due to fixture serialization precision
-    let (l_vector, posterior_params, dimensions) = generate_multisensor_lmbm_association_matrices(
+    // Use the L matrix from the fixture (don't regenerate it)
+    // Fixture L is stored as [m1+1][m2+1][n] in column-major order
+    let l_3d = &fixture.step4_hypothesis.input.l;
+    let mut l_vector = Vec::new();
+    let dim1 = l_3d.len();  // m1+1
+    let dim2 = if dim1 > 0 { l_3d[0].len() } else { 0 };  // m2+1
+    let dim3 = if dim2 > 0 && dim1 > 0 { l_3d[0][0].len() } else { 0 };  // n
+
+    // Flatten in column-major order (MATLAB style)
+    for k in 0..dim3 {
+        for j in 0..dim2 {
+            for i in 0..dim1 {
+                l_vector.push(l_3d[i][j][k]);
+            }
+        }
+    }
+
+    let dimensions = vec![dim1, dim2, dim3];
+
+    // Regenerate association matrices to get posterior parameters
+    // (fixture doesn't save posteriorParameters for this step)
+    let (_, posterior_params, _) = generate_multisensor_lmbm_association_matrices(
         &predicted_hypothesis,
         &measurements,
         &model,

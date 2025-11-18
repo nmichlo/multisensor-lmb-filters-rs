@@ -52,8 +52,9 @@ pub fn determine_multisensor_posterior_hypothesis_parameters(
         // Fill sensor associations (convert from flattened row)
         for obj_idx in 0..number_of_objects {
             for s in 0..number_of_sensors {
-                // A is stored as [obj0_s0, obj0_s1, ..., obj1_s0, obj1_s1, ...]
-                let col = obj_idx * number_of_sensors + s;
+                // A is stored column-major: [s0_obj0, s0_obj1, ..., s0_objN, s1_obj0, ...]
+                // This matches MATLAB's reshape(V, 1, n * S) which is column-major
+                let col = s * number_of_objects + obj_idx;
                 // Add 1 to convert from 0-indexed to MATLAB 1-indexed
                 u[(obj_idx, s)] = a[(i, col)] + 1;
             }
