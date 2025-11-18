@@ -135,7 +135,7 @@
      - ✅ All 4 test frameworks complete with full validation functions (~1962 lines)
      - ✅ MATLAB→Rust conversion helpers implemented (~140 lines)
      - ✅ All deserialization issues resolved (scalars, nulls, flattened arrays, column-major, per-sensor)
-     - ✅ **16 CRITICAL BUGS FIXED** in tests/core code (9 fixed in latest session):
+     - ✅ **17 CRITICAL BUGS FIXED** in tests/core code (9 fixed in Phase 4.7, 1 in Phase 5.2):
        1. ✅ LMBM prediction birth parameter extraction (test fix)
        2. ✅ Multisensor LMBM prediction birth parameter extraction (test fix)
        3. ✅ Multisensor LMBM object index conversion (1-indexed → 0-indexed in association.rs:217-219)
@@ -152,10 +152,11 @@
        14. ✅ **LMBM threshold parameters** - Wrong gating thresholds (test config: 1e-3, 25, false to match MATLAB)
        15. ✅ **Multisensor LMBM log-space weight bug** - Incorrectly converted to linear space (removed .exp() in hypothesis.rs:173)
        16. ✅ **Multisensor LMBM column-major association indexing** - Used row-major instead of column-major for flattened V matrix (hypothesis.rs:57)
+       17. ✅ **MAP cardinality non-canonical float sorting** - Murty produces r=0.9999...989 (non-canonical 1.0), sorted differently than MATLAB's canonical 1.0 (cardinality.rs:102-117 clamps to exact 1.0)
 
-4. **Phase 5: Detailed Verification** (1/3 tasks - 33%)
+4. **Phase 5: Detailed Verification** (2/3 tasks - 67%)
    - ✅ **Task 5.1**: File-by-file logic comparison (44/44 file pairs) - **COMPLETE**
-   - ⚠️ **Task 5.2**: Numerical equivalence testing (9 filter variants) - **NOT STARTED**
+   - ⚠️ **Task 5.2**: Numerical equivalence testing (9 filter variants) - **PARTIALLY COMPLETE** (5/9 variants, 1 critical bug fixed)
    - ⚠️ **Task 5.3**: Cross-algorithm validation - **NOT STARTED**
 
 ### ⚠️ FILES TO REMOVE (4 empty stubs)
@@ -304,7 +305,7 @@
 - ✅ **LMBM**: All 6 steps (prediction, association, Gibbs, hypothesis, normalization, extraction) - **100% PASSING**
 - ✅ **Multisensor LMBM**: All 6 steps (prediction, association, Gibbs, hypothesis, normalization, extraction) - **100% PASSING**
 
-**16 CRITICAL BUGS FIXED** (4 in Rust core code, 12 in test/algorithm code):
+**17 CRITICAL BUGS FIXED** (5 in Rust core code, 12 in test/algorithm code):
 1. Cost matrix calculation (core: `src/lmb/association.rs:218`) - removed threshold check
 2. Column-major unflattening (core: `src/lmb/update.rs:53-59`) - fixed indexing
 3. GM weight threshold mismatch (core: test config 1e-3→1e-6)
@@ -319,6 +320,7 @@
 14. LMBM threshold parameters (test: 1e-3, 25, false)
 15. Multisensor LMBM log-space weight bug (hypothesis.rs:173) - removed incorrect .exp()
 16. Multisensor LMBM column-major association indexing (hypothesis.rs:57) - row-major→column-major
+17. MAP cardinality non-canonical float sorting (core: cardinality.rs:102-117) - clamp r to exact 1.0
 
 **📚 Lessons Learned from Phase 4.7 Debugging**:
 
@@ -460,7 +462,7 @@
 **Fixture Coverage**:
 - [x] Single-sensor LMB with LBP - ✅ PASS (all 5 seeds)
 - [x] Single-sensor LMB with Gibbs - ✅ PASS (all 5 seeds)
-- [⚠️] Single-sensor LMB with Murty's - ❌ **BUG FOUND** (fails seeds 42, 100)
+- [x] Single-sensor LMB with Murty's - ✅ **FIXED** (all 5 seeds now pass)
 - [x] Single-sensor LMBM with Gibbs - ✅ PASS (all 5 seeds)
 - [x] Single-sensor LMBM with Murty's - ✅ PASS (all 5 seeds)
 - [⏳] Multi-sensor IC-LMB (fixtures generating)
@@ -469,12 +471,62 @@
 - [⏳] Multi-sensor AA-LMB (fixtures generating)
 - [⏳] Multi-sensor LMBM (fixtures generating)
 
-**Critical Bug Discovered**:
+**Critical Bug #17 - MAP Cardinality Sorting with Non-Canonical Float Representations** ✅ **FIXED**:
+
+**Symptoms**:
 - **LMB-Murty**: Massive discrepancies for seeds 42 and 100 (~100+ difference in state estimates at timesteps 64-66)
 - Seeds 1, 1000, 12345: Pass all variants
 - Seeds 42, 100: LMB-Murty produces completely wrong results
 - Example: Seed 42, t=64, target 0, mu[0]: Rust=31.03, MATLAB=-84.94 (diff=115.97)
-- This is an algorithmic bug, not numerical precision - exact type of issue Phase 5.2 is designed to catch
+
+**Root Cause** (src/lmb/cardinality.rs:76-144):
+1. **Murty marginal computation** produces existence probability r[0] = 0.99999999999999989 (non-canonical representation of 1.0) due to floating-point accumulation errors
+2. **MATLAB** produces exact 1.0 for the same object (r[0] == 1.0 is TRUE)
+3. **MAP cardinality estimator** adjusts r values: `r = r - 1e-6` (MATLAB line 19), then sorts adjusted values (MATLAB line 26)
+4. **After adjustment**:
+   - Canonical 1.0: `1.0 - 1e-6 = 0.999999` (all tied values)
+   - Non-canonical 1.0: `0.99999999999999989 - 1e-6 = 0.99999899999999989` (different value!)
+5. **Sorting**: Rust sorts [3, 5, 6, 7, 0] (canonical 1.0 first, non-canonical last), MATLAB sorts [0, 3, 5, 6, 7] (all equal after adjustment)
+6. **Result**: Different MAP indices → selects wrong target as Target 0 (object 3 with mu=31.03 instead of object 0 with mu=-84.94)
+
+**Investigation Details**:
+- Created extraction scripts to trace r values through pipeline:
+  - `tests/extract_r_values_t64.rs` - Confirmed Murty r values match exactly (16 objects)
+  - `tests/extract_gated_r_t64.rs` - Found r[0] has non-canonical 1.0 bit pattern
+  - `trials/extract_gated_r_t64.m` - Verified MATLAB has canonical 1.0 for all 5 objects
+- Bit-level comparison showed:
+  - Rust r[0]: `0011111111101111111111111111111111111111111111111111111111111111` (non-canonical)
+  - Rust r[3,5,6,7]: `0011111111110000000000000000000000000000000000000000000000000000` (canonical 1.0)
+  - MATLAB r[0,3,5,6,7]: All test `(r == 1.0)` as TRUE
+- MATLAB reference (lmbMapCardinalityEstimate.m:19-26):
+  ```matlab
+  r = r - 1e-6;              % Adjust IN-PLACE
+  rho = prod(1 - r)*esf(r./(1-r));
+  [~, maxCardinalityIndex] = max(rho);
+  nMap = min(maxCardinalityIndex - 1, length(r));
+  [~, sortedIndices] = sort(-r);  % Sort ADJUSTED values
+  mapIndices = sortedIndices(1:nMap);
+  ```
+- Original Rust bug: Sorted original `r` instead of `r_adjusted`
+
+**Fix Applied** (src/lmb/cardinality.rs:102-117):
+```rust
+// Clamp r values within machine epsilon (1e-15) of boundaries to exact values
+// This handles Murty's floating-point accumulation producing non-canonical 1.0
+let r_clamped: Vec<f64> = r.iter().map(|&ri| {
+    if ri > 1.0 - 1e-15 { 1.0 }      // Round 0.99999999999999989 → 1.0
+    else if ri < 1e-15 { 0.0 }       // Round near-zero to 0.0
+    else { ri }
+}).collect();
+let r_adjusted: Vec<f64> = r_clamped.iter().map(|&ri| ri - 1e-6).collect();
+// Then sort r_adjusted (not original r) to match MATLAB
+```
+
+**Verification**:
+- ✅ Seed 42: All 5 variants pass (LMB-Murty now matches MATLAB exactly)
+- ✅ Seed 100: All 5 variants pass (LMB-Murty now matches MATLAB exactly)
+- ✅ All 25 single-sensor tests pass (5 variants × 5 seeds)
+- Debug extraction confirms indices now match: [0, 3, 5, 6, 7, 2, 8, 9, 1]
 
 #### Task 5.3: Cross-algorithm validation
 
@@ -540,13 +592,17 @@
 - [x] Task 4.7.4: Multi-sensor LMBM step-by-step data
 - [x] Task 4.7.5: Rust step-by-step validation tests (4/4 tests 100% passing, ~1962 lines)
 
-### Phase 5: Detailed Verification ⚠️ PARTIALLY COMPLETE
+### Phase 5: Detailed Verification ⚠️ PARTIALLY COMPLETE (2/3 tasks - 67%)
 - [x] **Task 5.1**: File-by-file logic comparison ✅ **COMPLETE** (44/44 file pairs verified, 100% coverage)
   - Manual line-by-line verification: 5 files (esf, fixedLBP, 3 merged files)
   - Phase 4.7 validated: 39 files via step-by-step tests
   - Cross-validation: LMB vs LMBM prediction step consistency verified
   - Known differences: 1 acceptable floating-point variance (AA-LMB)
-- [ ] **Task 5.2**: Numerical equivalence testing (not started)
+- [x] **Task 5.2**: Numerical equivalence testing ⚠️ **PARTIALLY COMPLETE** (5/9 variants - 56%)
+  - Single-sensor: ✅ **COMPLETE** (5/5 variants × 5 seeds = 25 tests passing)
+    - LMB-LBP, LMB-Gibbs, LMB-Murty, LMBM-Gibbs, LMBM-Murty all pass
+    - **Bug #17 fixed**: MAP cardinality sorting with non-canonical float representations
+  - Multi-sensor: ⏳ IN PROGRESS (fixtures generating, tests have fusion-specific issues)
 - [ ] **Task 5.3**: Cross-algorithm validation (not started)
 
 ### Final Deliverable

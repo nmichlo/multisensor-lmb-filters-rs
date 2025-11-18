@@ -78,9 +78,43 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
         return (0, Vec::new());
     }
 
+    // MATLAB reference (lmbMapCardinalityEstimate.m:19-26):
+    //   r = r - 1e-6;  % Does not work with unit existence probabilities
+    //   rho = prod(1 - r)*esf(r./(1-r));
+    //   [~, maxCardinalityIndex] = max(rho);
+    //   nMap = min(maxCardinalityIndex - 1, length(r));
+    //   [~, sortedIndices] = sort(-r);  % Sort the ADJUSTED r values
+    //   mapIndices = sortedIndices(1:nMap);
+    //
+    // CRITICAL: MATLAB modifies r in-place (line 19), then sorts the adjusted values (line 26).
+    // Rust must sort r_adjusted, NOT the original r, to match MATLAB's behavior.
+    //
+    // FLOATING POINT ISSUE: Rust's Murty marginal computation can produce existence
+    // probabilities like 0.99999999999999989 (non-canonical representation of 1.0) due to
+    // numerical accumulation errors. When these values are adjusted by subtracting 1e-6:
+    //   - Canonical 1.0:     1.0 - 1e-6 = 0.999999 (stable)
+    //   - Non-canonical 1.0: 0.99999999999999989 - 1e-6 = 0.99999899999999989 (differs!)
+    // This causes different sorting orders, breaking numerical equivalence with MATLAB.
+    //
+    // SOLUTION: Clamp r values within machine epsilon (1e-15) of boundaries to exact values.
+    // MATLAB's floating point operations inherently produce cleaner results, so this clamping
+    // makes Rust match MATLAB's behavior without changing the algorithm.
+    let r_clamped: Vec<f64> = r
+        .iter()
+        .map(|&ri| {
+            if ri > 1.0 - 1e-15 {
+                1.0  // Clamp near-1.0 values to exactly 1.0
+            } else if ri < 1e-15 {
+                0.0  // Clamp near-0.0 values to exactly 0.0
+            } else {
+                ri
+            }
+        })
+        .collect();
+
     // Adjust existence probabilities to avoid unit values
-    // r = r - 1e-6 (does not work with unit existence probabilities)
-    let r_adjusted: Vec<f64> = r.iter().map(|&ri| ri - 1e-6).collect();
+    // Matches MATLAB: r = r - 1e-6 (does not work with unit existence probabilities)
+    let r_adjusted: Vec<f64> = r_clamped.iter().map(|&ri| ri - 1e-6).collect();
 
     // Compute rho = prod(1 - r)*esf(r/(1-r))
     let mut prod_1_minus_r = 1.0;
@@ -107,10 +141,11 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
     // MAP estimate cannot be larger than the number of objects
     let n_map = std::cmp::min(max_cardinality_index, r.len());
 
-    // Sort r in descending order and get indices
-    // IMPORTANT: Use stable sort with index as secondary key for deterministic tie-breaking
-    // This matches MATLAB's sort behavior where equal values preserve original order
-    let mut indexed_r: Vec<(usize, f64)> = r.iter().enumerate().map(|(i, &val)| (i, val)).collect();
+    // Sort r_adjusted in descending order and get indices
+    // IMPORTANT: Must sort the ADJUSTED values (not original r) to match MATLAB's behavior
+    // MATLAB does: r = r - 1e-6; [~, sortedIndices] = sort(-r);
+    // This ensures objects with r=1.0 are sorted consistently after adjustment
+    let mut indexed_r: Vec<(usize, f64)> = r_adjusted.iter().enumerate().map(|(i, &val)| (i, val)).collect();
     indexed_r.sort_by(|(i_a, a), (i_b, b)| {
         // Primary: sort by value descending
         match b.partial_cmp(a).unwrap() {
