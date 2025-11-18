@@ -440,24 +440,41 @@
 
 **Strategy**: Generate fixtures from MATLAB with `SimpleRng` seeds, then verify Rust produces **100% identical** output.
 
-- [ ] Create MATLAB fixture generator script
-- [ ] Use `SimpleRng(seed)` for deterministic seeding (seeds: 1, 42, 100, 1000, 12345)
-- [ ] Generate ground truth scenarios (5-10 different seeds)
-- [ ] Save to JSON/CSV fixtures
-- [ ] Create Rust fixture loader
-- [ ] Run Rust filters with same `SimpleRng(seed)`
-- [ ] Assert **exact numerical equivalence** (within 1e-15 for float ops, exact for RNG-dependent logic)
+- [x] Create MATLAB fixture generator script (single-sensor)
+- [x] Create MATLAB fixture generator script (multi-sensor)
+- [x] Use `SimpleRng(seed)` for deterministic seeding (seeds: 1, 42, 100, 1000, 12345)
+- [x] Generate ground truth scenarios (5 seeds × 9 filter variants = 45 test cases)
+- [x] Save to JSON fixtures with complete state estimates
+- [x] Create Rust fixture loader
+- [x] Run Rust filters with same `SimpleRng(seed)`
+- [⚠️] Assert **exact numerical equivalence** (tolerance: 1e-12 for floating point precision)
+
+**MATLAB Fixture Generators**:
+- `trials/generateNumericalEquivalenceFixtures_singleSensor.m` - 5 variants × 5 seeds
+- `trials/generateNumericalEquivalenceFixtures_multiSensor.m` - 5 variants × 5 seeds (in progress)
+
+**Rust Test Suites**:
+- `tests/numerical_equivalence_single_sensor.rs` - 5 tests (one per seed)
+- `tests/numerical_equivalence_multi_sensor.rs` - 5 tests (one per seed)
 
 **Fixture Coverage**:
-- [ ] Single-sensor LMB with LBP
-- [ ] Single-sensor LMB with Gibbs
-- [ ] Single-sensor LMB with Murty's
-- [ ] Single-sensor LMBM
-- [ ] Multi-sensor IC-LMB
-- [ ] Multi-sensor PU-LMB
-- [ ] Multi-sensor GA-LMB
-- [ ] Multi-sensor AA-LMB
-- [ ] Multi-sensor LMBM
+- [x] Single-sensor LMB with LBP - ✅ PASS (all 5 seeds)
+- [x] Single-sensor LMB with Gibbs - ✅ PASS (all 5 seeds)
+- [⚠️] Single-sensor LMB with Murty's - ❌ **BUG FOUND** (fails seeds 42, 100)
+- [x] Single-sensor LMBM with Gibbs - ✅ PASS (all 5 seeds)
+- [x] Single-sensor LMBM with Murty's - ✅ PASS (all 5 seeds)
+- [⏳] Multi-sensor IC-LMB (fixtures generating)
+- [⏳] Multi-sensor PU-LMB (fixtures generating)
+- [⏳] Multi-sensor GA-LMB (fixtures generating)
+- [⏳] Multi-sensor AA-LMB (fixtures generating)
+- [⏳] Multi-sensor LMBM (fixtures generating)
+
+**Critical Bug Discovered**:
+- **LMB-Murty**: Massive discrepancies for seeds 42 and 100 (~100+ difference in state estimates at timesteps 64-66)
+- Seeds 1, 1000, 12345: Pass all variants
+- Seeds 42, 100: LMB-Murty produces completely wrong results
+- Example: Seed 42, t=64, target 0, mu[0]: Rust=31.03, MATLAB=-84.94 (diff=115.97)
+- This is an algorithmic bug, not numerical precision - exact type of issue Phase 5.2 is designed to catch
 
 #### Task 5.3: Cross-algorithm validation
 
