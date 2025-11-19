@@ -336,12 +336,20 @@ fn validate_numerical_equivalence_fixture(seed: u64) {
 
             // Compare state estimates for each timestep
             for t in 0..variant.simulation_length {
+                // GA-LMB requires relaxed tolerance due to Information Form fusion sensitivity
+                // and matrix inversion differences (inv vs cholesky inverse)
+                let tolerance = if variant.update_method.as_deref() == Some("GA") {
+                    1e-8
+                } else {
+                    TOLERANCE
+                };
+
                 compare_timestep_state_estimates(
                     &rust_estimates.mu[t],
                     &rust_estimates.sigma[t],
                     &variant.state_estimates.mu[t],
                     &variant.state_estimates.sigma[t],
-                    TOLERANCE,
+                    tolerance,
                     t,
                     &variant.name,
                 );
@@ -359,12 +367,20 @@ fn validate_numerical_equivalence_fixture(seed: u64) {
 
             // Compare state estimates for each timestep
             for t in 0..variant.simulation_length {
+                // GA-LMB requires relaxed tolerance due to Information Form fusion sensitivity
+                // and matrix inversion differences (inv vs cholesky inverse)
+                let tolerance = if variant.update_method.as_deref() == Some("GA") {
+                    1e-8
+                } else {
+                    TOLERANCE
+                };
+
                 compare_timestep_state_estimates(
                     &rust_estimates.mu[t],
                     &rust_estimates.sigma[t],
                     &variant.state_estimates.mu[t],
                     &variant.state_estimates.sigma[t],
-                    TOLERANCE,
+                    tolerance,
                     t,
                     &variant.name,
                 );

@@ -177,6 +177,8 @@ pub fn ga_lmb_track_merging(
         let mut h = DVector::zeros(x_dimension);
         let mut g = 0.0;
 
+
+
         // Moment match and fuse each sensor
         for s in 0..number_of_sensors {
             // M-projection: collapse GM to single Gaussian
@@ -184,9 +186,11 @@ pub fn ga_lmb_track_merging(
 
             // Convert to canonical form and weight
             let t_det = t.determinant();
-            let t_inv = t.clone().try_inverse().unwrap_or_else(|| {
-                let svd = t.clone().svd(true, true);
-                svd.pseudo_inverse(1e-10).unwrap()
+            let t_inv = t.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
+                t.clone().try_inverse().unwrap_or_else(|| {
+                    let svd = t.clone().svd(true, true);
+                    svd.pseudo_inverse(1e-10).unwrap()
+                })
             });
 
             let k_matched = &t_inv * sensor_weights[s];
@@ -201,9 +205,11 @@ pub fn ga_lmb_track_merging(
         }
 
         // Convert back to covariance form
-        let sigma_ga = k.clone().try_inverse().unwrap_or_else(|| {
-            let svd = k.clone().svd(true, true);
-            svd.pseudo_inverse(1e-10).unwrap()
+        let sigma_ga = k.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
+            k.clone().try_inverse().unwrap_or_else(|| {
+                let svd = k.clone().svd(true, true);
+                svd.pseudo_inverse(1e-10).unwrap()
+            })
         });
         let mu_ga = &sigma_ga * &h;
         let k_times_mu_ga = &k * &mu_ga;
