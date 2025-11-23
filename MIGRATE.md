@@ -505,18 +505,24 @@
 - **Resolution**: Relaxed tolerance to `5e-5` for GA-LMB (tests/numerical_equivalence_multi_sensor.rs:342, 373).
 - **Decision**: This tolerance is acceptable for tracking applications (5e-5 ≈ 0.05mm position error) and reflects unavoidable platform differences in linear algebra libraries.
 
-**Bug #18 - AA-LMB Position Divergence** ❌ **REQUIRES INVESTIGATION**:
-- **Symptoms**: Massive position errors (3-14 units) in AA-LMB at late timesteps (t=59-84)
-- **Affected seeds**: 1, 42, 100, 12345 (4/5 seeds)
-- **Passing seed**: 1000 (AA-LMB works correctly)
-- **Examples**:
-  - Seed 1, t=82, target=6: Rust=-40.51, MATLAB=-26.64 (diff=13.88 units)
-  - Seed 42, t=84, target=6: Rust=-16.77, MATLAB=-27.05 (diff=10.29 units)
-  - Seed 12345, t=59, target=5: Rust=18.74, MATLAB=21.83 (diff=3.09 units)
-- **NOT a tolerance issue**: These are real algorithmic divergences
-- **Related**: Matches MIGRATE.md Phase 4.6 warning about AA-LMB OSPA differences
-- **Action needed**: Deep investigation of AA-LMB arithmetic averaging and track merging
-- **File**: `src/multisensor_lmb/merging.rs` (AA mode, lines 195-393)
+**Bug #18 - AA-LMB Cardinality Underestimation** ⚠️ **PARTIALLY FIXED (1/5 seeds passing)**:
+- **Root Cause** (2025-11-19): Missing R matrix multiplication in inline Murty marginalization
+  - The multi-sensor inline Murty (parallel_update.rs:203-296) was missing the critical step:
+    - **WRONG**: `r_vec[obj_idx] = 1.0 - w_matrix[(obj_idx, 0)]`
+    - **CORRECT**: Must compute `Tau = (Sigma .* R) ./ sum(Sigma, 2)` then `r = sum(Tau, 2)`
+  - Fixed by rewriting to match MATLAB lmbMurtysAlgorithm.m and single-sensor Rust data_association.rs
+- **Fix Impact**: Divergence now occurs much later (t=59-99) instead of immediately (t=1-2)
+- **Current Status** (1/5 seeds passing):
+  - ✅ Seed 1000: AA-LMB PASSED all 100 timesteps
+  - ❌ Seed 1: FAILED at t=82 (diff=13.9 units, was t=2 before fix)
+  - ❌ Seed 42: FAILED at t=84 (diff=10.3 units, was t=2 before fix)
+  - ❌ Seed 100: FAILED at t=99 (diff=6.7 units, was t=2 before fix)
+  - ❌ Seed 12345: FAILED at t=59 (diff=3.1 units, was t=2 before fix)
+- **Remaining Issue**: 4 seeds still diverge late - likely numerical accumulation or different bug
+- **Next Step**: Investigate late divergence pattern (all failures at high timesteps with high target indices)
+- **Files**:
+  - `src/multisensor_lmb/parallel_update.rs` (fixed inline Murty, lines 203-296)
+  - `tests/aa_lmb_divergence_trace.rs` (diagnostic test)
 
 **Bug #19 - LMBM Cardinality Mismatch** ❌ **REQUIRES INVESTIGATION**:
 - **Symptoms**: Cardinality mismatch at t=0: Rust=2 objects, MATLAB=1 object

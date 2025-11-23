@@ -201,52 +201,106 @@ pub fn run_parallel_update_lmb_filter(
                         (result.r.as_slice().to_vec(), result.w)
                     }
                     DataAssociationMethod::Murty => {
+                        // Matches MATLAB lmbMurtysAlgorithm.m and single-sensor Rust implementation
+                        let n = objects.len();
+                        let m = measurements[s][t].len();
+
                         let murty_result = murtys_algorithm_wrapper(
                             &association_matrices.cost,
                             model.number_of_assignments,
                         );
+                        let v = murty_result.assignments; // (k x n)
 
-                        // Convert costs to weights: exp(-cost) normalized
-                        let mut assignment_weights = Vec::with_capacity(murty_result.costs.len());
-                        for &cost in &murty_result.costs {
-                            assignment_weights.push((-cost).exp());
-                        }
-                        let sum_weights: f64 = assignment_weights.iter().sum();
-                        for w in &mut assignment_weights {
-                            *w /= sum_weights;
-                        }
+                        // Determine marginal distributions
+                        // W = repmat(V, 1, 1, m+1) == reshape(0:m, 1, 1, m+1)
+                        let k = v.nrows();
+                        let mut w_indicator = vec![DMatrix::zeros(k, n); m + 1];
 
-                        // Marginalize to get r and W
-                        let n = objects.len();
-                        let m = measurements[s][t].len();
-                        let mut r_vec = vec![0.0; n];
-                        let mut w_matrix = DMatrix::zeros(n, m + 1);
-
-                        // Accumulate from assignments
-                        for (assignment_idx, assignment) in murty_result.assignments.row_iter().enumerate() {
-                            let weight = assignment_weights[assignment_idx];
-                            for (obj_idx, &meas_assign) in assignment.iter().enumerate() {
-                                w_matrix[(obj_idx, meas_assign)] += weight;
-                                if meas_assign > 0 {
-                                    r_vec[obj_idx] += weight;
+                        for meas_idx in 0..=m {
+                            for i in 0..k {
+                                for j in 0..n {
+                                    if v[(i, j)] == meas_idx {
+                                        w_indicator[meas_idx][(i, j)] = 1.0;
+                                    }
                                 }
                             }
                         }
 
-                        // Existence prob: weighted association (excluding miss)
+                        // J = reshape(associationMatrices.L(n * V + (1:n)), size(V, 1), n)
+                        let mut j_matrix = DMatrix::zeros(k, n);
+                        for i in 0..k {
+                            for obj_idx in 0..n {
+                                let meas_idx = v[(i, obj_idx)];
+                                j_matrix[(i, obj_idx)] = association_matrices.l[(obj_idx, meas_idx)];
+                            }
+                        }
+
+                        // L = permute(sum(prod(J, 2) .* W, 1), [2 1 3])
+                        let mut l_marg = Vec::with_capacity(m + 1);
+                        for meas_idx in 0..=m {
+                            let mut l_col = vec![0.0; n];
+                            for obj_idx in 0..n {
+                                let mut sum = 0.0;
+                                for event_idx in 0..k {
+                                    // prod(J, 2): product across objects
+                                    let mut prod = 1.0;
+                                    for j in 0..n {
+                                        prod *= j_matrix[(event_idx, j)];
+                                    }
+                                    sum += prod * w_indicator[meas_idx][(event_idx, obj_idx)];
+                                }
+                                l_col[obj_idx] = sum;
+                            }
+                            l_marg.push(l_col);
+                        }
+
+                        // Sigma = reshape(L, n, m+1)
+                        let mut sigma = DMatrix::zeros(n, m + 1);
                         for obj_idx in 0..n {
-                            let row_sum: f64 = w_matrix.row(obj_idx).sum();
+                            for meas_idx in 0..=m {
+                                sigma[(obj_idx, meas_idx)] = l_marg[meas_idx][obj_idx];
+                            }
+                        }
+
+                        // Tau = (Sigma .* R) ./ sum(Sigma, 2)
+                        // CRITICAL: This was missing in the old implementation!
+                        let mut tau = DMatrix::zeros(n, m + 1);
+                        for obj_idx in 0..n {
+                            let row_sum: f64 = sigma.row(obj_idx).sum();
                             if row_sum > 1e-15 {
                                 for meas_idx in 0..=m {
-                                    w_matrix[(obj_idx, meas_idx)] /= row_sum;
+                                    tau[(obj_idx, meas_idx)] =
+                                        (sigma[(obj_idx, meas_idx)] * association_matrices.gibbs_r[(obj_idx, meas_idx)])
+                                        / row_sum;
                                 }
-                                r_vec[obj_idx] = 1.0 - w_matrix[(obj_idx, 0)];
+                            }
+                        }
+
+                        // r = sum(Tau, 2)
+                        let mut r_vec = vec![0.0; n];
+                        for obj_idx in 0..n {
+                            r_vec[obj_idx] = tau.row(obj_idx).sum();
+                        }
+
+                        // W = Tau ./ r
+                        let mut w_matrix = DMatrix::zeros(n, m + 1);
+                        for obj_idx in 0..n {
+                            if r_vec[obj_idx] > 1e-15 {
+                                for meas_idx in 0..=m {
+                                    w_matrix[(obj_idx, meas_idx)] = tau[(obj_idx, meas_idx)] / r_vec[obj_idx];
+                                }
                             }
                         }
 
                         (r_vec, w_matrix)
                     }
                 };
+
+                // DEBUG: Print r values from data association at t=1
+                if t == 1 && update_mode == ParallelUpdateMode::AA {
+                    eprintln!("\n=== DEBUG t={} Sensor {} AFTER DATA ASSOCIATION ===", t, s);
+                    eprintln!("r from assoc: {:?}", r.iter().map(|&ri| format!("{:.10e}", ri)).collect::<Vec<_>>());
+                }
 
                 // Compute posterior spatial distributions
                 let updated = compute_posterior_lmb_spatial_distributions_multisensor(
@@ -256,6 +310,11 @@ pub fn run_parallel_update_lmb_filter(
                     &posterior_parameters,
                     model,
                 );
+
+                // DEBUG: Print r values after spatial update at t=1
+                if t == 1 && update_mode == ParallelUpdateMode::AA {
+                    eprintln!("r after spatial: {:?}", updated.iter().map(|obj| format!("{:.10e}", obj.r)).collect::<Vec<_>>());
+                }
 
                 measurement_updated_distributions.push(updated.clone());
             } else {
@@ -273,6 +332,7 @@ pub fn run_parallel_update_lmb_filter(
         }
 
         // Track merging
+
         objects = match update_mode {
             ParallelUpdateMode::AA => {
                 aa_lmb_track_merging(&measurement_updated_distributions, model)
@@ -286,8 +346,37 @@ pub fn run_parallel_update_lmb_filter(
             }
         };
 
+        // DEBUG: Print existence probabilities after merging at t=1 or t=2 or t=82
+        if (t == 1 || t == 2 || t == 82) && update_mode == ParallelUpdateMode::AA {
+            eprintln!("\n=== DEBUG t={} AFTER AA MERGING ===", t);
+            eprintln!("Merged objects: {}", objects.len());
+            for (i, obj) in objects.iter().enumerate() {
+                // For t=82, also print mu[0] for the target object
+                if t == 82 && obj.birth_time == 20 && obj.birth_location == 3 {
+                    eprintln!("  Object {} (t=20,loc=3): r={:.10e}, n_gm={}, mu[0]=({:.4},{:.4}), w[0]={:.6e}",
+                        i, obj.r, obj.number_of_gm_components, obj.mu[0][0], obj.mu[0][1], obj.w[0]);
+                    // Print all GM components for this object
+                    for j in 0..obj.number_of_gm_components.min(5) {
+                        eprintln!("    GM[{}]: w={:.6e}, mu=({:.4},{:.4})", j, obj.w[j], obj.mu[j][0], obj.mu[j][1]);
+                    }
+                } else if t != 82 {
+                    eprintln!("  Object {}: r={:.10e}", i, obj.r);
+                }
+            }
+        }
+
         // Gate tracks
         let objects_likely_to_exist: Vec<bool> = objects.iter().map(|obj| obj.r > model.existence_threshold).collect();
+
+        // DEBUG: Print gating results at t=1 or t=2
+        if (t == 1 || t == 2) && update_mode == ParallelUpdateMode::AA {
+            eprintln!("\n=== DEBUG t={} AFTER GATING (threshold={}) ===", t, model.existence_threshold);
+            for (i, keep) in objects_likely_to_exist.iter().enumerate() {
+                eprintln!("  Object {}: r={:.10e} -> {}", i, objects[i].r, if *keep { "KEEP" } else { "DROP" });
+            }
+            let kept_count = objects_likely_to_exist.iter().filter(|&&k| k).count();
+            eprintln!("Kept {} / {} objects", kept_count, objects.len());
+        }
 
         // Export long discarded trajectories
         for (i, obj) in objects.iter().enumerate() {
@@ -313,7 +402,19 @@ pub fn run_parallel_update_lmb_filter(
 
         // MAP cardinality extraction
         let r_vec: Vec<f64> = objects.iter().map(|obj| obj.r).collect();
+
+        // DEBUG: Print MAP cardinality inputs/outputs at t=1 or t=2
+        if (t == 1 || t == 2) && update_mode == ParallelUpdateMode::AA {
+            eprintln!("\n=== DEBUG t={} MAP CARDINALITY ESTIMATION ===", t);
+            eprintln!("Input r_vec ({}): {:?}", r_vec.len(), r_vec.iter().map(|&r| format!("{:.6e}", r)).collect::<Vec<_>>());
+        }
+
         let (n_map, map_indices) = lmb_map_cardinality_estimate(&r_vec);
+
+        // DEBUG: Print MAP cardinality result at t=1 or t=2
+        if (t == 1 || t == 2) && update_mode == ParallelUpdateMode::AA {
+            eprintln!("Output n_map={}, map_indices={:?}", n_map, map_indices);
+        }
 
         // Extract RFS state estimate
         let mut labels_t = DMatrix::zeros(2, n_map);

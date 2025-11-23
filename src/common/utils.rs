@@ -52,12 +52,27 @@ pub fn prune_gaussian_mixture(
     };
 
     // Create (weight, original_index) pairs and sort descending
+    // Use stable sort (lower index wins for equal weights) to match MATLAB's stable sort behavior
     let mut indexed_weights: Vec<(f64, usize)> = normalized
         .iter()
         .enumerate()
         .map(|(i, &w)| (w, i))
         .collect();
-    indexed_weights.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+    // Use epsilon comparison to handle floating point precision differences
+    // Weights within 1e-12 relative tolerance are considered equal
+    indexed_weights.sort_by(|a, b| {
+        let diff = (b.0 - a.0).abs();
+        let max_val = b.0.abs().max(a.0.abs());
+        let relative_diff = if max_val > 1e-15 { diff / max_val } else { diff };
+
+        if relative_diff < 1e-12 {
+            // Weights are effectively equal - use stable sort (lower index first)
+            a.1.cmp(&b.1)
+        } else {
+            // Weights are different - sort descending by weight
+            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+        }
+    });
 
     // Filter out components below threshold
     let significant: Vec<(f64, usize)> = indexed_weights
