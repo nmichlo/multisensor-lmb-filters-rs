@@ -347,6 +347,11 @@ pub fn generate_multisensor_ground_truth(
             let clutter_rate = model.clutter_rate_multisensor.as_ref().unwrap()[s];
             let num_clutter = rng.poissrnd(clutter_rate);
 
+            // DEBUG: Print clutter at t=0
+            if t == 0 {
+                eprintln!("GT: t={}, sensor={}: {} clutter", t, s, num_clutter);
+            }
+
             for _ in 0..num_clutter {
                 let mut clutter = DVector::zeros(model.z_dimension);
                 clutter[0] = model.observation_space_limits[(0, 0)]
@@ -403,6 +408,11 @@ pub fn generate_multisensor_ground_truth(
 
             let num_detections: usize = generated_measurement.iter().filter(|&&x| x).count();
 
+            // DEBUG: Print detections at t=1
+            if t == 1 {
+                eprintln!("GT: obj={}, t={}: detections={:?}", obj_idx, t, generated_measurement);
+            }
+
             if num_detections > 0 {
                 // Generate measurements and stack for multi-sensor update
                 let mut z = DVector::zeros(model.z_dimension * num_detections);
@@ -415,6 +425,9 @@ pub fn generate_multisensor_ground_truth(
                         // Generate measurement with sensor-specific noise
                         let noise = q_multisensor[s].clone().cholesky().unwrap().l() * DVector::from_fn(model.z_dimension, |_, _| rng.randn());
                         let y = &c_multisensor[s] * &x + noise;
+                        if t == 1 {
+                            eprintln!("  Adding detection to measurements[{}][{}]", s, t - 1);
+                        }
                         measurements[s][t - 1].push(y.clone());
 
                         // Stack for Kalman update

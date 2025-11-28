@@ -48,7 +48,7 @@ pub fn multisensor_lmbm_gibbs_sampling(
     let mut unique_samples = HashSet::new();
 
     // Gibbs sampling
-    for _ in 0..number_of_samples {
+    for sample_idx in 0..number_of_samples {
         // Generate new Gibbs sample
         generate_multisensor_association_event(rng, l, dimensions, &m, &mut v, &mut w);
 
@@ -68,6 +68,7 @@ pub fn multisensor_lmbm_gibbs_sampling(
     unique_vec.sort();
 
     let num_unique = unique_vec.len();
+
     let mut a = DMatrix::zeros(num_unique, number_of_objects * number_of_sensors);
     for (row_idx, sample) in unique_vec.iter().enumerate() {
         for (col_idx, &val) in sample.iter().enumerate() {
@@ -143,7 +144,9 @@ fn generate_multisensor_association_event(
                     let p = 1.0 / ((l[r_idx] - l[q_idx]).exp() + 1.0);
 
                     // Sample
-                    if rng.rand() < p {
+                    let rand_val = rng.rand();
+
+                    if rand_val < p {
                         // Object i generated measurement j
                         v[(i, s)] = j + 1; // Store as 1-indexed
                         w[(j, s)] = i + 1;
