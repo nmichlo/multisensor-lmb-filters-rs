@@ -344,14 +344,16 @@ fn validate_numerical_equivalence_fixture(seed: u64) {
 
             // Compare state estimates for each timestep
             for t in 0..variant.simulation_length {
-                // GA-LMB and PU-LMB require relaxed tolerances due to Information Form fusion
-                // sensitivity and matrix inversion differences (inv vs cholesky inverse)
+                // GA-LMB: Inherent precision loss from chain of matrix inversions
+                // (inv(T) per sensor + inv(K) for fusion). Algorithm is correct,
+                // but numerical differences accumulate. See MIGRATE.md Phase 5.4.
+                // PU-LMB: marginal floating point accumulation (1.7e-12 to 4.6e-12).
                 let tolerance = if variant.update_method.as_deref() == Some("GA") {
-                    5e-5  // GA accumulates errors over 100 timesteps due to decorrelation fusion
+                    4e-5  // GA-LMB: inherent inversion chain precision loss
                 } else if variant.update_method.as_deref() == Some("PU") {
-                    1e-11  // PU has marginal accumulation in some seeds
+                    1e-11  // PU-LMB: marginal accumulation over 100 timesteps
                 } else {
-                    TOLERANCE
+                    TOLERANCE  // IC-LMB and AA-LMB: 1e-12
                 };
 
                 compare_timestep_state_estimates(

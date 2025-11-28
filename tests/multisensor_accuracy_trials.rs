@@ -193,7 +193,9 @@ fn validate_fixture(seed: u64) {
     let fixture = load_fixture(seed);
     assert_eq!(fixture.seed, seed, "Fixture seed mismatch");
 
-    // Tolerance for numerical equivalence (handles floating-point precision differences)
+    // Tolerance for numerical equivalence
+    // GA-LMB has ~1e-5 inherent state precision (inversion chain), which propagates to ~1e-6 in OSPA metrics
+    // See MIGRATE.md Phase 5.4 for details
     const TOLERANCE: f64 = 1e-6;
 
     for variant in &fixture.filter_variants {

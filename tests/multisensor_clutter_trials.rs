@@ -163,8 +163,8 @@ fn validate_fixture(filename: &str) {
     // Q values for multisensor model (from MATLAB multiSensorClutterTrial.m)
     let q_values = vec![4.0, 3.0, 2.0];
 
-    // Tolerance for numerical equivalence (relaxed due to averaging over 100 timesteps)
-    // Minor floating-point differences accumulate in GA-LMB merging
+    // GA-LMB has ~1e-5 inherent state precision (inversion chain), which propagates to ~1e-6 in OSPA metrics
+    // See MIGRATE.md Phase 5.4 for details
     const TOLERANCE: f64 = 1e-6;
 
     for variant in &fixture.filter_variants {

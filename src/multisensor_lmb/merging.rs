@@ -189,9 +189,10 @@ pub fn ga_lmb_track_merging(
             let (nu, t) = m_projection(&sensor_objects[s][i]);
 
             // Convert to canonical form and weight
+            // Use LU decomposition (try_inverse) first to match MATLAB's inv()
             let t_det = t.determinant();
-            let t_inv = t.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
-                t.clone().try_inverse().unwrap_or_else(|| {
+            let t_inv = t.clone().try_inverse().unwrap_or_else(|| {
+                t.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
                     let svd = t.clone().svd(true, true);
                     svd.pseudo_inverse(1e-10).unwrap()
                 })
@@ -209,8 +210,9 @@ pub fn ga_lmb_track_merging(
         }
 
         // Convert back to covariance form
-        let sigma_ga = k.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
-            k.clone().try_inverse().unwrap_or_else(|| {
+        // Use LU decomposition (try_inverse) first to match MATLAB's inv()
+        let sigma_ga = k.clone().try_inverse().unwrap_or_else(|| {
+            k.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
                 let svd = k.clone().svd(true, true);
                 svd.pseudo_inverse(1e-10).unwrap()
             })

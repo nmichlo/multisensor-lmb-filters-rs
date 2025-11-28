@@ -1984,12 +1984,10 @@ fn validate_multisensor_lmbm_hypothesis_parameters(fixture: &MultisensorLmbmFixt
 
     assert_eq!(posterior_hypotheses.len(), expected_hypotheses.len(), "Multisensor LMBM hypothesis count mismatch");
 
-    // Use looser tolerance for multisensor LMBM weights (numerical precision in complex calculations)
-    const MULTISENSOR_WEIGHT_TOLERANCE: f64 = 0.01; // 1% tolerance
-
+    // Hypothesis weights should match to machine precision (verified: max diff ~1e-15)
     for (i, (actual, expected)) in posterior_hypotheses.iter().zip(expected_hypotheses.iter()).enumerate() {
         let weight_diff = (actual.w - expected.w).abs();
-        assert!(weight_diff <= MULTISENSOR_WEIGHT_TOLERANCE,
+        assert!(weight_diff <= TOLERANCE,
             "Hypothesis {}: weight mismatch (actual={}, expected={}, diff={})",
             i, actual.w, expected.w, weight_diff);
         assert_eq!(actual.r.len(), expected.r.len(), "Hypothesis {}: object count mismatch", i);
