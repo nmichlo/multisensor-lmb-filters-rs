@@ -69,27 +69,13 @@ pub fn aa_lmb_track_merging(
         }
 
         // Sort by weight descending and get indices
-        // CRITICAL: MATLAB's sort is stable, preserving original order for equal elements.
-        // We use epsilon comparison to handle floating-point precision differences.
+        // Use direct numeric comparison to match MATLAB's sort() exactly
         let mut indexed_weights: Vec<(usize, f64)> = w.iter().enumerate()
             .map(|(idx, &weight)| (idx, weight))
             .collect();
 
-        // Use epsilon comparison to handle floating point precision differences
-        // Weights within 1e-12 relative tolerance are considered equal
-        // Using 1e-12 (not tighter) to avoid transitivity violations in sort
         indexed_weights.sort_by(|a, b| {
-            let diff = (b.1 - a.1).abs();
-            let max_val = b.1.abs().max(a.1.abs());
-            let relative_diff = if max_val > 1e-15 { diff / max_val } else { diff };
-
-            if relative_diff < 1e-12 {
-                // Weights are effectively equal - use stable sort (lower index first)
-                a.0.cmp(&b.0)
-            } else {
-                // Weights are different - sort descending by weight
-                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-            }
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // Truncate to max GM components

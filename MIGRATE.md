@@ -135,7 +135,7 @@
      - ✅ All 4 test frameworks complete with full validation functions (~1962 lines)
      - ✅ MATLAB→Rust conversion helpers implemented (~140 lines)
      - ✅ All deserialization issues resolved (scalars, nulls, flattened arrays, column-major, per-sensor)
-     - ✅ **17 CRITICAL BUGS FIXED** in tests/core code (9 fixed in Phase 4.7, 1 in Phase 5.2):
+     - ✅ **18 CRITICAL BUGS FIXED** in tests/core code (9 fixed in Phase 4.7, 2 in Phase 5.2):
        1. ✅ LMBM prediction birth parameter extraction (test fix)
        2. ✅ Multisensor LMBM prediction birth parameter extraction (test fix)
        3. ✅ Multisensor LMBM object index conversion (1-indexed → 0-indexed in association.rs:217-219)
@@ -153,10 +153,11 @@
        15. ✅ **Multisensor LMBM log-space weight bug** - Incorrectly converted to linear space (removed .exp() in hypothesis.rs:173)
        16. ✅ **Multisensor LMBM column-major association indexing** - Used row-major instead of column-major for flattened V matrix (hypothesis.rs:57)
        17. ✅ **MAP cardinality non-canonical float sorting** - Murty produces r=0.9999...989 (non-canonical 1.0), sorted differently than MATLAB's canonical 1.0 (cardinality.rs:102-117 clamps to exact 1.0)
+       18. ✅ **AA-LMB sorting behavior mismatch** - Rust used epsilon comparison (1e-12) vs MATLAB direct numeric sort (merging.rs:77-79 simplified)
 
 4. **Phase 5: Detailed Verification** (2/3 tasks - 67%)
    - ✅ **Task 5.1**: File-by-file logic comparison (44/44 file pairs) - **COMPLETE**
-   - ⚠️ **Task 5.2**: Numerical equivalence testing (9 filter variants) - **PARTIALLY COMPLETE** (5/9 variants, 1 critical bug fixed)
+   - ✅ **Task 5.2**: Numerical equivalence testing (10/10 filter variants) - **COMPLETE** (all 50 tests pass)
    - ⚠️ **Task 5.3**: Cross-algorithm validation - **NOT STARTED**
 
 ### ⚠️ FILES TO REMOVE (4 empty stubs)
@@ -443,7 +444,7 @@
    - ✅ **Merging strategies**: IC/PU/GA perfect, AA acceptable variance
    - ✅ **Parameter passing**: Consistent naming and access patterns across all variants
 
-#### Task 5.2: Numerical equivalence testing ⚠️ **8/10 FILTERS PASSING** (2 bugs remain)
+#### Task 5.2: Numerical equivalence testing ✅ **10/10 FILTERS PASSING**
 
 **Strategy**: Generate fixtures from MATLAB with `SimpleRng` seeds, then verify Rust produces **100% identical** output.
 
@@ -458,11 +459,11 @@
   - IC-LMB, LBP, Gibbs: 1e-12 (exact precision)
   - PU-LMB: 1e-11 (marginal accumulation)
   - GA-LMB: 5e-5 (info-form accumulation over 100 timesteps)
-- [x] **Bug #17 identified and fixed**: MAP cardinality float clamping (all single-sensor tests pass)
 - [x] **All 25 single-sensor tests pass** (5 variants × 5 seeds)
-- [x] **15/25 multi-sensor tests pass** (IC/PU/GA-LMB: all seeds, AA-LMB: 1/5 seeds)
-- [❌] **Bug #18**: AA-LMB position divergence (4/5 seeds fail, requires investigation)
-- [x] **Bug #19 identified and fixed**: LMBM L matrix bugs (all 5 seeds pass LMBM)
+- [x] **All 25 multi-sensor tests pass** (5 variants × 5 seeds)
+- [x] **Bug #17 identified and fixed**: MAP cardinality float clamping
+- [x] **Bug #18 identified and fixed**: AA-LMB sorting behavior mismatch
+- [x] **Bug #19 identified and fixed**: LMBM L matrix bugs
 
 **MATLAB Fixture Generators**:
 - `trials/generateNumericalEquivalenceFixtures_singleSensor.m` - 5 variants × 5 seeds
@@ -481,24 +482,8 @@
 - [x] Multi-sensor IC-LMB - ✅ **PASS** (all 5 seeds, 1e-12 tolerance)
 - [x] Multi-sensor PU-LMB - ✅ **PASS** (all 5 seeds, 1e-11 tolerance for marginal accumulation)
 - [x] Multi-sensor GA-LMB - ✅ **PASS** (all 5 seeds, 5e-5 tolerance for info-form accumulation)
-- [x] Multi-sensor AA-LMB - ❌ **BUG #18** (4/5 seeds fail with 3-14 unit position errors, seed 1000 passes)
-- [x] Multi-sensor LMBM - ❌ **BUG #19** (cardinality mismatch: Rust=2, MATLAB=1 at t=0 for seed 1000)
-
-**Multi-sensor Tolerance Issues** ⚠️ **INVESTIGATION NEEDED**:
-
-**Key Distinction**: These are **NOT Bug #17** (cardinality clamping at machine epsilon 1e-15)
-
-**Observed Failures**:
-1. **State estimate differences** (numerical_equivalence_multi_sensor.rs, 1e-12 tolerance):
-   - PU-LMB t=63, target=8, mu[0]: diff=1.7e-12 (barely exceeds tolerance)
-   - GA-LMB t=2, target=0, mu[0]: diff=2.2e-9 (2,200× tolerance)
-   - GA-LMB t=8, target=0, mu[0]: diff=3.3e-8 (33,000× tolerance!)
-   - All seeds affected (1, 42, 100, 1000, 12345)
-
-2. **OSPA metric differences** (multisensor_accuracy_trials.rs, IGNORED):
-   - AA-LMB t=94: Rust OSPA=2.22 vs MATLAB=2.45 (~10% relative difference)
-   - Earlier timesteps also show 0.5+ OSPA differences by t=22
-   - Test marked `#[ignore]` due to accumulation issues
+- [x] Multi-sensor AA-LMB - ✅ **PASS** (all 5 seeds, 1e-11 tolerance, Bug #18 resolved)
+- [x] Multi-sensor LMBM - ✅ **PASS** (all 5 seeds, 1e-11 tolerance, Bug #19 resolved)
 
 **GA-LMB Investigation (2025-11-19)** ✅ **RESOLVED**:
 - **Issue**: GA-LMB failed with differences up to 3.3e-8 initially, then up to 2.6e-5 over 100 timesteps.
@@ -510,24 +495,18 @@
 - **Resolution**: Relaxed tolerance to `5e-5` for GA-LMB (tests/numerical_equivalence_multi_sensor.rs:342, 373).
 - **Decision**: This tolerance is acceptable for tracking applications (5e-5 ≈ 0.05mm position error) and reflects unavoidable platform differences in linear algebra libraries.
 
-**Bug #18 - AA-LMB Cardinality Underestimation** ⚠️ **PARTIALLY FIXED (1/5 seeds passing)**:
-- **Root Cause** (2025-11-19): Missing R matrix multiplication in inline Murty marginalization
-  - The multi-sensor inline Murty (parallel_update.rs:203-296) was missing the critical step:
-    - **WRONG**: `r_vec[obj_idx] = 1.0 - w_matrix[(obj_idx, 0)]`
-    - **CORRECT**: Must compute `Tau = (Sigma .* R) ./ sum(Sigma, 2)` then `r = sum(Tau, 2)`
-  - Fixed by rewriting to match MATLAB lmbMurtysAlgorithm.m and single-sensor Rust data_association.rs
-- **Fix Impact**: Divergence now occurs much later (t=59-99) instead of immediately (t=1-2)
-- **Current Status** (1/5 seeds passing):
-  - ✅ Seed 1000: AA-LMB PASSED all 100 timesteps
-  - ❌ Seed 1: FAILED at t=82 (diff=13.9 units, was t=2 before fix)
-  - ❌ Seed 42: FAILED at t=84 (diff=10.3 units, was t=2 before fix)
-  - ❌ Seed 100: FAILED at t=99 (diff=6.7 units, was t=2 before fix)
-  - ❌ Seed 12345: FAILED at t=59 (diff=3.1 units, was t=2 before fix)
-- **Remaining Issue**: 4 seeds still diverge late - likely porting bug (not numerical accumulation - diffs are ~3-14 units)
-- **Next Step**: Compare MATLAB and Rust AA-LMB implementations side-by-side to find porting bugs (NOT runtime debugging)
-- **Files**:
-  - `src/multisensor_lmb/parallel_update.rs` (fixed inline Murty, lines 203-296)
-  - `tests/aa_lmb_divergence_trace.rs` (diagnostic test)
+**Bug #18 - AA-LMB Sorting Behavior Mismatch** ✅ **FIXED (5/5 seeds passing)**:
+- **Root Cause** (2025-11-28): Epsilon-based sorting vs direct numeric comparison
+  - Rust used epsilon comparison (1e-12 relative tolerance) in `aa_lmb_track_merging` sort
+  - MATLAB uses standard `sort()` with direct numeric comparison
+  - When GM component weights differed by < 1e-12 relative, different components were selected for truncation
+  - Over time, this caused position estimation drift of 3-14 units
+- **Fix Applied** (src/multisensor_lmb/merging.rs lines 77-79):
+  - Replaced epsilon-based sort with direct numeric comparison to match MATLAB exactly
+  - **Before**: 13-line epsilon comparison block with relative tolerance
+  - **After**: Simple `b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)`
+- **Verification**: All 5 seeds pass (1, 42, 100, 1000, 12345) with 1e-11 tolerance
+- **Lesson Learned**: Follow CLAUDE.md GOLDEN RULE - side-by-side code comparison found bug in 5 minutes
 
 **Bug #19 - LMBM L Matrix Generation Bugs** ✅ **FIXED**:
 
@@ -720,12 +699,14 @@ let r_adjusted: Vec<f64> = r_clamped.iter().map(|&ri| ri - 1e-6).collect();
   - Manual line-by-line verification: 5 files (esf, fixedLBP, 3 merged files)
   - Phase 4.7 validated: 39 files via step-by-step tests
   - Cross-validation: LMB vs LMBM prediction step consistency verified
-  - Known differences: 1 acceptable floating-point variance (AA-LMB)
-- [x] **Task 5.2**: Numerical equivalence testing ⚠️ **PARTIALLY COMPLETE** (5/9 variants - 56%)
+- [x] **Task 5.2**: Numerical equivalence testing ✅ **COMPLETE** (10/10 variants - 100%)
   - Single-sensor: ✅ **COMPLETE** (5/5 variants × 5 seeds = 25 tests passing)
     - LMB-LBP, LMB-Gibbs, LMB-Murty, LMBM-Gibbs, LMBM-Murty all pass
     - **Bug #17 fixed**: MAP cardinality sorting with non-canonical float representations
-  - Multi-sensor: ⏳ IN PROGRESS (fixtures generating, tests have fusion-specific issues)
+  - Multi-sensor: ✅ **COMPLETE** (5/5 variants × 5 seeds = 25 tests passing)
+    - IC-LMB, PU-LMB, GA-LMB, AA-LMB, LMBM all pass
+    - **Bug #18 fixed**: AA-LMB sorting behavior mismatch
+    - **Bug #19 fixed**: LMBM L matrix generation bugs
 - [ ] **Task 5.3**: Cross-algorithm validation (not started)
 
 ### Final Deliverable
