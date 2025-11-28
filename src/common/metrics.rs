@@ -68,6 +68,121 @@ fn compute_hellinger_distance(
     h_val.max(0.0).sqrt()
 }
 
+/// Compute Kullback-Leibler divergence between two probability distributions
+///
+/// KL(p || q) = sum(p * log(p / q))
+///
+/// # Arguments
+/// * `p` - First probability distribution (reference)
+/// * `q` - Second probability distribution (approximation)
+///
+/// # Returns
+/// KL divergence (0 when p == q, larger when distributions differ)
+///
+/// # Notes
+/// Matches MATLAB behavior: `logPQ = log(p./q); logPQ(isinf(logPQ)) = 0;`
+/// - Handles zero probabilities gracefully (0 * log(0/q) = 0)
+/// - Sets infinite log ratios to 0 (matches MATLAB's isinf() handling)
+pub fn kl_divergence(p: &[f64], q: &[f64]) -> f64 {
+    assert_eq!(p.len(), q.len(), "Distributions must have same length");
+
+    // Matches MATLAB: logPQ = log(p./q); logPQ(isinf(logPQ)) = 0; kl = sum(p .* logPQ)
+    p.iter()
+        .zip(q.iter())
+        .map(|(&pi, &qi)| {
+            if pi <= 0.0 {
+                0.0 // 0 * log(0/q) = 0 by convention
+            } else if qi <= 0.0 {
+                0.0 // MATLAB: log(p/0) = Inf, then isinf() sets to 0
+            } else {
+                let log_ratio = (pi / qi).ln();
+                if log_ratio.is_infinite() {
+                    0.0 // MATLAB: isinf(logPQ) = 0
+                } else {
+                    pi * log_ratio
+                }
+            }
+        })
+        .sum()
+}
+
+/// Compute average KL divergence across multiple row-distributions
+///
+/// Each row of p and q is treated as a separate distribution.
+///
+/// # Arguments
+/// * `p` - Matrix where each row is a distribution (reference)
+/// * `q` - Matrix where each row is a distribution (approximation)
+///
+/// # Returns
+/// Average KL divergence across all rows
+pub fn average_kl_divergence(p: &DMatrix<f64>, q: &DMatrix<f64>) -> f64 {
+    assert_eq!(p.nrows(), q.nrows(), "Matrices must have same number of rows");
+    assert_eq!(p.ncols(), q.ncols(), "Matrices must have same number of columns");
+
+    if p.nrows() == 0 {
+        return 0.0;
+    }
+
+    let sum: f64 = (0..p.nrows())
+        .map(|i| {
+            let p_row: Vec<f64> = (0..p.ncols()).map(|j| p[(i, j)]).collect();
+            let q_row: Vec<f64> = (0..q.ncols()).map(|j| q[(i, j)]).collect();
+            kl_divergence(&p_row, &q_row)
+        })
+        .sum();
+
+    sum / p.nrows() as f64
+}
+
+/// Compute Hellinger distance between two discrete probability distributions
+///
+/// H(p, q) = sqrt(1 - sum(sqrt(p * q)))
+///
+/// # Arguments
+/// * `p` - First probability distribution
+/// * `q` - Second probability distribution
+///
+/// # Returns
+/// Hellinger distance (0 to 1, 0 when identical)
+pub fn hellinger_distance_discrete(p: &[f64], q: &[f64]) -> f64 {
+    assert_eq!(p.len(), q.len(), "Distributions must have same length");
+
+    let bc: f64 = p.iter()
+        .zip(q.iter())
+        .map(|(&pi, &qi)| (pi * qi).sqrt())
+        .sum();
+
+    (1.0 - bc).max(0.0).sqrt()
+}
+
+/// Compute average Hellinger distance across multiple row-distributions
+///
+/// # Arguments
+/// * `p` - Matrix where each row is a distribution
+/// * `q` - Matrix where each row is a distribution
+///
+/// # Returns
+/// Average Hellinger distance across all rows
+pub fn average_hellinger_distance(p: &DMatrix<f64>, q: &DMatrix<f64>) -> f64 {
+    assert_eq!(p.nrows(), q.nrows(), "Matrices must have same number of rows");
+    assert_eq!(p.ncols(), q.ncols(), "Matrices must have same number of columns");
+
+    if p.nrows() == 0 {
+        return 0.0;
+    }
+
+    let sum: f64 = (0..p.nrows())
+        .map(|i| {
+            let p_row: Vec<f64> = (0..p.ncols()).map(|j| p[(i, j)]).collect();
+            let q_row: Vec<f64> = (0..q.ncols()).map(|j| q[(i, j)]).collect();
+            hellinger_distance_discrete(&p_row, &q_row)
+        })
+        .sum();
+
+    sum / p.nrows() as f64
+}
+
 /// Compute OSPA metric
 ///
 /// Computes both Euclidean and Hellinger OSPA distances between ground truth
@@ -260,5 +375,35 @@ mod tests {
         let h = compute_hellinger_distance(&mu, &sigma, &mu, &sigma);
 
         assert!(h < 1e-10); // Should be zero for identical distributions
+    }
+
+    #[test]
+    fn test_kl_divergence_identical() {
+        let p = vec![0.5, 0.3, 0.2];
+        let kl = kl_divergence(&p, &p);
+        assert!(kl < 1e-10, "KL divergence of identical distributions should be 0");
+    }
+
+    #[test]
+    fn test_kl_divergence_different() {
+        let p = vec![0.5, 0.5];
+        let q = vec![0.9, 0.1];
+        let kl = kl_divergence(&p, &q);
+        assert!(kl > 0.0, "KL divergence of different distributions should be > 0");
+    }
+
+    #[test]
+    fn test_hellinger_distance_discrete_identical() {
+        let p = vec![0.5, 0.3, 0.2];
+        let h = hellinger_distance_discrete(&p, &p);
+        assert!(h < 1e-10, "Hellinger distance of identical distributions should be 0");
+    }
+
+    #[test]
+    fn test_hellinger_distance_discrete_different() {
+        let p = vec![1.0, 0.0];
+        let q = vec![0.0, 1.0];
+        let h = hellinger_distance_discrete(&p, &q);
+        assert!((h - 1.0).abs() < 1e-10, "Hellinger distance of disjoint distributions should be 1");
     }
 }
