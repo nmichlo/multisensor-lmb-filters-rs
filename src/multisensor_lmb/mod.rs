@@ -12,6 +12,7 @@ pub mod parallel_update;
 pub mod iterated_corrector;
 pub mod merging;
 pub mod association;
+pub mod utils;
 
 // Main filter entry points
 // pub fn run_parallel_update_lmb_filter() { todo!() }

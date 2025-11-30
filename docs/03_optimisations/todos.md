@@ -14,9 +14,9 @@ This document tracks the progress of code deduplication and quality improvements
 | Phase 2 | Common Utilities | ✅ Complete | robust_inverse, log_sum_exp, normalize_log_weights |
 | Phase 3 | Likelihood Helpers | ✅ Complete | Refactored lmb + lmbm association |
 | Phase 4 | Prediction Helpers | ✅ Complete | Shared prediction functions |
-| Phase 5 | Multisensor LMB Deduplication | ⏳ Pending | ~200 lines shared code in parallel_update/iterated_corrector |
-| Phase 6 | Multisensor LMBM Deduplication | ⏳ Pending | determine_linear_index() duplicated |
-| Phase 7 | Multisensor Association Helpers | ⏳ Pending | Use robust_inverse() from linalg.rs |
+| Phase 5 | Multisensor LMB Deduplication | ✅ Complete | Extracted shared utils for gating, MAP, trajectories |
+| Phase 6 | Multisensor LMBM Deduplication | ✅ Complete | determine_linear_index() moved to mod.rs |
+| Phase 7 | Multisensor Association Helpers | ✅ Complete | Using robust_inverse(), log_gaussian_normalizing_constant() |
 | Phase 8 | Common Utility Functions | ⏳ Pending | Trajectory update, missed detection helpers |
 | Phase 9 | Track Merging Refactoring | ⏳ Pending | AA/GA/PU share ~60% loop structure |
 
@@ -127,70 +127,86 @@ This document tracks the progress of code deduplication and quality improvements
 
 ---
 
-## Phase 5: Multisensor LMB Deduplication ⏳ Pending
+## Phase 5: Multisensor LMB Deduplication ✅ COMPLETE
 
 **Files**:
 - `src/multisensor_lmb/parallel_update.rs`
 - `src/multisensor_lmb/iterated_corrector.rs`
 - `src/multisensor_lmb/utils.rs` (NEW)
 
-**Problem**: `parallel_update.rs` and `iterated_corrector.rs` share ~200 lines of identical code:
-1. Data association processing loop (LBP/Gibbs/Murty switch) - ~100 lines
-2. Track gating & trajectory export logic - ~60 lines
-3. MAP state extraction - ~30 lines
-4. No-measurement existence update - ~10 lines
+**Problem**: `parallel_update.rs` and `iterated_corrector.rs` shared ~100 lines of identical code.
 
 **Tasks**:
-- [ ] Create `src/multisensor_lmb/utils.rs`
-- [ ] Extract `compute_association_probabilities()` - data association switch (LBP/Gibbs/Murty)
-- [ ] Extract `gate_and_export_tracks()` - track gating and trajectory export
-- [ ] Extract `extract_map_state_estimates()` - MAP cardinality extraction
-- [ ] Extract `update_existence_no_measurements_sensor()` - no-measurement update
-- [ ] Refactor `parallel_update.rs` to use utils
-- [ ] Refactor `iterated_corrector.rs` to use utils
-- [ ] Run all tests
+- [x] Create `src/multisensor_lmb/utils.rs`
+- [x] Extract `gate_and_export_tracks()` - track gating and trajectory export
+- [x] Extract `extract_map_state_estimates()` - MAP cardinality extraction
+- [x] Extract `update_existence_no_measurements_sensor()` - no-measurement update
+- [x] Extract `update_object_trajectories()` - trajectory length/timestamp updates
+- [x] Extract `export_remaining_trajectories()` - final trajectory export
+- [x] Refactor `parallel_update.rs` to use utils
+- [x] Refactor `iterated_corrector.rs` to use utils
+- [x] Run all tests (175 pass)
 
-**Expected savings**: ~200 lines
+**Outcome**:
+- Created `utils.rs` with 5 shared utility functions
+- Added 4 unit tests for the utilities
+- Both filter files now use shared code for gating, MAP extraction, and trajectories
+- Data association code left separate (implementations differ intentionally)
+- All 175 tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Note**: Data association switch was NOT extracted because the implementations differ significantly between parallel_update.rs (complex Murty) and iterated_corrector.rs (simple Murty).
 
 ---
 
-## Phase 6: Multisensor LMBM Deduplication ⏳ Pending
+## Phase 6: Multisensor LMBM Deduplication ✅ COMPLETE
 
 **Files**:
 - `src/multisensor_lmbm/gibbs.rs`
 - `src/multisensor_lmbm/hypothesis.rs`
 - `src/multisensor_lmbm/mod.rs`
 
-**Problem**: `determine_linear_index()` function is exactly duplicated (11 lines each).
+**Problem**: `determine_linear_index()` function was exactly duplicated (27 lines each including docs and test).
 
 **Tasks**:
-- [ ] Move `determine_linear_index()` to `mod.rs`
-- [ ] Update `gibbs.rs` to import from mod
-- [ ] Update `hypothesis.rs` to import from mod
-- [ ] Run all tests
+- [x] Move `determine_linear_index()` to `mod.rs`
+- [x] Update `gibbs.rs` to import from mod
+- [x] Update `hypothesis.rs` to import from mod
+- [x] Run all tests (175 pass)
 
-**Expected savings**: ~20 lines
+**Outcome**:
+- Moved function to `mod.rs` with single test
+- Both files now import from parent module
+- Eliminated ~50 lines of duplicated code (function + docs + test in each file)
+- All 175 tests pass with unchanged tolerances
+- MATLAB equivalence maintained
 
 ---
 
-## Phase 7: Multisensor Association → Use linalg.rs Helpers ⏳ Pending
+## Phase 7: Multisensor Association → Use linalg.rs Helpers ✅ COMPLETE
 
 **Files**:
 - `src/multisensor_lmb/association.rs`
 - `src/multisensor_lmbm/association.rs`
 
-**Problem**: Both files manually implement Cholesky/SVD fallback instead of using `robust_inverse()`.
+**Problem**: Both files manually implemented Cholesky/SVD fallback instead of using centralized helpers.
 
 **Tasks**:
-- [ ] Refactor `multisensor_lmb/association.rs`:
-  - [ ] Use `robust_inverse()` instead of manual fallback chain
-  - [ ] Use `compute_measurement_log_likelihood()` for likelihood computation
-- [ ] Refactor `multisensor_lmbm/association.rs`:
-  - [ ] Use `robust_inverse()` instead of manual fallback chain
-  - [ ] Use `compute_measurement_log_likelihood()` for likelihood computation
-- [ ] Run all tests
+- [x] Refactor `multisensor_lmb/association.rs`:
+  - [x] Use `robust_inverse()` instead of manual fallback chain
+  - [x] Use `log_gaussian_normalizing_constant()` for normalizing constant
+- [x] Refactor `multisensor_lmbm/association.rs`:
+  - [x] Use `robust_inverse()` instead of manual fallback chain
+  - [x] Use `log_gaussian_normalizing_constant()` for normalizing constant
+- [x] Run all tests (175 pass)
 
-**Expected savings**: ~80 lines (40 per file)
+**Outcome**:
+- Replaced ~15 lines of manual Cholesky fallback per file
+- Both files now use centralized helpers from `linalg.rs`
+- All 175 tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Note**: `compute_measurement_log_likelihood()` was not used because the multisensor likelihood computation is more complex (stacked measurements, block diagonal Q matrices).
 
 ---
 

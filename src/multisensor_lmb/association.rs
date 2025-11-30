@@ -10,6 +10,7 @@
 //! - `detection_probability: Vec<f64>` (one per sensor, currently single f64)
 //! - `clutter_per_unit_volume: Vec<f64>` (one per sensor, currently single f64)
 
+use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
 use crate::common::types::{Model, Object};
 use nalgebra::{DMatrix, DVector};
 
@@ -130,30 +131,16 @@ pub fn generate_lmb_sensor_association_matrices(
             let mu_z = c_matrix * &objects[i].mu[j];
             let z_cov = c_matrix * &objects[i].sigma[j] * c_matrix.transpose() + q_matrix;
 
-            // Log Gaussian normalizing constant
-            let log_gauss_norm = if let Some(chol) = z_cov.clone().cholesky() {
-                let log_det = 2.0 * chol.l().diagonal().iter().map(|x| x.ln()).sum::<f64>();
-                -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln() - 0.5 * log_det
-            } else {
-                -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
-                    - 0.5 * z_cov.determinant().ln()
-            };
+            // Log Gaussian normalizing constant (uses Cholesky when possible)
+            let log_gauss_norm = log_gaussian_normalizing_constant(&z_cov, model.z_dimension);
 
             let log_likelihood_ratio_terms = objects[i].r.ln()
                 + p_d.ln()
                 + objects[i].w[j].ln()
                 - clutter_pvu.ln();
 
-            // Compute Z inverse and Kalman gain
-            let z_inv = if let Some(chol) = z_cov.clone().cholesky() {
-                let identity = DMatrix::identity(z_cov.nrows(), z_cov.ncols());
-                chol.solve(&identity)
-            } else {
-                z_cov.clone().try_inverse().unwrap_or_else(|| {
-                    let svd = z_cov.svd(true, true);
-                    svd.pseudo_inverse(1e-10).unwrap()
-                })
-            };
+            // Compute Z inverse (uses Cholesky -> LU -> SVD fallback)
+            let z_inv = robust_inverse(&z_cov).expect("z_cov should be invertible");
 
             let k = &objects[i].sigma[j] * c_matrix.transpose() * &z_inv;
             let sigma_updated = (DMatrix::identity(model.x_dimension, model.x_dimension)

@@ -6,12 +6,15 @@
 use crate::common::association::gibbs::{lmb_gibbs_sampling, GibbsAssociationMatrices};
 use crate::common::association::lbp::{loopy_belief_propagation, AssociationMatrices};
 use crate::common::association::murtys::murtys_algorithm_wrapper;
-use crate::common::types::{DataAssociationMethod, Model, Trajectory};
-use crate::lmb::cardinality::lmb_map_cardinality_estimate;
+use crate::common::types::{DataAssociationMethod, Model};
 use crate::lmb::prediction::lmb_prediction_step;
 use crate::multisensor_lmb::association::generate_lmb_sensor_association_matrices;
 use crate::multisensor_lmb::parallel_update::{
     compute_posterior_lmb_spatial_distributions_multisensor, ParallelUpdateStateEstimates,
+};
+use crate::multisensor_lmb::utils::{
+    extract_map_state_estimates, export_remaining_trajectories, gate_and_export_tracks,
+    update_existence_no_measurements_sensor, update_object_trajectories,
 };
 use nalgebra::{DMatrix, DVector};
 
@@ -147,85 +150,25 @@ pub fn run_ic_lmb_filter(
                 );
             } else {
                 // No measurements - update existence probabilities
-                let p_d = model.detection_probability_multisensor.as_ref()
-                    .map(|v| v[s])
-                    .unwrap_or(model.detection_probability);
-                for obj in &mut objects {
-                    obj.r = (obj.r * (1.0 - p_d))
-                        / (1.0 - obj.r * p_d);
-                }
+                update_existence_no_measurements_sensor(&mut objects, s, model);
             }
         }
 
-        // Gate tracks
-        let objects_likely_to_exist: Vec<bool> = objects.iter().map(|obj| obj.r > model.existence_threshold).collect();
+        // Gate tracks and export long discarded trajectories
+        objects = gate_and_export_tracks(objects, &mut all_objects, t, model);
 
-        // Export long discarded trajectories
-        for (i, obj) in objects.iter().enumerate() {
-            if !objects_likely_to_exist[i] && obj.trajectory_length > model.minimum_trajectory_length {
-                let traj = Trajectory {
-                    birth_location: obj.birth_location,
-                    birth_time: obj.birth_time,
-                    trajectory: DMatrix::from_columns(&obj.mu.iter().map(|m| m.clone()).collect::<Vec<_>>()),
-                    trajectory_length: obj.trajectory_length,
-                    timestamps: (0..obj.trajectory_length).map(|i| t - obj.trajectory_length + i + 1).collect(),
-                };
-                all_objects.push(traj);
-            }
-        }
-
-        // Keep objects with high existence probabilities
-        objects = objects
-            .into_iter()
-            .zip(objects_likely_to_exist.iter())
-            .filter_map(|(obj, &keep)| if keep { Some(obj) } else { None })
-            .collect();
-
-        // MAP cardinality extraction
-        let r_vec: Vec<f64> = objects.iter().map(|obj| obj.r).collect();
-        let (n_map, map_indices) = lmb_map_cardinality_estimate(&r_vec);
-
-        // Extract RFS state estimate
-        let mut labels_t = DMatrix::zeros(2, n_map);
-        let mut mu_t = Vec::with_capacity(n_map);
-        let mut sigma_t = Vec::with_capacity(n_map);
-
-        for (i, &j) in map_indices.iter().enumerate() {
-            if j < objects.len() && !objects[j].mu.is_empty() {
-                labels_t[(0, i)] = objects[j].birth_time;
-                labels_t[(1, i)] = objects[j].birth_location;
-                mu_t.push(objects[j].mu[0].clone());
-                sigma_t.push(objects[j].sigma[0].clone());
-            }
-        }
-
-        labels.push(labels_t);
-        mu_estimates.push(mu_t);
-        sigma_estimates.push(sigma_t);
+        // MAP cardinality extraction and RFS state estimate
+        let map_estimates = extract_map_state_estimates(&objects);
+        labels.push(map_estimates.labels);
+        mu_estimates.push(map_estimates.mu);
+        sigma_estimates.push(map_estimates.sigma);
 
         // Update each object's trajectory
-        for obj in &mut objects {
-            if !obj.mu.is_empty() {
-                let j = obj.trajectory_length;
-                obj.trajectory_length = j + 1;
-                obj.timestamps.push(t + 1);
-            }
-        }
+        update_object_trajectories(&mut objects, t);
     }
 
     // Get any long trajectories that weren't extracted
-    for obj in &objects {
-        if obj.trajectory_length > model.minimum_trajectory_length {
-            let traj = Trajectory {
-                birth_location: obj.birth_location,
-                birth_time: obj.birth_time,
-                trajectory: DMatrix::from_columns(&obj.mu.iter().map(|m| m.clone()).collect::<Vec<_>>()),
-                trajectory_length: obj.trajectory_length,
-                timestamps: obj.timestamps.clone(),
-            };
-            all_objects.push(traj);
-        }
-    }
+    export_remaining_trajectories(&objects, &mut all_objects, model);
 
     ParallelUpdateStateEstimates {
         labels,

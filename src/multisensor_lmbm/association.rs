@@ -7,9 +7,9 @@
 //! WARNING: This implementation can be very memory intensive for large numbers
 //! of objects and sensors, matching the MATLAB behavior.
 
+use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
 use crate::common::types::{Hypothesis, Model};
 use nalgebra::{DMatrix, DVector};
-use std::f64::consts::PI;
 
 /// Posterior parameters for multi-sensor LMBM update
 #[derive(Debug, Clone)]
@@ -117,16 +117,12 @@ fn determine_log_likelihood_ratio(
         let nu = &z - &c * &hypothesis.mu[i];
         let z_matrix = &c * &hypothesis.sigma[i] * c.transpose() + &q;
 
-        let z_inv = z_matrix.clone().try_inverse().unwrap_or_else(|| {
-            let svd = z_matrix.clone().svd(true, true);
-            svd.pseudo_inverse(1e-10).unwrap()
-        });
+        // Use robust inverse (Cholesky -> LU -> SVD fallback)
+        let z_inv = robust_inverse(&z_matrix).expect("z_matrix should be invertible");
 
         let k = &hypothesis.sigma[i] * c.transpose() * &z_inv;
-        // eta = -0.5 * log(det(2*pi*Z))
-        // For n×n matrix: det(c*A) = c^n * det(A)
-        // So det(2*pi*Z) = (2*pi)^n * det(Z) where n = z_dim_total
-        let eta = -0.5 * ((2.0 * PI).powi(z_dim_total as i32) * z_matrix.determinant()).ln();
+        // Log Gaussian normalizing constant (uses Cholesky when possible)
+        let eta = log_gaussian_normalizing_constant(&z_matrix, z_dim_total);
 
         // Detection probabilities (use per-sensor values for multisensor)
         let detection_probs = model.detection_probability_multisensor.as_ref()

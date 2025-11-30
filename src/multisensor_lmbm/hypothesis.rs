@@ -3,6 +3,7 @@
 //! Implements posterior hypothesis parameter determination for multi-sensor LMBM.
 //! Matches MATLAB determineMultisensorPosteriorHypothesisParameters.m exactly.
 
+use super::determine_linear_index;
 use crate::common::types::Hypothesis;
 use crate::multisensor_lmbm::association::MultisensorLmbmPosteriorParameters;
 use nalgebra::{DMatrix, DVector};
@@ -103,56 +104,10 @@ pub fn determine_multisensor_posterior_hypothesis_parameters(
     posterior_hypotheses
 }
 
-/// Determine linear index from Cartesian coordinates
-///
-/// Converts multi-dimensional indices to linear index for the flattened
-/// likelihood matrix.
-///
-/// # Arguments
-/// * `u` - Cartesian coordinates [u1, u2, ..., us, i] (1-indexed, MATLAB style)
-/// * `dimensions` - Dimensions [m1+1, m2+1, ..., ms+1, n]
-///
-/// # Returns
-/// Linear index into flattened array (0-indexed)
-///
-/// # Implementation Notes
-/// Matches MATLAB determineLinearIndex exactly:
-/// ell = u(1) + d(1)*(u(2)-1) + d(1)*d(2)*(u(3)-1) + ...
-fn determine_linear_index(u: &[usize], dimensions: &[usize]) -> usize {
-    let mut ell = u[0];
-    let mut pi = 1;
-
-    for i in 1..u.len() {
-        pi *= dimensions[i - 1];
-        ell += pi * (u[i] - 1);
-    }
-
-    // Convert from 1-indexed to 0-indexed
-    ell - 1
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::types::Hypothesis;
-
-    #[test]
-    fn test_determine_linear_index() {
-        // Test with dimensions [3, 4, 5] (2+1, 3+1, 4+1)
-        let dimensions = vec![3, 4, 5];
-
-        // First element: u = [1, 1, 1]
-        let idx = determine_linear_index(&[1, 1, 1], &dimensions);
-        assert_eq!(idx, 0);
-
-        // u = [2, 1, 1] should be idx 1
-        let idx = determine_linear_index(&[2, 1, 1], &dimensions);
-        assert_eq!(idx, 1);
-
-        // u = [1, 2, 1] should be idx 3
-        let idx = determine_linear_index(&[1, 2, 1], &dimensions);
-        assert_eq!(idx, 3);
-    }
 
     #[test]
     fn test_determine_multisensor_posterior_hypothesis_parameters() {
