@@ -197,10 +197,10 @@ pub fn generate_simplified_model(
         for i in 0..x_dim {
             s_diag[i] = (25.0 + rng.randn()).abs(); // 5^2 + randn
         }
-        let s_mat = DMatrix::from_diagonal(&DVector::from_vec(s_diag));
+        let s_mat = DMatrix::from_diag(&DVector::from_vec(s_diag));
 
         // Sigma = Q' * S * Q
-        let cov = q_mat.transpose() * s_mat * q_mat;
+        let cov = q_mat.t().dot(&s_mat).dot(&q_mat);
         sigma.push(cov);
     }
 
@@ -210,7 +210,7 @@ pub fn generate_simplified_model(
         c_mat[(i, i)] = 1.0;
     }
 
-    let q_noise = DMatrix::from_diagonal(&DVector::from_element(z_dim, 4.0)); // 2^2 = 4
+    let q_noise = DMatrix::from_diag(&DVector::from_elem(z_dim, 4.0)); // 2^2 = 4
 
     // Clutter parameters
     let observation_space_limits = vec![(0.0, 2.0), (0.0, 2.0)];
@@ -315,7 +315,7 @@ pub fn generate_association_matrices(
     let mut measurements = Vec::with_capacity(num_measurements);
 
     // Object-generated measurements
-    let q_chol = model.q.clone().cholesky().unwrap().l();
+    let q_chol = model.q.clone().cholesky(UPLO::Lower).unwrap();
     for i in 0..model.num_objects {
         if detected[i] {
             let mut noise = DVector::zeros(model.z_dim);
@@ -375,7 +375,8 @@ pub fn generate_association_matrices(
         // Compute likelihoods
         for j in 0..m {
             let nu = &measurements[j] - &mu_pred;
-            let mahalanobis = nu.dot(&(&k * &nu));
+            let k_nu = k.dot(&nu);
+            let mahalanobis = nu.dot(&k_nu);
             let exp_term: f64 = (-0.5 * mahalanobis).exp();
             l_mat[(i, j)] = model.r[i] * model.detection_prob * normalizing_constant
                           * exp_term / model.clutter_density;
@@ -383,8 +384,8 @@ pub fn generate_association_matrices(
     }
 
     // LBP association matrices
-    let eta: DVector = model.r.iter().map(|&r| 1.0 - model.detection_prob * r).collect();
-    let phi: DVector = model.r.iter().map(|&r| (1.0 - model.detection_prob) * r).collect();
+    let eta: DVector<f64> = model.r.iter().map(|&r| 1.0 - model.detection_prob * r).collect();
+    let phi: DVector<f64> = model.r.iter().map(|&r| (1.0 - model.detection_prob) * r).collect();
 
     let mut psi = DMatrix::zeros((n, m));
     for i in 0..n {
@@ -402,7 +403,7 @@ pub fn generate_association_matrices(
     }
 
     // L matrix includes eta as first column
-    let mut l_full = DMatrix::zeros(n, m + 1);
+    let mut l_full = DMatrix::zeros((n, m + 1));
     for i in 0..n {
         l_full[(i, 0)] = eta[i];
         for j in 0..m {
@@ -411,7 +412,7 @@ pub fn generate_association_matrices(
     }
 
     // R matrix
-    let mut r_mat = DMatrix::zeros(n, m + 1);
+    let mut r_mat = DMatrix::zeros((n, m + 1));
     for i in 0..n {
         r_mat[(i, 0)] = phi[i] / eta[i];
         for j in 0..m {
@@ -420,7 +421,7 @@ pub fn generate_association_matrices(
     }
 
     // Murty's cost matrix (negative log-likelihood)
-    let mut c_mat = DMatrix::from_element(n, m, 0.0);
+    let mut c_mat = DMatrix::from_elem((n, m), 0.0);
     for i in 0..n {
         for j in 0..m {
             if l_mat[(i, j)] > 0.0 {

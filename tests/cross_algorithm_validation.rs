@@ -17,7 +17,7 @@ use prak::common::ground_truth::generate_ground_truth;
 use prak::lmb::prediction::lmb_prediction_step;
 
 /// Convert existence probability r to a 2-element distribution [1-r, r]
-fn r_to_distribution(r: &[f64]) -> DMatrix {
+fn r_to_distribution(r: &[f64]) -> DMatrix<f64> {
     let n = r.len();
     let mut dist = DMatrix::zeros((n, 2));
     for i in 0..n {

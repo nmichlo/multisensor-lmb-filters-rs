@@ -7,7 +7,7 @@ use prak::lmb::association::generate_lmb_association_matrices;
 use prak::lmb::prediction::lmb_prediction_step;
 use prak::lmb::update::compute_posterior_lmb_spatial_distributions;
 use prak::common::association::murtys::murtys_algorithm_wrapper;
-use prak::common::types::DMatrix;
+use prak::common::types::{DMatrix, DVector};
 
 #[test]
 fn extract_sigma_t64() {
@@ -88,7 +88,7 @@ fn extract_sigma_t64() {
                     l_marg.push(l_col);
                 }
 
-                let mut sigma = DMatrix::zeros(n, m + 1);
+                let mut sigma = DMatrix::zeros((n, m + 1));
                 for obj_idx in 0..n {
                     for meas_idx in 0..=m {
                         sigma[(obj_idx, meas_idx)] = l_marg[meas_idx][obj_idx];
@@ -120,7 +120,7 @@ fn extract_sigma_t64() {
                 }
 
                 println!("\n=== Tau = (Sigma .* R) ./ sum(Sigma, 2) ===");
-                let mut tau = DMatrix::zeros(n, m + 1);
+                let mut tau = DMatrix::zeros((n, m + 1));
                 for obj_idx in 0..n {
                     let row_sum: f64 = sigma.row(obj_idx).sum();
                     if row_sum > 1e-15 {

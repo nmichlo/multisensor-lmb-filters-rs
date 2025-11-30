@@ -115,7 +115,7 @@ fn extract_gated_r_t64() {
 
             println!("\nTarget estimates:");
             for (i, &idx) in map_indices.iter().enumerate() {
-                println!("  Target {} (object {}): mu[1] = {:.10}", i, idx, objects[idx].mu[0][(0, 0)]);
+                println!("  Target {} (object {}): mu[1] = {:.10}", i, idx, objects[idx].mu[0][0]);
             }
 
             println!("\n=== Expected from MATLAB ===");

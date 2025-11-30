@@ -105,7 +105,7 @@ fn compute_exact_marginals_murty(
     }
 
     // For each measurement k: sum(prod_j .* W[:,:,k], dim=0)
-    let mut l_result = DMatrix::zeros(n, m + 1);
+    let mut l_result = DMatrix::zeros((n, m + 1));
     for k in 0..=m {
         for i in 0..n {
             let mut sum = 0.0;
@@ -120,7 +120,7 @@ fn compute_exact_marginals_murty(
     let sigma = l_result;
 
     // Normalize: Tau = (Sigma .* R) ./ sum(Sigma, 2)
-    let mut tau = DMatrix::zeros(n, m + 1);
+    let mut tau = DMatrix::zeros((n, m + 1));
     for i in 0..n {
         let mut row_sum = 0.0;
         for j in 0..=m {
