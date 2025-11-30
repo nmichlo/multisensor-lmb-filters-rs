@@ -18,7 +18,7 @@ This document tracks the progress of code deduplication and quality improvements
 | Phase 6 | Multisensor LMBM Deduplication | ✅ Complete | determine_linear_index() moved to mod.rs |
 | Phase 7 | Multisensor Association Helpers | ✅ Complete | Using robust_inverse(), log_gaussian_normalizing_constant() |
 | Phase 8 | Common Utility Functions | ✅ Complete | update_existence_missed_detection() helper |
-| Phase 9 | Track Merging Refactoring | ⏳ Pending | AA/GA/PU share ~60% loop structure |
+| Phase 9 | Track Merging Refactoring | ✅ Complete | Using robust_inverse() in GA/PU functions |
 
 ---
 
@@ -236,26 +236,30 @@ This document tracks the progress of code deduplication and quality improvements
 
 ---
 
-## Phase 9: Track Merging Refactoring ⏳ Pending
+## Phase 9: Track Merging Refactoring ✅ COMPLETE
 
 **Files**:
 - `src/multisensor_lmb/merging.rs`
 
-**Problem**: Three merging functions (AA, GA, PU) share ~60% identical loop structure for:
-- Weighted sum of existence probabilities
-- GM component concatenation
-- Weight sorting and capping
-- Renormalization
+**Problem**: GA and PU merging functions had manual matrix inversion fallback chains.
 
 **Tasks**:
-- [ ] Identify common merge loop pattern
-- [ ] Create `merge_sensor_distributions_core()` helper or similar
-- [ ] Refactor `aa_lmb_track_merging()` to use shared logic
-- [ ] Refactor `ga_lmb_track_merging()` to use shared logic
-- [ ] Refactor `pu_lmb_track_merging()` to use shared logic
-- [ ] Run all tests
+- [x] Analyze merging functions for shared patterns
+- [x] Replace manual inversions in `ga_lmb_track_merging()` with `robust_inverse()`
+- [x] Replace manual inversions in `pu_lmb_track_merging()` with `robust_inverse()`
+- [x] Run all tests
 
-**Expected savings**: ~100 lines
+**Outcome**:
+- Replaced 5 manual matrix inversion fallback chains with `robust_inverse()`
+- Lines saved: ~25 (5 fallback chains × 5 lines each)
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Note**: The original plan to extract shared loop structure was not implemented because AA, GA, and PU merging algorithms are fundamentally different:
+- AA: Concatenates weighted GM components
+- GA: Fuses in canonical form with moment matching
+- PU: Information form fusion with decorrelation
+The only shared code was the matrix inversion fallback logic, which is now centralized via `robust_inverse()`.
 
 ---
 

@@ -194,3 +194,23 @@ This document tracks code quality and performance improvements to the codebase.
 - MATLAB equivalence maintained
 
 **Rationale**: The missed detection existence update formula was duplicated across multiple files. By centralizing it in `common/utils.rs`, we ensure consistent behavior and reduce maintenance burden. Trajectory update helpers were not added as the logic differs significantly between single-sensor and multi-sensor contexts.
+
+---
+
+## 2025-11-30: Phase 9 - Track Merging Refactoring
+
+**File**: `src/multisensor_lmb/merging.rs`
+
+**Changes**:
+- Replaced 5 manual matrix inversion fallback chains with `robust_inverse()`:
+  - `ga_lmb_track_merging()`: 2 locations (t_inv, sigma_ga)
+  - `pu_lmb_track_merging()`: 3 locations (k_prior, k_c, sigma)
+- Removed ~25 lines of duplicated fallback logic
+
+**Impact**:
+- Lines saved: ~25
+- Both GA and PU merging now use centralized `robust_inverse()` from `linalg.rs`
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: The GA and PU track merging functions had manual matrix inversion fallback chains (try_inverse → cholesky → SVD pseudo-inverse). By using the centralized `robust_inverse()` helper, we ensure consistent fallback behavior and reduce maintenance burden. The AA merging function was not modified as it doesn't require matrix inversion.

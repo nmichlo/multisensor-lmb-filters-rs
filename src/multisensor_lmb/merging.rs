@@ -7,6 +7,7 @@
 //!
 //! Matches MATLAB aaLmbTrackMerging.m, gaLmbTrackMerging.m, and puLmbTrackMerging.m exactly.
 
+use crate::common::linalg::robust_inverse;
 use crate::common::types::{Model, Object};
 use nalgebra::{DMatrix, DVector};
 
@@ -189,14 +190,8 @@ pub fn ga_lmb_track_merging(
             let (nu, t) = m_projection(&sensor_objects[s][i]);
 
             // Convert to canonical form and weight
-            // Use LU decomposition (try_inverse) first to match MATLAB's inv()
             let t_det = t.determinant();
-            let t_inv = t.clone().try_inverse().unwrap_or_else(|| {
-                t.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
-                    let svd = t.clone().svd(true, true);
-                    svd.pseudo_inverse(1e-10).unwrap()
-                })
-            });
+            let t_inv = robust_inverse(&t).expect("t should be invertible");
 
             let k_matched = &t_inv * sensor_weights[s];
             let h_matched = &k_matched * &nu;
@@ -210,13 +205,7 @@ pub fn ga_lmb_track_merging(
         }
 
         // Convert back to covariance form
-        // Use LU decomposition (try_inverse) first to match MATLAB's inv()
-        let sigma_ga = k.clone().try_inverse().unwrap_or_else(|| {
-            k.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
-                let svd = k.clone().svd(true, true);
-                svd.pseudo_inverse(1e-10).unwrap()
-            })
-        });
+        let sigma_ga = robust_inverse(&k).expect("k should be invertible");
         let mu_ga = &sigma_ga * &h;
         let k_times_mu_ga = &k * &mu_ga;
         let sigma_ga_det_final = sigma_ga.determinant();
@@ -278,13 +267,8 @@ pub fn pu_lmb_track_merging(
     // For each object
     for i in 0..number_of_objects {
         // Convert prior to canonical form (use first component only)
-        let k_prior = prior_objects[i].sigma[0]
-            .clone()
-            .try_inverse()
-            .unwrap_or_else(|| {
-                let svd = prior_objects[i].sigma[0].clone().svd(true, true);
-                svd.pseudo_inverse(1e-10).unwrap()
-            });
+        let k_prior = robust_inverse(&prior_objects[i].sigma[0])
+            .expect("prior sigma should be invertible");
         let h_prior = &k_prior * &prior_objects[i].mu[0];
         let g_prior = -0.5 * prior_objects[i].mu[0].dot(&(&k_prior * &prior_objects[i].mu[0]))
             - 0.5 * (2.0 * std::f64::consts::PI * prior_objects[i].sigma[0].determinant()).ln();
@@ -318,10 +302,7 @@ pub fn pu_lmb_track_merging(
                 let mu = &sensor_objects[s][i].mu[j];
                 let sigma = &sensor_objects[s][i].sigma[j];
 
-                let k_c = sigma.clone().try_inverse().unwrap_or_else(|| {
-                    let svd = sigma.clone().svd(true, true);
-                    svd.pseudo_inverse(1e-10).unwrap()
-                });
+                let k_c = robust_inverse(sigma).expect("sigma should be invertible");
                 let h_c = &k_c * mu;
                 let quad_term = -0.5 * mu.dot(&(&k_c * mu));
                 let det_term = -0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln();
@@ -346,10 +327,7 @@ pub fn pu_lmb_track_merging(
 
         for j in 0..num_posterior_gm {
             let k_canonical = k_components[j].clone();  // T in MATLAB
-            let sigma = k_components[j].clone().try_inverse().unwrap_or_else(|| {
-                let svd = k_components[j].clone().svd(true, true);
-                svd.pseudo_inverse(1e-10).unwrap()
-            });
+            let sigma = robust_inverse(&k_components[j]).expect("k_components should be invertible");
             let mu = &sigma * &h_components[j];  // h{j} = K{j} * h{j} in MATLAB (line 70)
             // MATLAB line 71: g(j) = g(j) + 0.5 * h{j}' * T * h{j} + 0.5 * log(det(2 * pi * K{j}))
             // where h{j} is NOW mu (updated on line 70), T is K_canonical, and K{j} is Sigma
