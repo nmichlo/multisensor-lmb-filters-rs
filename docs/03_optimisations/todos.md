@@ -14,6 +14,11 @@ This document tracks the progress of code deduplication and quality improvements
 | Phase 2 | Common Utilities | ✅ Complete | robust_inverse, log_sum_exp, normalize_log_weights |
 | Phase 3 | Likelihood Helpers | ✅ Complete | Refactored lmb + lmbm association |
 | Phase 4 | Prediction Helpers | ✅ Complete | Shared prediction functions |
+| Phase 5 | Multisensor LMB Deduplication | ⏳ Pending | ~200 lines shared code in parallel_update/iterated_corrector |
+| Phase 6 | Multisensor LMBM Deduplication | ⏳ Pending | determine_linear_index() duplicated |
+| Phase 7 | Multisensor Association Helpers | ⏳ Pending | Use robust_inverse() from linalg.rs |
+| Phase 8 | Common Utility Functions | ⏳ Pending | Trajectory update, missed detection helpers |
+| Phase 9 | Track Merging Refactoring | ⏳ Pending | AA/GA/PU share ~60% loop structure |
 
 ---
 
@@ -119,6 +124,122 @@ This document tracks the progress of code deduplication and quality improvements
 - MATLAB equivalence maintained
 
 **Note**: Originally planned as a trait-based solution, but helper functions provide the same deduplication benefit with less API disruption. The data structures (`Object` vs `Hypothesis`) remain unchanged.
+
+---
+
+## Phase 5: Multisensor LMB Deduplication ⏳ Pending
+
+**Files**:
+- `src/multisensor_lmb/parallel_update.rs`
+- `src/multisensor_lmb/iterated_corrector.rs`
+- `src/multisensor_lmb/utils.rs` (NEW)
+
+**Problem**: `parallel_update.rs` and `iterated_corrector.rs` share ~200 lines of identical code:
+1. Data association processing loop (LBP/Gibbs/Murty switch) - ~100 lines
+2. Track gating & trajectory export logic - ~60 lines
+3. MAP state extraction - ~30 lines
+4. No-measurement existence update - ~10 lines
+
+**Tasks**:
+- [ ] Create `src/multisensor_lmb/utils.rs`
+- [ ] Extract `compute_association_probabilities()` - data association switch (LBP/Gibbs/Murty)
+- [ ] Extract `gate_and_export_tracks()` - track gating and trajectory export
+- [ ] Extract `extract_map_state_estimates()` - MAP cardinality extraction
+- [ ] Extract `update_existence_no_measurements_sensor()` - no-measurement update
+- [ ] Refactor `parallel_update.rs` to use utils
+- [ ] Refactor `iterated_corrector.rs` to use utils
+- [ ] Run all tests
+
+**Expected savings**: ~200 lines
+
+---
+
+## Phase 6: Multisensor LMBM Deduplication ⏳ Pending
+
+**Files**:
+- `src/multisensor_lmbm/gibbs.rs`
+- `src/multisensor_lmbm/hypothesis.rs`
+- `src/multisensor_lmbm/mod.rs`
+
+**Problem**: `determine_linear_index()` function is exactly duplicated (11 lines each).
+
+**Tasks**:
+- [ ] Move `determine_linear_index()` to `mod.rs`
+- [ ] Update `gibbs.rs` to import from mod
+- [ ] Update `hypothesis.rs` to import from mod
+- [ ] Run all tests
+
+**Expected savings**: ~20 lines
+
+---
+
+## Phase 7: Multisensor Association → Use linalg.rs Helpers ⏳ Pending
+
+**Files**:
+- `src/multisensor_lmb/association.rs`
+- `src/multisensor_lmbm/association.rs`
+
+**Problem**: Both files manually implement Cholesky/SVD fallback instead of using `robust_inverse()`.
+
+**Tasks**:
+- [ ] Refactor `multisensor_lmb/association.rs`:
+  - [ ] Use `robust_inverse()` instead of manual fallback chain
+  - [ ] Use `compute_measurement_log_likelihood()` for likelihood computation
+- [ ] Refactor `multisensor_lmbm/association.rs`:
+  - [ ] Use `robust_inverse()` instead of manual fallback chain
+  - [ ] Use `compute_measurement_log_likelihood()` for likelihood computation
+- [ ] Run all tests
+
+**Expected savings**: ~80 lines (40 per file)
+
+---
+
+## Phase 8: Common Utility Functions ⏳ Pending
+
+**Files**:
+- `src/common/utils.rs` (add functions)
+- `src/lmb/filter.rs` (refactor)
+- `src/lmbm/filter.rs` (refactor)
+- `src/lmb/update.rs`
+
+**Problem**: Several patterns duplicated across single-sensor filters:
+1. Trajectory update logic (~20 lines each in lmb/filter.rs and lmbm/filter.rs)
+2. Existence update for missed detection (same formula in 4+ places)
+3. Object gating by existence (partial implementation exists)
+
+**Tasks**:
+- [ ] Add `update_existence_missed_detection()` to `common/utils.rs`
+- [ ] Add `update_trajectory()` helper to `common/utils.rs`
+- [ ] Refactor `lmb/filter.rs` to use trajectory helper
+- [ ] Refactor `lmbm/filter.rs` to use trajectory helper
+- [ ] Verify `lmb/update.rs::update_no_measurements` uses helper
+- [ ] Refactor `lmbm/filter.rs` missed detection logic to use helper
+- [ ] Run all tests
+
+**Expected savings**: ~80 lines
+
+---
+
+## Phase 9: Track Merging Refactoring ⏳ Pending
+
+**Files**:
+- `src/multisensor_lmb/merging.rs`
+
+**Problem**: Three merging functions (AA, GA, PU) share ~60% identical loop structure for:
+- Weighted sum of existence probabilities
+- GM component concatenation
+- Weight sorting and capping
+- Renormalization
+
+**Tasks**:
+- [ ] Identify common merge loop pattern
+- [ ] Create `merge_sensor_distributions_core()` helper or similar
+- [ ] Refactor `aa_lmb_track_merging()` to use shared logic
+- [ ] Refactor `ga_lmb_track_merging()` to use shared logic
+- [ ] Refactor `pu_lmb_track_merging()` to use shared logic
+- [ ] Run all tests
+
+**Expected savings**: ~100 lines
 
 ---
 
