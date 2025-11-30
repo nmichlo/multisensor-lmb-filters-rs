@@ -273,6 +273,138 @@ pub fn is_positive_definite(matrix: &DMatrix<f64>) -> bool {
     matrix.clone().cholesky().is_some()
 }
 
+// ============================================================================
+// Likelihood computation helpers (for association matrix generation)
+// ============================================================================
+
+/// Compute predicted measurement and innovation covariance
+///
+/// Computes:
+/// - mu_z = C * mu (predicted measurement)
+/// - Z = C * Sigma * C' + Q (innovation covariance)
+///
+/// # Arguments
+/// * `mu` - State mean vector
+/// * `sigma` - State covariance matrix
+/// * `c` - Observation matrix
+/// * `q` - Measurement noise covariance
+///
+/// # Returns
+/// Tuple of (predicted measurement, innovation covariance)
+#[inline]
+pub fn compute_innovation_params(
+    mu: &DVector<f64>,
+    sigma: &DMatrix<f64>,
+    c: &DMatrix<f64>,
+    q: &DMatrix<f64>,
+) -> (DVector<f64>, DMatrix<f64>) {
+    let mu_z = c * mu;
+    let z_cov = c * sigma * c.transpose() + q;
+    (mu_z, z_cov)
+}
+
+/// Compute log Gaussian normalizing constant
+///
+/// Computes: -0.5 * (n * log(2*pi) + log(det(Z)))
+///
+/// Uses Cholesky decomposition for numerical stability when possible,
+/// falls back to direct determinant computation.
+///
+/// # Arguments
+/// * `z_cov` - Innovation covariance matrix
+/// * `z_dimension` - Dimension of measurement space
+///
+/// # Returns
+/// Log normalizing constant
+#[inline]
+pub fn log_gaussian_normalizing_constant(z_cov: &DMatrix<f64>, z_dimension: usize) -> f64 {
+    let n = z_dimension as f64;
+    let log_2pi = (2.0 * PI).ln();
+
+    // Try Cholesky for more stable log-determinant computation
+    if let Some(chol) = z_cov.clone().cholesky() {
+        // log(det(Z)) = 2 * sum(log(diag(L))) where Z = L*L'
+        let log_det = 2.0 * chol.l().diagonal().iter().map(|x| x.ln()).sum::<f64>();
+        -0.5 * (n * log_2pi + log_det)
+    } else {
+        // Fallback to direct determinant
+        -0.5 * (n * log_2pi + z_cov.determinant().ln())
+    }
+}
+
+/// Compute Kalman gain and updated covariance
+///
+/// Computes:
+/// - K = Sigma * C' * Z^{-1} (Kalman gain)
+/// - Sigma_updated = (I - K*C) * Sigma (updated covariance)
+///
+/// # Arguments
+/// * `sigma` - Prior state covariance
+/// * `c` - Observation matrix
+/// * `z_cov` - Innovation covariance
+/// * `x_dimension` - State dimension
+///
+/// # Returns
+/// Some((K, Sigma_updated, Z_inv)) if Z is invertible, None otherwise
+#[inline]
+pub fn compute_kalman_gain(
+    sigma: &DMatrix<f64>,
+    c: &DMatrix<f64>,
+    z_cov: &DMatrix<f64>,
+    x_dimension: usize,
+) -> Option<(DMatrix<f64>, DMatrix<f64>, DMatrix<f64>)> {
+    let z_inv = robust_inverse(z_cov)?;
+    let k = sigma * c.transpose() * &z_inv;
+    let sigma_updated = (DMatrix::identity(x_dimension, x_dimension) - &k * c) * sigma;
+    Some((k, sigma_updated, z_inv))
+}
+
+/// Compute measurement log-likelihood (Gaussian)
+///
+/// Computes: log_norm - 0.5 * (z - mu_z)' * Z^{-1} * (z - mu_z)
+///
+/// # Arguments
+/// * `measurement` - Measurement vector
+/// * `mu_z` - Predicted measurement
+/// * `z_inv` - Inverse of innovation covariance
+/// * `log_norm` - Log normalizing constant from `log_gaussian_normalizing_constant`
+///
+/// # Returns
+/// Log-likelihood value
+#[inline]
+pub fn compute_measurement_log_likelihood(
+    measurement: &DVector<f64>,
+    mu_z: &DVector<f64>,
+    z_inv: &DMatrix<f64>,
+    log_norm: f64,
+) -> f64 {
+    let nu = measurement - mu_z;
+    log_norm - 0.5 * nu.dot(&(z_inv * &nu))
+}
+
+/// Compute updated mean given Kalman gain and innovation
+///
+/// Computes: mu_updated = mu + K * (z - mu_z)
+///
+/// # Arguments
+/// * `mu` - Prior state mean
+/// * `k` - Kalman gain
+/// * `measurement` - Measurement vector
+/// * `mu_z` - Predicted measurement
+///
+/// # Returns
+/// Updated state mean
+#[inline]
+pub fn compute_kalman_updated_mean(
+    mu: &DVector<f64>,
+    k: &DMatrix<f64>,
+    measurement: &DVector<f64>,
+    mu_z: &DVector<f64>,
+) -> DVector<f64> {
+    let nu = measurement - mu_z;
+    mu + k * &nu
+}
+
 /// Make matrix symmetric
 ///
 /// Ensures a matrix is symmetric by averaging with its transpose
@@ -394,5 +526,97 @@ mod tests {
         let normalized = normalize_log_weights(&log_weights);
         let sum: f64 = normalized.iter().sum();
         assert!((sum - 1.0).abs() < 1e-10);
+    }
+
+    // Tests for likelihood computation helpers
+
+    #[test]
+    fn test_compute_innovation_params() {
+        let mu = DVector::from_vec(vec![1.0, 2.0, 3.0, 4.0]); // 4D state
+        let sigma = DMatrix::identity(4, 4);
+        let c = DMatrix::from_row_slice(2, 4, &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]); // 2D measurement
+        let q = DMatrix::from_row_slice(2, 2, &[0.1, 0.0, 0.0, 0.1]);
+
+        let (mu_z, z_cov) = compute_innovation_params(&mu, &sigma, &c, &q);
+
+        // mu_z = C * mu = [1.0, 3.0]
+        assert!((mu_z[0] - 1.0).abs() < 1e-10);
+        assert!((mu_z[1] - 3.0).abs() < 1e-10);
+
+        // z_cov = C * I * C' + Q = diag(1.1, 1.1)
+        assert!((z_cov[(0, 0)] - 1.1).abs() < 1e-10);
+        assert!((z_cov[(1, 1)] - 1.1).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_log_gaussian_normalizing_constant() {
+        // 2D identity covariance
+        let z_cov = DMatrix::identity(2, 2);
+        let log_norm = log_gaussian_normalizing_constant(&z_cov, 2);
+
+        // -0.5 * (2 * log(2*pi) + log(1)) = -log(2*pi) ≈ -1.8379
+        let expected = -0.5 * 2.0 * (2.0 * PI).ln();
+        assert!((log_norm - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_compute_kalman_gain() {
+        let sigma = DMatrix::identity(4, 4);
+        let c = DMatrix::from_row_slice(2, 4, &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        let z_cov = DMatrix::from_row_slice(2, 2, &[1.1, 0.0, 0.0, 1.1]);
+
+        let result = compute_kalman_gain(&sigma, &c, &z_cov, 4);
+        assert!(result.is_some());
+
+        let (k, sigma_updated, z_inv) = result.unwrap();
+
+        // K should be 4x2
+        assert_eq!(k.nrows(), 4);
+        assert_eq!(k.ncols(), 2);
+
+        // Sigma_updated should be 4x4
+        assert_eq!(sigma_updated.nrows(), 4);
+        assert_eq!(sigma_updated.ncols(), 4);
+
+        // Z_inv should be 2x2 and Z * Z_inv ≈ I
+        let identity = &z_cov * &z_inv;
+        assert!((identity[(0, 0)] - 1.0).abs() < 1e-10);
+        assert!((identity[(1, 1)] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_compute_measurement_log_likelihood() {
+        let measurement = DVector::from_vec(vec![1.0, 2.0]);
+        let mu_z = DVector::from_vec(vec![1.0, 2.0]); // Perfect prediction
+        let z_inv = DMatrix::identity(2, 2);
+        let log_norm = -1.0; // Arbitrary
+
+        let log_lik = compute_measurement_log_likelihood(&measurement, &mu_z, &z_inv, log_norm);
+
+        // With perfect prediction, nu = 0, so log_lik = log_norm
+        assert!((log_lik - log_norm).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_compute_kalman_updated_mean() {
+        let mu = DVector::from_vec(vec![1.0, 2.0, 3.0, 4.0]);
+        let k = DMatrix::from_row_slice(4, 2, &[
+            0.5, 0.0,
+            0.0, 0.0,
+            0.0, 0.5,
+            0.0, 0.0,
+        ]);
+        let measurement = DVector::from_vec(vec![2.0, 4.0]);
+        let mu_z = DVector::from_vec(vec![1.0, 3.0]);
+
+        let mu_updated = compute_kalman_updated_mean(&mu, &k, &measurement, &mu_z);
+
+        // nu = [2-1, 4-3] = [1, 1]
+        // K * nu = [0.5, 0, 0.5, 0]
+        // mu_updated = [1.5, 2, 3.5, 4]
+        assert!((mu_updated[0] - 1.5).abs() < 1e-10);
+        assert!((mu_updated[1] - 2.0).abs() < 1e-10);
+        assert!((mu_updated[2] - 3.5).abs() < 1e-10);
+        assert!((mu_updated[3] - 4.0).abs() < 1e-10);
     }
 }

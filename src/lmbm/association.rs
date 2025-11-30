@@ -4,8 +4,11 @@
 //! Matches MATLAB generateLmbmAssociationMatrices.m and lmbmGibbsSampling.m exactly.
 
 use crate::common::association::gibbs::{generate_gibbs_sample, initialize_gibbs_association_vectors};
+use crate::common::linalg::{
+    compute_innovation_params, compute_kalman_gain, compute_kalman_updated_mean,
+    compute_measurement_log_likelihood, log_gaussian_normalizing_constant,
+};
 use crate::common::types::{Hypothesis, Model};
-use crate::common::linalg::is_positive_definite;
 use nalgebra::{DMatrix, DVector};
 
 /// Posterior parameters for LMBM update
@@ -94,68 +97,37 @@ pub fn generate_lmbm_association_matrices(
         posterior_mu[i][0] = hypothesis.mu[i].clone();
 
         // Determine posterior parameters for each object's spatial distribution
-        let mu_z = &model.c * &hypothesis.mu[i];
-        let z_matrix = &model.c * &hypothesis.sigma[i] * model.c.transpose() + &model.q;
+        let (mu_z, z_cov) =
+            compute_innovation_params(&hypothesis.mu[i], &hypothesis.sigma[i], &model.c, &model.q);
 
         // Compute log Gaussian normalizing constant
-        let log_gaussian_normalising_constant = if is_positive_definite(&z_matrix) {
-            match z_matrix.clone().cholesky() {
-                Some(chol) => {
-                    let log_det = 2.0 * chol.l().diagonal().iter().map(|x| x.ln()).sum::<f64>();
-                    -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
-                        - 0.5 * log_det
-                }
-                None => {
-                    // Fallback to determinant
-                    let det = z_matrix.determinant();
-                    -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
-                        - 0.5 * det.ln()
-                }
-            }
-        } else {
-            -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
-                - 0.5 * z_matrix.determinant().ln()
-        };
+        let log_gaussian_norm = log_gaussian_normalizing_constant(&z_cov, model.z_dimension);
 
         let log_likelihood_ratio_terms = hypothesis.r[i].ln()
             + model.detection_probability.ln()
             - model.clutter_per_unit_volume.ln();
 
         // Compute Z inverse and Kalman gain
-        let z_inv = match z_matrix.clone().cholesky() {
-            Some(chol) => {
-                let identity = DMatrix::identity(z_matrix.nrows(), z_matrix.ncols());
-                chol.solve(&identity)
-            }
-            None => {
-                // Fallback to pseudo-inverse if Cholesky fails
-                match z_matrix.clone().try_inverse() {
-                    Some(inv) => inv,
-                    None => {
-                        // Use SVD-based pseudo-inverse as last resort
-                        let svd = z_matrix.svd(true, true);
-                        svd.pseudo_inverse(1e-10).unwrap()
-                    }
+        let (k, sigma_updated, z_inv) =
+            match compute_kalman_gain(&hypothesis.sigma[i], &model.c, &z_cov, model.x_dimension) {
+                Some(result) => result,
+                None => {
+                    // Singular covariance, skip this object (shouldn't happen in normal operation)
+                    continue;
                 }
-            }
-        };
-
-        let k = &hypothesis.sigma[i] * model.c.transpose() * &z_inv;
-        posterior_sigma[i] = (DMatrix::identity(model.x_dimension, model.x_dimension)
-            - &k * &model.c)
-            * &hypothesis.sigma[i];
+            };
+        posterior_sigma[i] = sigma_updated;
 
         // Determine total marginal likelihood and posterior components
         for j in 0..number_of_measurements {
             // Determine marginal likelihood ratio
-            let nu = &measurements[j] - &mu_z;
-            let quadratic_form = nu.transpose() * &z_inv * &nu;
             let gaussian_log_likelihood =
-                log_gaussian_normalising_constant - 0.5 * quadratic_form[(0, 0)];
+                compute_measurement_log_likelihood(&measurements[j], &mu_z, &z_inv, log_gaussian_norm);
             r_matrix[(i, j)] = log_likelihood_ratio_terms + gaussian_log_likelihood;
 
             // Determine posterior mean for each measurement
-            posterior_mu[i][j + 1] = &hypothesis.mu[i] + &k * &nu;
+            posterior_mu[i][j + 1] =
+                compute_kalman_updated_mean(&hypothesis.mu[i], &k, &measurements[j], &mu_z);
         }
     }
 

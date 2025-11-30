@@ -40,3 +40,31 @@ This document tracks code quality and performance improvements to the codebase.
 - All 150+ integration tests pass unchanged
 
 **Rationale**: Multiple association files have similar Cholesky-with-fallback patterns. These utilities provide a standardized approach that can be incrementally adopted. The `log_sum_exp` and `normalize_log_weights` functions already existed but lacked tests.
+
+---
+
+## 2025-11-30: Phase 3 - Likelihood Helpers
+
+**Files**:
+- `src/common/linalg.rs` (new helpers)
+- `src/lmb/association.rs` (refactored)
+- `src/lmbm/association.rs` (refactored)
+
+**Changes**:
+- Added `compute_innovation_params()` - computes predicted measurement and innovation covariance
+- Added `log_gaussian_normalizing_constant()` - computes log normalizing constant using Cholesky when possible
+- Added `compute_kalman_gain()` - computes Kalman gain, updated covariance, and Z inverse with robust fallbacks
+- Added `compute_measurement_log_likelihood()` - computes Gaussian log-likelihood for measurement
+- Added `compute_kalman_updated_mean()` - computes Kalman-updated state mean
+- Refactored `lmb/association.rs` to use new helpers
+- Refactored `lmbm/association.rs` to use new helpers (removed ~30 lines of Cholesky/SVD fallback code)
+- Added 5 unit tests for likelihood helpers
+
+**Impact**:
+- Unit tests: 89 → 94 (+5)
+- `lmbm/association.rs` core loop: 69 → 38 lines (45% reduction)
+- Eliminated duplicated Cholesky → LU → SVD fallback logic
+- All 170+ tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: Both LMB and LMBM association files computed marginal likelihood ratios with nearly identical patterns: innovation covariance, log normalizing constant, Kalman gain, and measurement likelihood. By extracting these into reusable helpers, we reduced code duplication and centralized the robust matrix inversion fallback logic.

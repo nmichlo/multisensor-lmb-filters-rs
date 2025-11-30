@@ -5,6 +5,10 @@
 
 use crate::common::association::gibbs::GibbsAssociationMatrices;
 use crate::common::association::lbp::AssociationMatrices;
+use crate::common::linalg::{
+    compute_innovation_params, compute_kalman_gain, compute_kalman_updated_mean,
+    compute_measurement_log_likelihood, log_gaussian_normalizing_constant,
+};
 use crate::common::types::{Model, Object};
 use nalgebra::{DMatrix, DVector};
 
@@ -95,12 +99,11 @@ pub fn generate_lmb_association_matrices(
         // Determine marginal likelihood ratio for each measurement
         for j in 0..num_comp {
             // Predicted measurement and innovation covariance
-            let mu_z = &model.c * &obj.mu[j];
-            let z_cov = &model.c * &obj.sigma[j] * model.c.transpose() + &model.q;
+            let (mu_z, z_cov) =
+                compute_innovation_params(&obj.mu[j], &obj.sigma[j], &model.c, &model.q);
 
             // Log normalizing constant
-            let log_gaussian_norm = -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
-                - 0.5 * z_cov.determinant().ln();
+            let log_gaussian_norm = log_gaussian_normalizing_constant(&z_cov, model.z_dimension);
 
             // Likelihood ratio terms
             let log_likelihood_ratio_terms = obj.r.ln()
@@ -109,25 +112,20 @@ pub fn generate_lmb_association_matrices(
                 - model.clutter_per_unit_volume.ln();
 
             // Kalman gain and updated covariance
-            let z_inv = match z_cov.clone().cholesky() {
-                Some(chol) => chol.inverse(),
-                None => {
-                    // Singular covariance, skip this component
-                    continue;
-                }
-            };
-
-            let k = &obj.sigma[j] * model.c.transpose() * &z_inv;
-            let sigma_updated =
-                (DMatrix::identity(model.x_dimension, model.x_dimension) - &k * &model.c) * &obj.sigma[j];
+            let (k, sigma_updated, z_inv) =
+                match compute_kalman_gain(&obj.sigma[j], &model.c, &z_cov, model.x_dimension) {
+                    Some(result) => result,
+                    None => {
+                        // Singular covariance, skip this component
+                        continue;
+                    }
+                };
 
             // Process each measurement
             for (meas_idx, z) in measurements.iter().enumerate() {
-                // Innovation
-                let nu = z - &mu_z;
-
                 // Gaussian log-likelihood
-                let gaussian_log_likelihood = log_gaussian_norm - 0.5 * nu.dot(&(&z_inv * &nu));
+                let gaussian_log_likelihood =
+                    compute_measurement_log_likelihood(z, &mu_z, &z_inv, log_gaussian_norm);
 
                 // Update L matrix
                 l_matrix[(i, meas_idx)] += (log_likelihood_ratio_terms + gaussian_log_likelihood).exp();
@@ -138,7 +136,8 @@ pub fn generate_lmb_association_matrices(
                     + model.detection_probability.ln()
                     - model.clutter_per_unit_volume.ln();
 
-                mu_posterior[meas_idx + 1][j] = &obj.mu[j] + &k * &nu;
+                mu_posterior[meas_idx + 1][j] =
+                    compute_kalman_updated_mean(&obj.mu[j], &k, z, &mu_z);
                 sigma_posterior[meas_idx + 1][j] = sigma_updated.clone();
             }
         }
