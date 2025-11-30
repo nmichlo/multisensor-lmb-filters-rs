@@ -3,6 +3,7 @@
 //! Implements the LMBM filter's prediction step using the Chapman-Kolmogorov equation.
 //! Matches MATLAB lmbmPredictionStep.m exactly.
 
+use crate::common::linalg::{predict_covariance, predict_existence, predict_mean};
 use crate::common::types::{Hypothesis, Model};
 
 /// LMBM prediction step
@@ -28,14 +29,9 @@ pub fn lmbm_prediction_step(mut hypothesis: Hypothesis, model: &Model, t: usize)
 
     // Put existing Bernoulli components through the motion model
     for i in 0..number_of_objects {
-        // Predict existence probability
-        hypothesis.r[i] = model.survival_probability * hypothesis.r[i];
-
-        // Predict mean: mu' = A * mu + u
-        hypothesis.mu[i] = &model.a * &hypothesis.mu[i] + &model.u;
-
-        // Predict covariance: Sigma' = A * Sigma * A' + R
-        hypothesis.sigma[i] = &model.a * &hypothesis.sigma[i] * model.a.transpose() + &model.r;
+        hypothesis.r[i] = predict_existence(hypothesis.r[i], model.survival_probability);
+        hypothesis.mu[i] = predict_mean(&hypothesis.mu[i], &model.a, &model.u);
+        hypothesis.sigma[i] = predict_covariance(&hypothesis.sigma[i], &model.a, &model.r);
     }
 
     // Add Bernoulli components for newly appearing objects

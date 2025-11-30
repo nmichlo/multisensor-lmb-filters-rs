@@ -405,6 +405,61 @@ pub fn compute_kalman_updated_mean(
     mu + k * &nu
 }
 
+// ============================================================================
+// Prediction step helpers (for Chapman-Kolmogorov prediction)
+// ============================================================================
+
+/// Predict state mean using linear motion model
+///
+/// Computes: mu' = A * mu + u
+///
+/// # Arguments
+/// * `mu` - Current state mean
+/// * `a` - State transition matrix
+/// * `u` - Control input / drift vector
+///
+/// # Returns
+/// Predicted state mean
+#[inline]
+pub fn predict_mean(mu: &DVector<f64>, a: &DMatrix<f64>, u: &DVector<f64>) -> DVector<f64> {
+    a * mu + u
+}
+
+/// Predict state covariance using linear motion model
+///
+/// Computes: Sigma' = A * Sigma * A' + R
+///
+/// # Arguments
+/// * `sigma` - Current state covariance
+/// * `a` - State transition matrix
+/// * `r` - Process noise covariance
+///
+/// # Returns
+/// Predicted state covariance
+#[inline]
+pub fn predict_covariance(
+    sigma: &DMatrix<f64>,
+    a: &DMatrix<f64>,
+    r: &DMatrix<f64>,
+) -> DMatrix<f64> {
+    a * sigma * a.transpose() + r
+}
+
+/// Predict existence probability
+///
+/// Computes: r' = p_s * r
+///
+/// # Arguments
+/// * `r` - Current existence probability
+/// * `survival_probability` - Probability of survival
+///
+/// # Returns
+/// Predicted existence probability
+#[inline]
+pub fn predict_existence(r: f64, survival_probability: f64) -> f64 {
+    survival_probability * r
+}
+
 /// Make matrix symmetric
 ///
 /// Ensures a matrix is symmetric by averaging with its transpose
@@ -618,5 +673,43 @@ mod tests {
         assert!((mu_updated[1] - 2.0).abs() < 1e-10);
         assert!((mu_updated[2] - 3.5).abs() < 1e-10);
         assert!((mu_updated[3] - 4.0).abs() < 1e-10);
+    }
+
+    // Tests for prediction helpers
+
+    #[test]
+    fn test_predict_mean() {
+        let mu = DVector::from_vec(vec![1.0, 2.0]);
+        let a = DMatrix::from_row_slice(2, 2, &[1.0, 0.1, 0.0, 1.0]); // Near-constant velocity
+        let u = DVector::from_vec(vec![0.0, 0.0]);
+
+        let mu_pred = predict_mean(&mu, &a, &u);
+
+        // mu' = A * mu = [1.0 + 0.1*2.0, 2.0] = [1.2, 2.0]
+        assert!((mu_pred[0] - 1.2).abs() < 1e-10);
+        assert!((mu_pred[1] - 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_predict_covariance() {
+        let sigma = DMatrix::identity(2, 2);
+        let a = DMatrix::from_row_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]); // Identity
+        let r = DMatrix::from_row_slice(2, 2, &[0.1, 0.0, 0.0, 0.1]); // Small process noise
+
+        let sigma_pred = predict_covariance(&sigma, &a, &r);
+
+        // sigma' = I * I * I' + R = I + R = diag(1.1, 1.1)
+        assert!((sigma_pred[(0, 0)] - 1.1).abs() < 1e-10);
+        assert!((sigma_pred[(1, 1)] - 1.1).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_predict_existence() {
+        let r = 0.8;
+        let p_s = 0.99;
+
+        let r_pred = predict_existence(r, p_s);
+
+        assert!((r_pred - 0.792).abs() < 1e-10);
     }
 }

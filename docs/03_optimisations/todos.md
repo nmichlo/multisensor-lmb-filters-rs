@@ -13,7 +13,7 @@ This document tracks the progress of code deduplication and quality improvements
 | Phase 1 | LBP Refactoring | ✅ Complete | Extracted shared message-passing logic |
 | Phase 2 | Common Utilities | ✅ Complete | robust_inverse, log_sum_exp, normalize_log_weights |
 | Phase 3 | Likelihood Helpers | ✅ Complete | Refactored lmb + lmbm association |
-| Phase 4 | Prediction Trait | ⏳ Pending | BernoulliPrediction trait |
+| Phase 4 | Prediction Helpers | ✅ Complete | Shared prediction functions |
 
 ---
 
@@ -93,22 +93,32 @@ This document tracks the progress of code deduplication and quality improvements
 
 ---
 
-## Phase 4: Prediction Trait
+## Phase 4: Prediction Helpers ✅ COMPLETE
 
 **Files**:
-- `src/common/prediction.rs` (new file)
+- `src/common/linalg.rs` (add helpers)
 - `src/lmb/prediction.rs` (refactor)
 - `src/lmbm/prediction.rs` (refactor)
 
 **Problem**: Nearly identical Chapman-Kolmogorov prediction logic in LMB and LMBM.
 
 **Tasks**:
-- [ ] Create `BernoulliPrediction` trait
-- [ ] Implement trait for `Object`
-- [ ] Implement trait for `Hypothesis`
-- [ ] Refactor `lmb/prediction.rs`
-- [ ] Refactor `lmbm/prediction.rs`
-- [ ] Run all tests
+- [x] Add `predict_mean()` function
+- [x] Add `predict_covariance()` function
+- [x] Add `predict_existence()` function
+- [x] Refactor `lmb/prediction.rs`
+- [x] Refactor `lmbm/prediction.rs`
+- [x] Run all tests
+
+**Outcome**:
+- Added 3 new prediction helper functions to `linalg.rs`
+- Added 3 unit tests for the helpers
+- Refactored both prediction files to use shared helpers
+- More readable code: `predict_mean(&mu, &a, &u)` vs `&a * &mu + &u`
+- All 170+ tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Note**: Originally planned as a trait-based solution, but helper functions provide the same deduplication benefit with less API disruption. The data structures (`Object` vs `Hypothesis`) remain unchanged.
 
 ---
 

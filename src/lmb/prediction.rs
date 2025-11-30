@@ -3,6 +3,7 @@
 //! Implements the LMB filter's prediction step using the Chapman-Kolmogorov equation.
 //! Matches MATLAB lmbPredictionStep.m exactly.
 
+use crate::common::linalg::{predict_covariance, predict_existence, predict_mean};
 use crate::common::types::{Model, Object};
 
 /// LMB prediction step
@@ -30,15 +31,12 @@ pub fn lmb_prediction_step(mut objects: Vec<Object>, model: &Model, t: usize) ->
     // Put existing Bernoulli components through the motion model
     for obj in &mut objects {
         // Predict existence probability
-        obj.r = model.survival_probability * obj.r;
+        obj.r = predict_existence(obj.r, model.survival_probability);
 
         // Predict each GM component
         for j in 0..obj.number_of_gm_components {
-            // Predict mean: mu' = A * mu + u
-            obj.mu[j] = &model.a * &obj.mu[j] + &model.u;
-
-            // Predict covariance: Sigma' = A * Sigma * A' + R
-            obj.sigma[j] = &model.a * &obj.sigma[j] * model.a.transpose() + &model.r;
+            obj.mu[j] = predict_mean(&obj.mu[j], &model.a, &model.u);
+            obj.sigma[j] = predict_covariance(&obj.sigma[j], &model.a, &model.r);
         }
     }
 

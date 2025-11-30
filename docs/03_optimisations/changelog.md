@@ -68,3 +68,29 @@ This document tracks code quality and performance improvements to the codebase.
 - MATLAB equivalence maintained
 
 **Rationale**: Both LMB and LMBM association files computed marginal likelihood ratios with nearly identical patterns: innovation covariance, log normalizing constant, Kalman gain, and measurement likelihood. By extracting these into reusable helpers, we reduced code duplication and centralized the robust matrix inversion fallback logic.
+
+---
+
+## 2025-11-30: Phase 4 - Prediction Helpers
+
+**Files**:
+- `src/common/linalg.rs` (new helpers)
+- `src/lmb/prediction.rs` (refactored)
+- `src/lmbm/prediction.rs` (refactored)
+
+**Changes**:
+- Added `predict_mean()` - computes mu' = A * mu + u
+- Added `predict_covariance()` - computes Sigma' = A * Sigma * A' + R
+- Added `predict_existence()` - computes r' = p_s * r
+- Refactored `lmb/prediction.rs` to use helpers
+- Refactored `lmbm/prediction.rs` to use helpers
+- Added 3 unit tests for prediction helpers
+
+**Impact**:
+- Unit tests: 94 → 97 (+3)
+- Both prediction files now use identical helper functions
+- More readable and self-documenting code
+- All 170+ tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: Both LMB and LMBM prediction steps implement the same Chapman-Kolmogorov equations for linear Gaussian motion models. While the data structures differ (`Vec<Object>` vs `Hypothesis`), the core math is identical. Helper functions provide semantic clarity and ensure consistency.
