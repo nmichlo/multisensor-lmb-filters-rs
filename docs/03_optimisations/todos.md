@@ -10,27 +10,32 @@ This document tracks the progress of code deduplication and quality improvements
 
 | Phase | Description | Status | Notes |
 |-------|-------------|--------|-------|
-| Phase 1 | LBP Refactoring | 🔄 In Progress | Extract shared message-passing logic |
+| Phase 1 | LBP Refactoring | ✅ Complete | Extracted shared message-passing logic |
 | Phase 2 | Common Utilities | ⏳ Pending | robust_inverse, log_sum_exp |
 | Phase 3 | Likelihood Helpers | ⏳ Pending | Kalman gain, innovation params |
 | Phase 4 | Prediction Trait | ⏳ Pending | BernoulliPrediction trait |
 
 ---
 
-## Phase 1: LBP Refactoring
+## Phase 1: LBP Refactoring ✅ COMPLETE
 
 **File**: `src/common/association/lbp.rs`
 
 **Problem**: `loopy_belief_propagation` and `fixed_loopy_belief_propagation` share ~80% identical code.
 
 **Tasks**:
-- [ ] Extract `lbp_message_passing_iteration()` inner function
-- [ ] Extract `compute_lbp_result()` function
-- [ ] Update `loopy_belief_propagation` to use shared code
-- [ ] Update `fixed_loopy_belief_propagation` to use shared code
-- [ ] Run all tests to verify MATLAB equivalence
+- [x] Extract `lbp_message_passing_iteration()` inner function
+- [x] Extract `compute_lbp_result()` function
+- [x] Update `loopy_belief_propagation` to use shared code
+- [x] Update `fixed_loopy_belief_propagation` to use shared code
+- [x] Run all tests to verify MATLAB equivalence
 
-**Expected outcome**: ~40 lines saved, 0% duplication in LBP module
+**Outcome**:
+- Original: 231 lines (two functions with 80% duplication)
+- Refactored: 212 lines (two helper functions + two thin wrappers)
+- Lines saved: ~19 lines
+- Code duplication: 80% → 0%
+- All 79 unit tests + 150+ integration tests pass
 
 ---
 
