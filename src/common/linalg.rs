@@ -183,6 +183,85 @@ pub fn normalize_log_weights(log_weights: &[f64]) -> Vec<f64> {
     log_weights.iter().map(|w| (w - log_sum).exp()).collect()
 }
 
+/// Robustly compute matrix inverse with fallbacks
+///
+/// Attempts multiple methods to compute matrix inverse:
+/// 1. Cholesky decomposition (fastest for positive definite matrices)
+/// 2. LU decomposition via try_inverse
+/// 3. SVD-based pseudo-inverse (last resort)
+///
+/// # Arguments
+/// * `matrix` - Matrix to invert
+///
+/// # Returns
+/// Some(inverse) if any method succeeds, None if all methods fail
+pub fn robust_inverse(matrix: &DMatrix<f64>) -> Option<DMatrix<f64>> {
+    // Try Cholesky first (fastest for positive definite)
+    if let Some(chol) = matrix.clone().cholesky() {
+        return Some(chol.inverse());
+    }
+
+    // Fall back to LU decomposition
+    if let Some(inv) = matrix.clone().try_inverse() {
+        return Some(inv);
+    }
+
+    // Last resort: SVD pseudo-inverse
+    let svd = matrix.clone().svd(true, true);
+    svd.pseudo_inverse(1e-10).ok()
+}
+
+/// Robustly solve linear system A*x = b with fallbacks
+///
+/// Attempts multiple methods to solve the system:
+/// 1. Cholesky decomposition (fastest for positive definite A)
+/// 2. LU decomposition via try_inverse
+/// 3. SVD-based pseudo-inverse (last resort)
+///
+/// # Arguments
+/// * `a` - System matrix
+/// * `b` - Right-hand side (can be matrix for multiple RHS)
+///
+/// # Returns
+/// Some(x) if any method succeeds, None if all methods fail
+pub fn robust_solve(a: &DMatrix<f64>, b: &DMatrix<f64>) -> Option<DMatrix<f64>> {
+    // Try Cholesky first (fastest for positive definite)
+    if let Some(chol) = a.clone().cholesky() {
+        return Some(chol.solve(b));
+    }
+
+    // Fall back to computing inverse and multiplying
+    if let Some(inv) = robust_inverse(a) {
+        return Some(inv * b);
+    }
+
+    None
+}
+
+/// Robustly solve linear system A*x = b for vector RHS
+///
+/// Convenience wrapper for robust_solve with vector right-hand side.
+///
+/// # Arguments
+/// * `a` - System matrix
+/// * `b` - Right-hand side vector
+///
+/// # Returns
+/// Some(x) if any method succeeds, None if all methods fail
+pub fn robust_solve_vec(a: &DMatrix<f64>, b: &DVector<f64>) -> Option<DVector<f64>> {
+    // Try Cholesky first (fastest for positive definite)
+    if let Some(chol) = a.clone().cholesky() {
+        return Some(chol.solve(b));
+    }
+
+    // Fall back to computing inverse and multiplying
+    if let Some(inv) = robust_inverse(a) {
+        return Some(inv * b);
+    }
+
+    None
+}
+
 /// Check if matrix is positive definite
 ///
 /// # Arguments
@@ -205,4 +284,115 @@ pub fn is_positive_definite(matrix: &DMatrix<f64>) -> bool {
 /// Symmetric matrix
 pub fn symmetrize(matrix: &DMatrix<f64>) -> DMatrix<f64> {
     0.5 * (matrix + matrix.transpose())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_robust_inverse_positive_definite() {
+        // Positive definite matrix (should use Cholesky)
+        let m = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);
+        let inv = robust_inverse(&m).expect("Should be invertible");
+
+        // Check M * M^{-1} ≈ I
+        let identity = &m * &inv;
+        for i in 0..2 {
+            for j in 0..2 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!((identity[(i, j)] - expected).abs() < 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn test_robust_inverse_non_positive_definite() {
+        // Invertible but not positive definite
+        let m = DMatrix::from_row_slice(2, 2, &[1.0, 2.0, 3.0, 4.0]);
+        let inv = robust_inverse(&m).expect("Should be invertible via LU");
+
+        // Check M * M^{-1} ≈ I
+        let identity = &m * &inv;
+        for i in 0..2 {
+            for j in 0..2 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!((identity[(i, j)] - expected).abs() < 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn test_robust_inverse_singular() {
+        // Singular matrix
+        let m = DMatrix::from_row_slice(2, 2, &[1.0, 2.0, 2.0, 4.0]);
+        // SVD pseudo-inverse should still work
+        let result = robust_inverse(&m);
+        // Pseudo-inverse exists for singular matrices
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_robust_solve_positive_definite() {
+        let a = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);
+        let b = DMatrix::from_row_slice(2, 1, &[1.0, 2.0]);
+        let x = robust_solve(&a, &b).expect("Should be solvable");
+
+        // Check A*x ≈ b
+        let result = &a * &x;
+        assert!((result[(0, 0)] - b[(0, 0)]).abs() < 1e-10);
+        assert!((result[(1, 0)] - b[(1, 0)]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_robust_solve_vec() {
+        let a = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);
+        let b = DVector::from_vec(vec![1.0, 2.0]);
+        let x = robust_solve_vec(&a, &b).expect("Should be solvable");
+
+        // Check A*x ≈ b
+        let result = &a * &x;
+        assert!((result[0] - b[0]).abs() < 1e-10);
+        assert!((result[1] - b[1]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_log_sum_exp_simple() {
+        let values = vec![1.0, 2.0, 3.0];
+        let result = log_sum_exp(&values);
+        // log(e^1 + e^2 + e^3) ≈ 3.4076
+        let expected = (1.0_f64.exp() + 2.0_f64.exp() + 3.0_f64.exp()).ln();
+        assert!((result - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_log_sum_exp_empty() {
+        let values: Vec<f64> = vec![];
+        let result = log_sum_exp(&values);
+        assert!(result.is_infinite() && result < 0.0);
+    }
+
+    #[test]
+    fn test_log_sum_exp_negative_infinity() {
+        let values = vec![f64::NEG_INFINITY, f64::NEG_INFINITY];
+        let result = log_sum_exp(&values);
+        assert!(result.is_infinite() && result < 0.0);
+    }
+
+    #[test]
+    fn test_normalize_log_weights() {
+        let log_weights = vec![0.0, 0.0, 0.0]; // Equal weights
+        let normalized = normalize_log_weights(&log_weights);
+        for w in &normalized {
+            assert!((*w - 1.0 / 3.0).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_normalize_log_weights_sum_to_one() {
+        let log_weights = vec![-1.0, 0.0, 1.0, 2.0];
+        let normalized = normalize_log_weights(&log_weights);
+        let sum: f64 = normalized.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-10);
+    }
 }

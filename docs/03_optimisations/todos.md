@@ -11,7 +11,7 @@ This document tracks the progress of code deduplication and quality improvements
 | Phase | Description | Status | Notes |
 |-------|-------------|--------|-------|
 | Phase 1 | LBP Refactoring | ✅ Complete | Extracted shared message-passing logic |
-| Phase 2 | Common Utilities | ⏳ Pending | robust_inverse, log_sum_exp |
+| Phase 2 | Common Utilities | ✅ Complete | robust_inverse, log_sum_exp, normalize_log_weights |
 | Phase 3 | Likelihood Helpers | ⏳ Pending | Kalman gain, innovation params |
 | Phase 4 | Prediction Trait | ⏳ Pending | BernoulliPrediction trait |
 
@@ -39,18 +39,25 @@ This document tracks the progress of code deduplication and quality improvements
 
 ---
 
-## Phase 2: Common Utilities
+## Phase 2: Common Utilities ✅ COMPLETE
 
 **File**: `src/common/linalg.rs`
 
 **Problem**: Multiple files have similar Cholesky-with-fallback and log-sum-exp patterns.
 
 **Tasks**:
-- [ ] Add `robust_inverse()` function
-- [ ] Add `robust_solve()` function
-- [ ] Add `log_sum_exp()` function
-- [ ] Add `normalize_log_weights()` function
-- [ ] Run all tests
+- [x] Add `robust_inverse()` function
+- [x] Add `robust_solve()` function
+- [x] Add `robust_solve_vec()` function
+- [x] `log_sum_exp()` already existed - added tests
+- [x] `normalize_log_weights()` already existed - added tests
+- [x] Run all tests
+
+**Outcome**:
+- Added 3 new utility functions for robust matrix operations
+- Added 10 unit tests for linalg utilities
+- All 89+ unit tests + 150+ integration tests pass
+- Functions available for future refactoring of association files
 
 ---
 
