@@ -55,3 +55,15 @@ Only after checking all these should you resort to execution tracing.
 - **Run full tests** after changing common/shared Rust code (might break other algorithms)
 - **Use correct tools**: `rg` for search, NOT grep/find/cat/xargs
 - **Question assumptions**: If tests require loose tolerances (>1e-10), there's likely a real bug
+
+## Documents
+
+- .md docs containing history of work comleted have been moved to `docs`
+  - docs/00_io gives info on all the algorithms expected inputs and outputs
+  - docs/01_migration/migration_plan.md was the original migration plan from octave/matlab to rust (this is now complete, you probably DONT need to look at this)
+  - docs/o1_migration/migration_history.md is a useful summary of how everything was migrated
+  - docs/02_migration_comparison/comparison_analysis_summary.md is a useful comparison of original matlab to migrated code, this shows where we could have improved the rust API
+  - docs/03_optimisations/improvements_possible.md ranks various possible improvements to the rust code including performance wise and api wise
+  - docs/03_optimisations/profiling_results.md gives profiling results over the various algorithms --> this should be updated over time as we make improvements, with a history of improvements kept in `docs/03_optimisations/changelog.md` this changelog should include any future changes we make.
+  
+
