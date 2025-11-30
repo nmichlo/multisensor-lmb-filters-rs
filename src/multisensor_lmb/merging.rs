@@ -7,7 +7,9 @@
 //!
 //! Matches MATLAB aaLmbTrackMerging.m, gaLmbTrackMerging.m, and puLmbTrackMerging.m exactly.
 
-use crate::common::linalg::robust_inverse;
+use crate::common::linalg::{
+    from_canonical_form, to_canonical_form, to_weighted_canonical_form, CanonicalGaussian,
+};
 use crate::common::types::{Model, Object};
 use nalgebra::{DMatrix, DVector};
 
@@ -189,28 +191,21 @@ pub fn ga_lmb_track_merging(
             // M-projection: collapse GM to single Gaussian
             let (nu, t) = m_projection(&sensor_objects[s][i]);
 
-            // Convert to canonical form and weight
-            let t_det = t.determinant();
-            let t_inv = robust_inverse(&t).expect("t should be invertible");
+            // Convert to weighted canonical form using helper
+            let canonical = to_weighted_canonical_form(&nu, &t, sensor_weights[s])
+                .expect("t should be invertible");
 
-            let k_matched = &t_inv * sensor_weights[s];
-            let h_matched = &k_matched * &nu;
-            let g_matched = -0.5 * nu.dot(&(&k_matched * &nu))
-                - 0.5 * sensor_weights[s] * (2.0 * std::f64::consts::PI * t_det).ln();
-
-            // Accumulate
-            k += &k_matched;
-            h += &h_matched;
-            g += g_matched;
+            // Accumulate canonical parameters
+            k += &canonical.k;
+            h += &canonical.h;
+            g += canonical.g;
         }
 
-        // Convert back to covariance form
-        let sigma_ga = robust_inverse(&k).expect("k should be invertible");
-        let mu_ga = &sigma_ga * &h;
-        let k_times_mu_ga = &k * &mu_ga;
-        let sigma_ga_det_final = sigma_ga.determinant();
-        let eta = (g + 0.5 * mu_ga.dot(&k_times_mu_ga)
-            + 0.5 * (2.0 * std::f64::consts::PI * sigma_ga_det_final).ln()).exp();
+        // Convert back to covariance form using helper
+        let fused = CanonicalGaussian { k, h, g };
+        let (mu_ga, sigma_ga, g_out) = from_canonical_form(&fused)
+            .expect("k should be invertible");
+        let eta = g_out.exp();
 
         // Geometric average of existence probability
         let mut numerator = eta;
@@ -267,11 +262,11 @@ pub fn pu_lmb_track_merging(
     // For each object
     for i in 0..number_of_objects {
         // Convert prior to canonical form (use first component only)
-        let k_prior = robust_inverse(&prior_objects[i].sigma[0])
-            .expect("prior sigma should be invertible");
-        let h_prior = &k_prior * &prior_objects[i].mu[0];
-        let g_prior = -0.5 * prior_objects[i].mu[0].dot(&(&k_prior * &prior_objects[i].mu[0]))
-            - 0.5 * (2.0 * std::f64::consts::PI * prior_objects[i].sigma[0].determinant()).ln();
+        let prior_canonical = to_canonical_form(
+            &prior_objects[i].mu[0],
+            &prior_objects[i].sigma[0],
+            1.0,
+        ).expect("prior sigma should be invertible");
 
         // Determine number of GM components from each sensor
         let mut num_gm_per_sensor = vec![0; number_of_sensors];
@@ -284,9 +279,9 @@ pub fn pu_lmb_track_merging(
 
         // Preallocate posterior mixture
         let decorr_factor = (1 - number_of_sensors as i32) as f64;
-        let mut k_components = vec![k_prior.clone() * decorr_factor; num_posterior_gm];
-        let mut h_components = vec![h_prior.clone() * decorr_factor; num_posterior_gm];
-        let mut g_components = vec![g_prior * decorr_factor; num_posterior_gm];
+        let mut k_components = vec![&prior_canonical.k * decorr_factor; num_posterior_gm];
+        let mut h_components = vec![&prior_canonical.h * decorr_factor; num_posterior_gm];
+        let mut g_components = vec![prior_canonical.g * decorr_factor; num_posterior_gm];
 
         // Combine sensor measurements
         for s in 0..number_of_sensors {
@@ -297,46 +292,40 @@ pub fn pu_lmb_track_merging(
 
             let mut ell = 0;
             for j in 0..num_gm_per_sensor[s] {
-                // Convert sensor component to canonical form
-                let w = sensor_objects[s][i].w[j];
-                let mu = &sensor_objects[s][i].mu[j];
-                let sigma = &sensor_objects[s][i].sigma[j];
-
-                let k_c = robust_inverse(sigma).expect("sigma should be invertible");
-                let h_c = &k_c * mu;
-                let quad_term = -0.5 * mu.dot(&(&k_c * mu));
-                let det_term = -0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln();
-                let weight_term = w.ln();
-                let g_c = quad_term + det_term + weight_term;
-
+                // Convert sensor component to canonical form using helper
+                let sensor_canonical = to_canonical_form(
+                    &sensor_objects[s][i].mu[j],
+                    &sensor_objects[s][i].sigma[j],
+                    sensor_objects[s][i].w[j],
+                ).expect("sigma should be invertible");
 
                 // Combine with existing mixture
                 for k in 0..current_mixture_size {
-                    k_components[ell] = &k_temp[k] + &k_c;
-                    h_components[ell] = &h_temp[k] + &h_c;
-                    g_components[ell] = g_temp[k] + g_c;
+                    k_components[ell] = &k_temp[k] + &sensor_canonical.k;
+                    h_components[ell] = &h_temp[k] + &sensor_canonical.h;
+                    g_components[ell] = g_temp[k] + sensor_canonical.g;
                     ell += 1;
                 }
             }
         }
 
-        // Convert back to covariance form and normalize
+        // Convert back to covariance form and normalize using helper
         let mut sigma_components = Vec::with_capacity(num_posterior_gm);
         let mut mu_components = Vec::with_capacity(num_posterior_gm);
         let mut weights = Vec::with_capacity(num_posterior_gm);
 
         for j in 0..num_posterior_gm {
-            let k_canonical = k_components[j].clone();  // T in MATLAB
-            let sigma = robust_inverse(&k_components[j]).expect("k_components should be invertible");
-            let mu = &sigma * &h_components[j];  // h{j} = K{j} * h{j} in MATLAB (line 70)
-            // MATLAB line 71: g(j) = g(j) + 0.5 * h{j}' * T * h{j} + 0.5 * log(det(2 * pi * K{j}))
-            // where h{j} is NOW mu (updated on line 70), T is K_canonical, and K{j} is Sigma
-            let g = g_components[j] + 0.5 * mu.dot(&(&k_canonical * &mu))
-                + 0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln();
+            let canonical = CanonicalGaussian {
+                k: k_components[j].clone(),
+                h: h_components[j].clone(),
+                g: g_components[j],
+            };
+            let (mu, sigma, g_out) = from_canonical_form(&canonical)
+                .expect("k_components should be invertible");
 
             sigma_components.push(sigma);
             mu_components.push(mu);
-            g_components[j] = g;
+            g_components[j] = g_out;
         }
 
         // Normalize weights

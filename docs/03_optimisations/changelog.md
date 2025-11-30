@@ -266,3 +266,59 @@ This document tracks code quality and performance improvements to the codebase.
 - `process_sensor_measurement()`: Would only be called from one place
 - `compute_marginal_association_probabilities()`: Murty implementations differ significantly between PU and IC
 - `update_object_trajectory()`: Already exists in `multisensor_lmb/utils.rs`
+
+---
+
+## 2025-12-01: Phase 14 - Constants Module
+
+**File**: `src/common/constants.rs` (NEW)
+
+**Changes**:
+- Created `constants.rs` module with named constants:
+  - `EPSILON_EXISTENCE: f64 = 1e-15` - threshold for near-zero existence probabilities
+  - `ESF_ADJUSTMENT: f64 = 1e-6` - adjustment to avoid unit existence probabilities
+  - `SVD_TOLERANCE: f64 = 1e-10` - tolerance for SVD pseudo-inverse
+  - `DEFAULT_LBP_TOLERANCE: f64 = 1e-6` - default LBP convergence tolerance
+  - `DEFAULT_GM_WEIGHT_THRESHOLD: f64 = 1e-6` - default GM pruning threshold
+- Updated `src/lmb/cardinality.rs` to use `EPSILON_EXISTENCE` and `ESF_ADJUSTMENT`
+- Updated `src/common/linalg.rs` to use `SVD_TOLERANCE`
+
+**Impact**:
+- Centralized magic numbers with documentation
+- Key files (`cardinality.rs`, `linalg.rs`) now use named constants
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: Magic numbers like `1e-15` and `1e-6` appeared throughout the codebase without clear documentation. By defining named constants with documentation, we improve code readability and maintainability. Full adoption is deferred as the priority was to create the reference module.
+
+---
+
+## 2025-12-01: Phase 15 - Helper Function Adoption
+
+**Files**:
+- `src/common/ground_truth.rs` (refactored)
+- `src/multisensor_lmb/merging.rs` (refactored)
+
+**Changes**:
+- `ground_truth.rs`: Updated to use Model accessor methods:
+  - `model.get_clutter_rate(Some(s))` instead of `model.clutter_rate_multisensor.as_ref().unwrap()[s]`
+  - `model.get_detection_probability(Some(s))` instead of `model.detection_probability_multisensor.as_ref().unwrap()[s]`
+  - `model.get_measurement_noise(Some(s))` instead of `model.q_multisensor.as_ref().unwrap()[s].clone()`
+  - `model.get_observation_matrix(Some(s))` instead of `model.c_multisensor.as_ref().unwrap()[s].clone()`
+- `merging.rs`: Updated GA merging to use canonical form helpers:
+  - `to_weighted_canonical_form(&nu, &t, sensor_weights[s])` replaces manual K, h, g computation
+  - `from_canonical_form(&fused)` replaces manual back-conversion
+- `merging.rs`: Updated PU merging to use canonical form helpers:
+  - `to_canonical_form(&mu, &sigma, weight)` for prior and sensor components
+  - `from_canonical_form(&canonical)` for back-conversion to moment form
+- Removed unused `robust_inverse` import from `merging.rs`
+
+**Impact**:
+- `ground_truth.rs`: 4 instances of `.as_ref().unwrap()` pattern removed
+- `merging.rs` GA function: ~15 lines cleaner
+- `merging.rs` PU function: ~20 lines cleaner
+- Canonical form helpers now actively used (not just in tests)
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: An audit revealed that helper functions from Phase 10 (Model accessors) and Phase 11 (canonical form helpers) were defined but not fully adopted. By updating `ground_truth.rs` and `merging.rs` to use these helpers, we ensure consistent behavior and demonstrate the value of the extracted utilities.
