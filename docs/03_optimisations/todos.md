@@ -19,6 +19,11 @@ This document tracks the progress of code deduplication and quality improvements
 | Phase 7 | Multisensor Association Helpers | ✅ Complete | Using robust_inverse(), log_gaussian_normalizing_constant() |
 | Phase 8 | Common Utility Functions | ✅ Complete | update_existence_missed_detection() helper |
 | Phase 9 | Track Merging Refactoring | ✅ Complete | Using robust_inverse() in GA/PU functions |
+| Phase 10 | Model Accessor Methods | ✅ Complete | Centralizing Option handling for multisensor params |
+| Phase 11 | Function Extraction | ⏳ Pending | Breaking up large functions into helpers |
+| Phase 12 | Remaining Deduplication | ⏳ Pending | Data association dispatch, trajectory update |
+| Phase 13 | API Standardization | ⏳ Pending | Consistent naming, parameter order, return types |
+| Phase 14 | Documentation & Constants | ⏳ Pending | Magic numbers, MATLAB reference comments |
 
 ---
 
@@ -260,6 +265,109 @@ This document tracks the progress of code deduplication and quality improvements
 - GA: Fuses in canonical form with moment matching
 - PU: Information form fusion with decorrelation
 The only shared code was the matrix inversion fallback logic, which is now centralized via `robust_inverse()`.
+
+---
+
+## Phase 10: Model Accessor Methods ✅ COMPLETE
+
+**File**: `src/common/types.rs` (Model impl block)
+
+**Problem**: Scattered `Option` handling for multi-sensor parameters throughout codebase:
+```rust
+let p_d = model.detection_probability_multisensor.as_ref()
+    .map(|v| v[sensor_idx])
+    .unwrap_or(model.detection_probability);
+```
+
+**Tasks**:
+- [x] Add `get_detection_probability(sensor_idx)` accessor
+- [x] Add `get_observation_matrix(sensor_idx)` accessor
+- [x] Add `get_measurement_noise(sensor_idx)` accessor
+- [x] Add `get_clutter_rate(sensor_idx)` accessor
+- [x] Add `get_clutter_per_unit_volume(sensor_idx)` accessor
+- [x] Add `is_multisensor()` helper
+- [x] Update `multisensor_lmb/association.rs` to use accessors
+- [x] Update `multisensor_lmbm/association.rs` to use accessors
+- [x] Update `multisensor_lmb/utils.rs` to use accessors
+- [x] Run all tests
+
+**Outcome**:
+- Added 6 accessor methods to Model impl block
+- Updated 3 files to use accessor methods instead of manual Option handling
+- All 175+ tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+---
+
+## Phase 11: Function Extraction ⏳ Pending
+
+**Goal**: Extract well-named helper functions from large functions/loops to improve readability.
+
+**Files**:
+- `src/multisensor_lmb/parallel_update.rs` (260 lines → extract sensor update, data association dispatch)
+- `src/multisensor_lmb/iterated_corrector.rs` (179 lines → share with parallel_update)
+- `src/multisensor_lmb/merging.rs` (130 lines PU → extract canonical form helpers)
+- `src/lmb/filter.rs`, `src/lmbm/filter.rs` (extract trajectory update)
+
+**Tasks**:
+- [ ] Extract `process_sensor_measurement()` from parallel_update.rs
+- [ ] Extract `compute_marginal_association_probabilities()` for data association dispatch
+- [ ] Extract `to_canonical_form()` / `from_canonical_form()` helpers for merging
+- [ ] Extract `update_object_trajectory()` helper for filter main loops
+- [ ] Run all tests
+
+**Expected benefit**: ~100 lines extracted into readable helpers
+
+---
+
+## Phase 12: Remaining Deduplication ⏳ Pending
+
+**Problem**: Data association dispatch duplicated between PU (~120 lines) and IC (~70 lines).
+
+**Tasks**:
+- [ ] Extract `dispatch_data_association()` to shared module
+- [ ] Handle PU vs IC Murty differences via parameter
+- [ ] Extract `update_object_trajectory()` to common/utils.rs
+- [ ] Add canonical form helpers to common/linalg.rs
+- [ ] Run all tests
+
+**Expected benefit**: ~90 lines deduplicated
+
+---
+
+## Phase 13: API Standardization ⏳ Pending
+
+**Goal**: Consistent naming, parameter order, and return types.
+
+**Naming changes**:
+- `lmb_prediction_step` → `predict_lmb` (with deprecated alias)
+- `generate_lmb_association_matrices` → `compute_lmb_association`
+- `compute_posterior_lmb_spatial_distributions` → `update_lmb_posterior`
+- Similar for LMBM functions
+
+**Parameter order**: `(state, config, metadata)` - state first, rng last
+
+**Return types**: Create `AssociationResult` struct for consistent returns
+
+**Tasks**:
+- [ ] Rename functions with deprecated aliases for old names
+- [ ] Standardize parameter order
+- [ ] Create unified return type structs
+- [ ] Add MATLAB reference comments to all functions
+- [ ] Run all tests
+
+---
+
+## Phase 14: Documentation & Constants ⏳ Pending
+
+**Tasks**:
+- [ ] Create `src/common/constants.rs` with magic numbers:
+  - `EPSILON_EXISTENCE: f64 = 1e-15`
+  - `EPSILON_ESF: f64 = 1e-6`
+  - `EPSILON_SVD: f64 = 1e-10`
+- [ ] Replace hard-coded magic numbers with constants
+- [ ] Add MATLAB reference comments to all public functions
+- [ ] Run all tests
 
 ---
 

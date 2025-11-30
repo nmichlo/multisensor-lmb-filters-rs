@@ -77,28 +77,22 @@ fn determine_log_likelihood_ratio(
         let mut c = DMatrix::zeros(z_dim_total, model.x_dimension);
         let mut q_blocks = Vec::new();
 
-        // Get per-sensor observation matrices and noise covariances
-        let c_multisensor = model.c_multisensor.as_ref()
-            .expect("Multisensor model must have per-sensor observation matrices");
-        let q_multisensor = model.q_multisensor.as_ref()
-            .expect("Multisensor model must have per-sensor measurement noise covariances");
-
+        // Stack measurements from detecting sensors using Model accessors
         let mut counter = 0;
         for s in 0..number_of_sensors {
             if assignments[s] {
                 let start = model.z_dimension * counter;
-                let _end = start + model.z_dimension;
 
                 // Copy measurement (a is 1-indexed: 0=miss, 1+=measurement, so subtract 1 for array access)
                 z.rows_mut(start, model.z_dimension)
                     .copy_from(&measurements[s][a[s] - 1]);
 
-                // Copy observation matrix for sensor s
+                // Copy observation matrix for sensor s using accessor
                 c.view_mut((start, 0), (model.z_dimension, model.x_dimension))
-                    .copy_from(&c_multisensor[s]);
+                    .copy_from(model.get_observation_matrix(Some(s)));
 
-                // Collect Q matrix for sensor s
-                q_blocks.push(q_multisensor[s].clone());
+                // Collect Q matrix for sensor s using accessor
+                q_blocks.push(model.get_measurement_noise(Some(s)).clone());
 
                 counter += 1;
             }
@@ -124,28 +118,23 @@ fn determine_log_likelihood_ratio(
         // Log Gaussian normalizing constant (uses Cholesky when possible)
         let eta = log_gaussian_normalizing_constant(&z_matrix, z_dim_total);
 
-        // Detection probabilities (use per-sensor values for multisensor)
-        let detection_probs = model.detection_probability_multisensor.as_ref()
-            .expect("Multisensor model must have per-sensor detection probabilities");
-
+        // Detection probabilities using accessor
         let mut pd_log = 0.0;
         for s in 0..number_of_sensors {
+            let p_d = model.get_detection_probability(Some(s));
             pd_log += if assignments[s] {
-                detection_probs[s].ln()
+                p_d.ln()
             } else {
-                (1.0 - detection_probs[s]).ln()
+                (1.0 - p_d).ln()
             };
         }
 
-        // Clutter per unit volume (use per-sensor values for multisensor)
-        let clutter_per_unit_volumes = model.clutter_per_unit_volume_multisensor.as_ref()
-            .expect("Multisensor model must have per-sensor clutter per unit volume");
-
+        // Clutter per unit volume using accessor
         let kappa_log: f64 = assignments
             .iter()
             .enumerate()
             .filter(|(_, &x)| x)
-            .map(|(s, _)| clutter_per_unit_volumes[s].ln())
+            .map(|(s, _)| model.get_clutter_per_unit_volume(Some(s)).ln())
             .sum();
 
         let l = hypothesis.r[i].ln() + pd_log + eta - 0.5 * nu.dot(&(&z_inv * &nu)) - kappa_log;
@@ -158,13 +147,10 @@ fn determine_log_likelihood_ratio(
 
         (l, r, mu, sigma)
     } else {
-        // All missed detections (use per-sensor detection probabilities)
-        let detection_probs = model.detection_probability_multisensor.as_ref()
-            .expect("Multisensor model must have per-sensor detection probabilities");
-
+        // All missed detections - compute probability using accessor
         let mut prob_no_detect = 1.0;
         for s in 0..number_of_sensors {
-            prob_no_detect *= 1.0 - detection_probs[s];
+            prob_no_detect *= 1.0 - model.get_detection_probability(Some(s));
         }
 
         let numerator = hypothesis.r[i] * prob_no_detect;

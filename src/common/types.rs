@@ -301,6 +301,72 @@ pub struct Model {
     pub ga_sensor_weights: Option<Vec<f64>>,
 }
 
+impl Model {
+    /// Get detection probability for sensor (or default for single-sensor)
+    ///
+    /// Centralizes the Option handling pattern previously repeated in:
+    /// - multisensor_lmb/association.rs
+    /// - multisensor_lmbm/association.rs
+    /// - multisensor_lmb/utils.rs
+    #[inline]
+    pub fn get_detection_probability(&self, sensor_idx: Option<usize>) -> f64 {
+        match (sensor_idx, &self.detection_probability_multisensor) {
+            (Some(s), Some(vec)) => vec[s],
+            _ => self.detection_probability,
+        }
+    }
+
+    /// Get observation matrix for sensor (or default for single-sensor)
+    ///
+    /// Originally: manual Option handling in association files
+    #[inline]
+    pub fn get_observation_matrix(&self, sensor_idx: Option<usize>) -> &DMatrix<f64> {
+        match (sensor_idx, &self.c_multisensor) {
+            (Some(s), Some(vec)) => &vec[s],
+            _ => &self.c,
+        }
+    }
+
+    /// Get measurement noise covariance for sensor (or default for single-sensor)
+    ///
+    /// Originally: manual Option handling in association files
+    #[inline]
+    pub fn get_measurement_noise(&self, sensor_idx: Option<usize>) -> &DMatrix<f64> {
+        match (sensor_idx, &self.q_multisensor) {
+            (Some(s), Some(vec)) => &vec[s],
+            _ => &self.q,
+        }
+    }
+
+    /// Get clutter rate for sensor (or default for single-sensor)
+    ///
+    /// Originally: manual Option handling in association files
+    #[inline]
+    pub fn get_clutter_rate(&self, sensor_idx: Option<usize>) -> f64 {
+        match (sensor_idx, &self.clutter_rate_multisensor) {
+            (Some(s), Some(vec)) => vec[s],
+            _ => self.clutter_rate,
+        }
+    }
+
+    /// Get clutter per unit volume for sensor (or default for single-sensor)
+    ///
+    /// Originally: manual Option handling in association files
+    #[inline]
+    pub fn get_clutter_per_unit_volume(&self, sensor_idx: Option<usize>) -> f64 {
+        match (sensor_idx, &self.clutter_per_unit_volume_multisensor) {
+            (Some(s), Some(vec)) => vec[s],
+            _ => self.clutter_per_unit_volume,
+        }
+    }
+
+    /// Check if this is a multi-sensor model
+    #[inline]
+    pub fn is_multisensor(&self) -> bool {
+        self.number_of_sensors.map(|n| n > 1).unwrap_or(false)
+    }
+}
+
 /// Measurement data
 ///
 /// Represents sensor measurements at a single time step

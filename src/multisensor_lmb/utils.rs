@@ -22,11 +22,8 @@ pub fn update_existence_no_measurements_sensor(
     sensor_index: usize,
     model: &Model,
 ) {
-    let p_d = model
-        .detection_probability_multisensor
-        .as_ref()
-        .map(|v| v[sensor_index])
-        .unwrap_or(model.detection_probability);
+    // Use Model accessor method for detection probability
+    let p_d = model.get_detection_probability(Some(sensor_index));
 
     for obj in objects {
         obj.r = update_existence_missed_detection(obj.r, p_d);

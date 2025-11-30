@@ -214,3 +214,29 @@ This document tracks code quality and performance improvements to the codebase.
 - MATLAB equivalence maintained
 
 **Rationale**: The GA and PU track merging functions had manual matrix inversion fallback chains (try_inverse → cholesky → SVD pseudo-inverse). By using the centralized `robust_inverse()` helper, we ensure consistent fallback behavior and reduce maintenance burden. The AA merging function was not modified as it doesn't require matrix inversion.
+
+---
+
+## 2025-12-01: Phase 10 - Model Accessor Methods
+
+**File**: `src/common/types.rs`
+
+**Changes**:
+- Added `impl Model` block with 6 accessor methods:
+  - `get_detection_probability(sensor_idx: Option<usize>)` - returns per-sensor or default
+  - `get_observation_matrix(sensor_idx: Option<usize>)` - returns per-sensor C matrix
+  - `get_measurement_noise(sensor_idx: Option<usize>)` - returns per-sensor Q matrix
+  - `get_clutter_rate(sensor_idx: Option<usize>)` - returns per-sensor clutter rate
+  - `get_clutter_per_unit_volume(sensor_idx: Option<usize>)` - returns per-sensor clutter density
+  - `is_multisensor()` - checks if model is multi-sensor
+- Updated `multisensor_lmb/association.rs` to use accessors (lines 83-88)
+- Updated `multisensor_lmbm/association.rs` to use accessors throughout
+- Updated `multisensor_lmb/utils.rs` to use accessor (line 26)
+
+**Impact**:
+- Centralized Option handling for multi-sensor parameters
+- Reduced ~15 lines of repetitive Option unwrapping code
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: The codebase had repetitive patterns like `model.detection_probability_multisensor.as_ref().map(|v| v[s]).unwrap_or(model.detection_probability)` in multiple files. By centralizing this logic in accessor methods, we ensure consistent behavior and reduce maintenance burden. The accessors take `Option<usize>` to handle both single-sensor (None) and multi-sensor (Some(idx)) cases uniformly.

@@ -80,19 +80,12 @@ pub fn generate_lmb_sensor_association_matrices(
     let number_of_objects = objects.len();
     let number_of_measurements = measurements.len();
 
-    // Get sensor-specific parameters (or fall back to single-sensor defaults)
-    let p_d = model.detection_probability_multisensor.as_ref()
-        .map(|v| v[sensor_idx])
-        .unwrap_or(model.detection_probability);
-    let clutter_pvu = model.clutter_per_unit_volume_multisensor.as_ref()
-        .map(|v| v[sensor_idx])
-        .unwrap_or(model.clutter_per_unit_volume);
-    let c_matrix = model.c_multisensor.as_ref()
-        .map(|v| &v[sensor_idx])
-        .unwrap_or(&model.c);
-    let q_matrix = model.q_multisensor.as_ref()
-        .map(|v| &v[sensor_idx])
-        .unwrap_or(&model.q);
+    // Get sensor-specific parameters using Model accessor methods
+    let sensor = Some(sensor_idx);
+    let p_d = model.get_detection_probability(sensor);
+    let clutter_pvu = model.get_clutter_per_unit_volume(sensor);
+    let c_matrix = model.get_observation_matrix(sensor);
+    let q_matrix = model.get_measurement_noise(sensor);
 
     // Auxiliary matrices
     let mut l_matrix = DMatrix::zeros(number_of_objects, number_of_measurements);
