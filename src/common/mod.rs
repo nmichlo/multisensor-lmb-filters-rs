@@ -5,6 +5,7 @@ This module contains data structures, model generation, ground truth simulation,
 data association algorithms, and evaluation metrics used across all filter implementations.
 */
 
+pub mod constants;
 pub mod types;
 pub mod model;
 pub mod ground_truth;

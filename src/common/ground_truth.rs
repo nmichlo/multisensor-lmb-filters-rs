@@ -344,7 +344,7 @@ pub fn generate_multisensor_ground_truth(
     // Add clutter measurements for each sensor
     for t in 0..simulation_length {
         for s in 0..number_of_sensors {
-            let clutter_rate = model.clutter_rate_multisensor.as_ref().unwrap()[s];
+            let clutter_rate = model.get_clutter_rate(Some(s));
             let num_clutter = rng.poissrnd(clutter_rate);
 
             // DEBUG: Print clutter at t=0
@@ -363,9 +363,7 @@ pub fn generate_multisensor_ground_truth(
         }
     }
 
-    let c_multisensor = model.c_multisensor.as_ref().unwrap();
-    let q_multisensor = model.q_multisensor.as_ref().unwrap();
-    let detection_probabilities = model.detection_probability_multisensor.as_ref().unwrap();
+    // Note: Using Model accessors in the loop below instead of extracting vectors here
 
     // Generate each object's trajectory and measurements
     for obj_idx in 0..num_objects {
@@ -403,7 +401,7 @@ pub fn generate_multisensor_ground_truth(
             // Generate measurements for each sensor
             let mut generated_measurement = vec![false; number_of_sensors];
             for s in 0..number_of_sensors {
-                generated_measurement[s] = rng.rand() < detection_probabilities[s];
+                generated_measurement[s] = rng.rand() < model.get_detection_probability(Some(s));
             }
 
             let num_detections: usize = generated_measurement.iter().filter(|&&x| x).count();
@@ -423,8 +421,10 @@ pub fn generate_multisensor_ground_truth(
                 for s in 0..number_of_sensors {
                     if generated_measurement[s] {
                         // Generate measurement with sensor-specific noise
-                        let noise = q_multisensor[s].clone().cholesky().unwrap().l() * DVector::from_fn(model.z_dimension, |_, _| rng.randn());
-                        let y = &c_multisensor[s] * &x + noise;
+                        let q_s = model.get_measurement_noise(Some(s));
+                        let c_s = model.get_observation_matrix(Some(s));
+                        let noise = q_s.clone().cholesky().unwrap().l() * DVector::from_fn(model.z_dimension, |_, _| rng.randn());
+                        let y = c_s * &x + noise;
                         if t == 1 {
                             eprintln!("  Adding detection to measurements[{}][{}]", s, t - 1);
                         }
@@ -434,8 +434,8 @@ pub fn generate_multisensor_ground_truth(
                         let start = model.z_dimension * counter;
                         z.view_mut((start, 0), (model.z_dimension, 1)).copy_from(&y);
                         c_stacked.view_mut((start, 0), (model.z_dimension, model.x_dimension))
-                            .copy_from(&c_multisensor[s]);
-                        q_blocks.push(q_multisensor[s].clone());
+                            .copy_from(c_s);
+                        q_blocks.push(q_s.clone());
                         counter += 1;
                     }
                 }

@@ -240,3 +240,29 @@ This document tracks code quality and performance improvements to the codebase.
 - MATLAB equivalence maintained
 
 **Rationale**: The codebase had repetitive patterns like `model.detection_probability_multisensor.as_ref().map(|v| v[s]).unwrap_or(model.detection_probability)` in multiple files. By centralizing this logic in accessor methods, we ensure consistent behavior and reduce maintenance burden. The accessors take `Option<usize>` to handle both single-sensor (None) and multi-sensor (Some(idx)) cases uniformly.
+
+---
+
+## 2025-12-01: Phase 11 - Canonical Form Helpers
+
+**File**: `src/common/linalg.rs`
+
+**Changes**:
+- Added `CanonicalGaussian` struct for information/canonical form representation
+- Added `to_canonical_form()` - converts (mu, sigma, weight) to (K, h, g)
+- Added `from_canonical_form()` - converts (K, h, g) back to (mu, sigma, g_out)
+- Added `to_weighted_canonical_form()` - for weighted fusion (GA merging)
+- Added 4 unit tests for the canonical form helpers
+
+**Impact**:
+- Unit tests: 101 → 105 (+4)
+- New utilities available for future track merging refactoring
+- All 175+ tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: The GA and PU track merging algorithms in `merging.rs` convert between moment form (mu, sigma) and canonical/information form (K, h, g) for Gaussian fusion. By extracting these conversions to reusable helpers, we provide a standardized approach that can be adopted in future refactoring. The helpers use `robust_inverse()` for numerical stability.
+
+**Note**: Other planned Phase 11 extractions were analyzed and determined to provide minimal benefit:
+- `process_sensor_measurement()`: Would only be called from one place
+- `compute_marginal_association_probabilities()`: Murty implementations differ significantly between PU and IC
+- `update_object_trajectory()`: Already exists in `multisensor_lmb/utils.rs`

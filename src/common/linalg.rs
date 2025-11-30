@@ -3,6 +3,7 @@
 //! Mathematical functions for Gaussian operations, matrix manipulations,
 //! and numerical computations required by the tracking algorithms.
 
+use crate::common::constants::SVD_TOLERANCE;
 use nalgebra::{DMatrix, DVector};
 use std::f64::consts::PI;
 
@@ -208,7 +209,7 @@ pub fn robust_inverse(matrix: &DMatrix<f64>) -> Option<DMatrix<f64>> {
 
     // Last resort: SVD pseudo-inverse
     let svd = matrix.clone().svd(true, true);
-    svd.pseudo_inverse(1e-10).ok()
+    svd.pseudo_inverse(SVD_TOLERANCE).ok()
 }
 
 /// Robustly solve linear system A*x = b with fallbacks
@@ -473,6 +474,120 @@ pub fn symmetrize(matrix: &DMatrix<f64>) -> DMatrix<f64> {
     0.5 * (matrix + matrix.transpose())
 }
 
+// ============================================================================
+// Canonical form helpers (for Gaussian fusion in track merging)
+// ============================================================================
+
+/// Canonical form parameters for a Gaussian component
+///
+/// Represents a Gaussian in information/canonical form:
+/// - K (precision matrix) = inv(Sigma)
+/// - h (canonical mean) = K * mu
+/// - g (log normalizing constant contribution)
+#[derive(Debug, Clone)]
+pub struct CanonicalGaussian {
+    /// Precision matrix K = inv(Sigma)
+    pub k: DMatrix<f64>,
+    /// Canonical mean h = K * mu
+    pub h: DVector<f64>,
+    /// Log normalizing constant contribution
+    pub g: f64,
+}
+
+/// Convert Gaussian from moment form to canonical form
+///
+/// Converts (mu, sigma, weight) to canonical parameters (K, h, g) where:
+/// - K = inv(Sigma)
+/// - h = K * mu
+/// - g = -0.5 * mu' * K * mu - 0.5 * ln(det(2*pi*Sigma)) + ln(weight)
+///
+/// This is used in covariance intersection and information-form fusion.
+///
+/// # Arguments
+/// * `mu` - State mean vector
+/// * `sigma` - State covariance matrix
+/// * `weight` - Mixture component weight (use 1.0 if not applicable)
+///
+/// # Returns
+/// Some(CanonicalGaussian) if sigma is invertible, None otherwise
+#[inline]
+pub fn to_canonical_form(
+    mu: &DVector<f64>,
+    sigma: &DMatrix<f64>,
+    weight: f64,
+) -> Option<CanonicalGaussian> {
+    let k = robust_inverse(sigma)?;
+    let h = &k * mu;
+
+    let det = sigma.determinant();
+    let quad_term = -0.5 * mu.dot(&(&k * mu));
+    let det_term = -0.5 * (2.0 * PI * det).ln();
+    let weight_term = if weight > 0.0 { weight.ln() } else { f64::NEG_INFINITY };
+    let g = quad_term + det_term + weight_term;
+
+    Some(CanonicalGaussian { k, h, g })
+}
+
+/// Convert Gaussian from canonical form to moment form
+///
+/// Converts canonical parameters (K, h, g) back to moment form (mu, sigma):
+/// - Sigma = inv(K)
+/// - mu = Sigma * h
+/// - g_out = g_in + 0.5 * mu' * K * mu + 0.5 * ln(det(2*pi*Sigma))
+///
+/// # Arguments
+/// * `canonical` - Canonical form parameters
+///
+/// # Returns
+/// Some((mu, sigma, g_out)) if K is invertible, None otherwise
+/// where g_out can be used to compute the unnormalized weight
+#[inline]
+pub fn from_canonical_form(
+    canonical: &CanonicalGaussian,
+) -> Option<(DVector<f64>, DMatrix<f64>, f64)> {
+    let sigma = robust_inverse(&canonical.k)?;
+    let mu = &sigma * &canonical.h;
+
+    let det = sigma.determinant();
+    let g_out = canonical.g
+        + 0.5 * mu.dot(&(&canonical.k * &mu))
+        + 0.5 * (2.0 * PI * det).ln();
+
+    Some((mu, sigma, g_out))
+}
+
+/// Convert Gaussian to weighted canonical form (for fusion with weights)
+///
+/// Converts (mu, sigma) to weighted canonical parameters where:
+/// - K = weight * inv(Sigma)
+/// - h = K * mu
+/// - g = -0.5 * mu' * K * mu - 0.5 * weight * ln(det(2*pi*Sigma))
+///
+/// This is used in weighted geometric average (GA) fusion.
+///
+/// # Arguments
+/// * `mu` - State mean vector
+/// * `sigma` - State covariance matrix
+/// * `weight` - Fusion weight (e.g., sensor weight for GA merging)
+///
+/// # Returns
+/// Some(CanonicalGaussian) if sigma is invertible, None otherwise
+#[inline]
+pub fn to_weighted_canonical_form(
+    mu: &DVector<f64>,
+    sigma: &DMatrix<f64>,
+    weight: f64,
+) -> Option<CanonicalGaussian> {
+    let sigma_inv = robust_inverse(sigma)?;
+    let k = &sigma_inv * weight;
+    let h = &k * mu;
+
+    let det = sigma.determinant();
+    let g = -0.5 * mu.dot(&(&k * mu)) - 0.5 * weight * (2.0 * PI * det).ln();
+
+    Some(CanonicalGaussian { k, h, g })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,5 +826,103 @@ mod tests {
         let r_pred = predict_existence(r, p_s);
 
         assert!((r_pred - 0.792).abs() < 1e-10);
+    }
+
+    // Tests for canonical form helpers
+
+    #[test]
+    fn test_to_canonical_form() {
+        let mu = DVector::from_vec(vec![1.0, 2.0]);
+        let sigma = DMatrix::from_row_slice(2, 2, &[2.0, 0.5, 0.5, 1.0]);
+        let weight = 1.0;
+
+        let canonical = to_canonical_form(&mu, &sigma, weight).expect("Should succeed");
+
+        // K = inv(Sigma)
+        let sigma_inv = robust_inverse(&sigma).unwrap();
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!((canonical.k[(i, j)] - sigma_inv[(i, j)]).abs() < 1e-10);
+            }
+        }
+
+        // h = K * mu
+        let expected_h = &sigma_inv * &mu;
+        for i in 0..2 {
+            assert!((canonical.h[i] - expected_h[i]).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_from_canonical_form() {
+        let mu = DVector::from_vec(vec![1.0, 2.0]);
+        let sigma = DMatrix::from_row_slice(2, 2, &[2.0, 0.5, 0.5, 1.0]);
+        let weight = 1.0;
+
+        // Round trip: moment -> canonical -> moment
+        let canonical = to_canonical_form(&mu, &sigma, weight).expect("Should succeed");
+        let (mu_back, sigma_back, _g_out) =
+            from_canonical_form(&canonical).expect("Should succeed");
+
+        // mu should be recovered
+        for i in 0..2 {
+            assert!((mu_back[i] - mu[i]).abs() < 1e-10);
+        }
+
+        // sigma should be recovered
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!((sigma_back[(i, j)] - sigma[(i, j)]).abs() < 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn test_to_weighted_canonical_form() {
+        let mu = DVector::from_vec(vec![1.0, 2.0]);
+        let sigma = DMatrix::identity(2, 2);
+        let weight = 0.5;
+
+        let canonical = to_weighted_canonical_form(&mu, &sigma, weight).expect("Should succeed");
+
+        // K = weight * inv(Sigma) = 0.5 * I
+        assert!((canonical.k[(0, 0)] - 0.5).abs() < 1e-10);
+        assert!((canonical.k[(1, 1)] - 0.5).abs() < 1e-10);
+
+        // h = K * mu = [0.5, 1.0]
+        assert!((canonical.h[0] - 0.5).abs() < 1e-10);
+        assert!((canonical.h[1] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_canonical_form_fusion() {
+        // Test that fusing two Gaussians in canonical form works correctly
+        let mu1 = DVector::from_vec(vec![1.0, 0.0]);
+        let sigma1 = DMatrix::identity(2, 2);
+
+        let mu2 = DVector::from_vec(vec![0.0, 1.0]);
+        let sigma2 = DMatrix::identity(2, 2);
+
+        // Convert to canonical form with equal weights
+        let c1 = to_weighted_canonical_form(&mu1, &sigma1, 0.5).unwrap();
+        let c2 = to_weighted_canonical_form(&mu2, &sigma2, 0.5).unwrap();
+
+        // Fuse by summing canonical parameters
+        let fused = CanonicalGaussian {
+            k: &c1.k + &c2.k,
+            h: &c1.h + &c2.h,
+            g: c1.g + c2.g,
+        };
+
+        // Convert back to moment form
+        let (mu_fused, sigma_fused, _g) = from_canonical_form(&fused).unwrap();
+
+        // With equal weights and equal covariances, mean should be average
+        assert!((mu_fused[0] - 0.5).abs() < 1e-10);
+        assert!((mu_fused[1] - 0.5).abs() < 1e-10);
+
+        // Fused covariance should be I (since K_fused = 0.5*I + 0.5*I = I)
+        assert!((sigma_fused[(0, 0)] - 1.0).abs() < 1e-10);
+        assert!((sigma_fused[(1, 1)] - 1.0).abs() < 1e-10);
     }
 }
