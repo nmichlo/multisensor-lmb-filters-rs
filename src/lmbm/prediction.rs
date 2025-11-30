@@ -22,6 +22,7 @@ use crate::common::types::{Hypothesis, Model};
 /// Matches MATLAB lmbmPredictionStep.m exactly:
 /// 1. Put existing Bernoulli components through the motion model
 /// 2. Add Bernoulli components for newly appearing objects
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmbm_prediction_step(mut hypothesis: Hypothesis, model: &Model, t: usize) -> Hypothesis {
     let number_of_objects = hypothesis.r.len();
 

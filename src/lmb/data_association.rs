@@ -20,6 +20,7 @@ use nalgebra::{DMatrix, DVector};
 /// Tuple of (r, W) where:
 /// - r: Posterior existence probabilities (n x 1)
 /// - W: Marginal association probabilities (n x (m+1))
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmb_lbp(
     association_result: &LmbAssociationResult,
     epsilon: f64,
@@ -37,6 +38,7 @@ pub fn lmb_lbp(
 ///
 /// # Returns
 /// Tuple of (r, W)
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmb_lbp_fixed(
     association_result: &LmbAssociationResult,
     max_iterations: usize,
@@ -54,6 +56,7 @@ pub fn lmb_lbp_fixed(
 ///
 /// # Returns
 /// Tuple of (r, W)
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmb_gibbs(
     rng: &mut impl crate::common::rng::Rng,
     association_result: &LmbAssociationResult,
@@ -83,6 +86,7 @@ pub fn lmb_gibbs(
 /// 1. Run Murty's algorithm to get K-best assignments
 /// 2. Compute marginal distributions from assignment events
 /// 3. Normalize and compute existence probabilities
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmb_murtys(
     association_result: &LmbAssociationResult,
     num_assignments: usize,

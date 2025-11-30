@@ -43,6 +43,7 @@ pub struct LmbStateEstimates {
 /// 3. Gate tracks by existence probability
 /// 4. MAP cardinality extraction
 /// 5. Update trajectories
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn run_lmb_filter(
     rng: &mut impl crate::common::rng::Rng,
     model: &Model,

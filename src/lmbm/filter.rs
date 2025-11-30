@@ -48,6 +48,7 @@ pub struct LmbmStateEstimates {
 /// 3. Gate trajectories by existence probability
 /// 4. State extraction using heuristic MAP
 /// 5. Update trajectories
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn run_lmbm_filter(
     rng: &mut impl crate::common::rng::Rng,
     model: &Model,

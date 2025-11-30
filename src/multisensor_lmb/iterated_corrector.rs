@@ -37,6 +37,7 @@ use nalgebra::{DMatrix, DVector};
 ///    - Update trajectories
 ///
 /// Key difference from PU-LMB: Sequential updates instead of parallel + fusion
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn run_ic_lmb_filter(
     rng: &mut impl crate::common::rng::Rng,
     model: &Model,

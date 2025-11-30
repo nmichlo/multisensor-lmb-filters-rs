@@ -57,6 +57,7 @@ pub struct MultisensorLmbmStateEstimates {
 ///    - Normalize and gate hypotheses
 ///    - Extract MAP state estimate
 ///    - Update trajectories
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn run_multisensor_lmbm_filter(
     rng: &mut impl crate::common::rng::Rng,
     model: &Model,

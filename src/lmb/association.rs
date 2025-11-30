@@ -54,6 +54,7 @@ pub struct LmbAssociationResult {
 /// 2. Compute auxiliary parameters phi(i) and eta(i)
 /// 3. Compute posterior GM components for each measurement association
 /// 4. Build association matrices for LBP, Gibbs, and Murty's
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn generate_lmb_association_matrices(
     objects: &[Object],
     measurements: &[DVector<f64>],

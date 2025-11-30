@@ -27,6 +27,7 @@ use nalgebra::DMatrix;
 /// 2. Compute hypothesis weight from log likelihoods
 /// 3. Set existence probabilities to 1 for detected objects
 /// 4. Select appropriate means and covariances from posterior parameters
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn determine_posterior_hypothesis_parameters(
     v: &DMatrix<usize>,
     l: &DMatrix<f64>,
@@ -117,6 +118,7 @@ pub fn determine_posterior_hypothesis_parameters(
 /// 4. Cap to maximum number of hypotheses
 /// 5. Compute total existence probability per object
 /// 6. Discard unlikely objects from all hypotheses
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmbm_normalisation_and_gating(
     posterior_hypotheses: Vec<Hypothesis>,
     model: &Model,
@@ -242,6 +244,7 @@ pub fn lmbm_normalisation_and_gating(
 /// Matches MATLAB lmbmStateExtraction.m exactly:
 /// - EAP: floor(sum(r_total)), then select top-k objects by existence probability from first hypothesis
 /// - MAP: Use LMB MAP cardinality estimator on total existence probabilities
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmbm_state_extraction(
     hypotheses: &[Hypothesis],
     use_eap_on_lmbm: bool,

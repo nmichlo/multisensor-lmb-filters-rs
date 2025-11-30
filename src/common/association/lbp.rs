@@ -39,6 +39,7 @@ pub struct AssociationMatrices {
 ///
 /// # Returns
 /// LbpResult with posterior existence probabilities and association weights
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn loopy_belief_propagation(
     matrices: &AssociationMatrices,
     epsilon: f64,

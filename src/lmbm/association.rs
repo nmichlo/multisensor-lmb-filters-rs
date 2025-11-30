@@ -56,6 +56,7 @@ pub struct LmbmAssociationResult {
 /// 2. Compute auxiliary variables phi and eta
 /// 3. Compute posterior parameters for miss and each measurement
 /// 4. Build association matrices P, L, C
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn generate_lmbm_association_matrices(
     hypothesis: &Hypothesis,
     measurements: &[DVector<f64>],
@@ -214,6 +215,7 @@ pub fn generate_lmbm_association_matrices(
 /// 1. Initialize association vectors using Hungarian algorithm
 /// 2. Generate Gibbs samples
 /// 3. Return only unique samples
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmbm_gibbs_sampling(
     rng: &mut impl crate::common::rng::Rng,
     p: &DMatrix<f64>,

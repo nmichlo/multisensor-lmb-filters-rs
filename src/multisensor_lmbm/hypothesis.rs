@@ -29,6 +29,7 @@ use nalgebra::{DMatrix, DVector};
 ///    - Determine linear indices for all objects
 ///    - Compute hypothesis weight: log(prior.w) + sum(L(ell))
 ///    - Extract posterior parameters using linear indices
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn determine_multisensor_posterior_hypothesis_parameters(
     a: &DMatrix<usize>,
     l: &[f64],

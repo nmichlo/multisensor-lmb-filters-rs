@@ -24,6 +24,7 @@ use std::collections::HashSet;
 /// 1. Initialize V (n x S) and W (max(m) x S) association matrices
 /// 2. For each sample: call generateMultisensorAssociationEvent
 /// 3. Store and keep only unique association events
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn multisensor_lmbm_gibbs_sampling(
     rng: &mut impl crate::common::rng::Rng,
     l: &[f64],

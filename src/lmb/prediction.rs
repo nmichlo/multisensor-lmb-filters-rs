@@ -25,6 +25,7 @@ use crate::common::types::{Model, Object};
 ///    - Predict means: mu' = A * mu + u
 ///    - Predict covariances: Sigma' = A * Sigma * A' + R
 /// 2. Add Bernoulli components for newly appearing objects
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmb_prediction_step(mut objects: Vec<Object>, model: &Model, t: usize) -> Vec<Object> {
     // Put existing Bernoulli components through the motion model
     for obj in &mut objects {

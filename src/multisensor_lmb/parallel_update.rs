@@ -57,6 +57,7 @@ pub struct ParallelUpdateStateEstimates {
 /// 1. Update existence probability
 /// 2. Reweight measurement-updated GMs using marginal association probabilities
 /// 3. Apply crude mixture reduction (sort, discard, cap)
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn compute_posterior_lmb_spatial_distributions_multisensor(
     mut objects: Vec<Object>,
     r: &[f64],
@@ -141,6 +142,7 @@ pub fn compute_posterior_lmb_spatial_distributions_multisensor(
 ///    - Gate tracks
 ///    - MAP cardinality extraction
 ///    - Update trajectories
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn run_parallel_update_lmb_filter(
     rng: &mut impl crate::common::rng::Rng,
     model: &Model,

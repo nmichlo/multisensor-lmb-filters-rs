@@ -56,6 +56,7 @@ fn convert_from_linear_to_cartesian(mut ell: usize, page_sizes: &[usize]) -> Vec
 ///
 /// # Returns
 /// Tuple of (log likelihood, existence prob, mean, covariance)
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 fn determine_log_likelihood_ratio(
     i: usize,
     a: &[usize],
@@ -200,6 +201,7 @@ fn determine_log_likelihood_ratio(
 /// - L has dimensions (m1+1, m2+1, ..., ms+1, n)
 /// - Flattened to 1D vector for memory efficiency
 /// - Posterior parameters also flattened
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn generate_multisensor_lmbm_association_matrices(
     hypothesis: &Hypothesis,
     measurements: &[Vec<DVector<f64>>],

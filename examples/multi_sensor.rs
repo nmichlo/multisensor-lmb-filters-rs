@@ -36,6 +36,7 @@ struct Args {
     scenario_type: String,
 }
 
+#[cfg_attr(feature = "hotpath", hotpath::main(limit = 30, percentiles = [50, 95, 99]))]
 fn main() {
     let args = Args::parse();
 

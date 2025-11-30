@@ -31,6 +31,7 @@ use nalgebra::{DMatrix, DVector};
 ///    - Sort weights descending
 ///    - Discard components below threshold
 ///    - Cap to maximum number of components
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn compute_posterior_lmb_spatial_distributions(
     mut objects: Vec<Object>,
     r: &DVector<f64>,
@@ -105,6 +106,7 @@ pub fn compute_posterior_lmb_spatial_distributions(
 /// # Implementation Notes
 /// Matches MATLAB runLmbFilter.m lines 54-56:
 /// r' = r * (1 - p_D) / (1 - r * p_D)
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn update_no_measurements(mut objects: Vec<Object>, detection_probability: f64) -> Vec<Object> {
     for obj in &mut objects {
         obj.r = (obj.r * (1.0 - detection_probability)) / (1.0 - obj.r * detection_probability);

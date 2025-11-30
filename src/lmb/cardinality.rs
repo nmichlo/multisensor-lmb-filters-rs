@@ -20,6 +20,7 @@
 /// Matches MATLAB esf.m exactly using Mahler's recursive formula:
 /// - F(n,k) = F(n-1,k) + z(n)*F(n-1,k-1)
 /// - Uses two-row buffer to save memory
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn elementary_symmetric_function(z: &[f64]) -> Vec<f64> {
     if z.is_empty() {
         return vec![1.0];
@@ -73,6 +74,7 @@ pub fn elementary_symmetric_function(z: &[f64]) -> Vec<f64> {
 /// 2. Find maximum of rho
 /// 3. Cap to number of objects
 /// 4. Return indices of n_map largest existence probabilities
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
     if r.is_empty() {
         return (0, Vec::new());
