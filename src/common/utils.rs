@@ -113,6 +113,26 @@ pub fn prune_gaussian_mixture(
     }
 }
 
+/// Update existence probability for missed detection
+///
+/// Computes the Bayesian update when no measurement is associated to an object.
+/// Formula: r' = r*(1-p_d) / (1 - r*p_d)
+///
+/// # Arguments
+/// * `r` - Prior existence probability
+/// * `detection_probability` - Detection probability p_d
+///
+/// # Returns
+/// Updated existence probability
+///
+/// # Implementation Notes
+/// Matches MATLAB runLmbFilter.m lines 54-56:
+/// r' = r * (1 - p_D) / (1 - r * p_D)
+#[inline]
+pub fn update_existence_missed_detection(r: f64, detection_probability: f64) -> f64 {
+    (r * (1.0 - detection_probability)) / (1.0 - r * detection_probability)
+}
+
 /// Prune objects by existence probability
 ///
 /// Filters objects with existence probability below threshold.
@@ -211,6 +231,20 @@ pub fn prune_hypotheses(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_update_existence_missed_detection() {
+        // r' = r*(1-p_d) / (1 - r*p_d)
+        // For r=0.8, p_d=0.9: 0.8*0.1 / (1 - 0.8*0.9) = 0.08/0.28 ≈ 0.2857
+        let r = update_existence_missed_detection(0.8, 0.9);
+        let expected = (0.8 * 0.1) / (1.0 - 0.8 * 0.9);
+        assert!((r - expected).abs() < 1e-10);
+
+        // For r=0.5, p_d=0.5: 0.5*0.5 / (1 - 0.5*0.5) = 0.25/0.75 ≈ 0.3333
+        let r = update_existence_missed_detection(0.5, 0.5);
+        let expected = (0.5 * 0.5) / (1.0 - 0.5 * 0.5);
+        assert!((r - expected).abs() < 1e-10);
+    }
 
     #[test]
     fn test_prune_gaussian_mixture_simple() {

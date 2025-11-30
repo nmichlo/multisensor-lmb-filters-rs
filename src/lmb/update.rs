@@ -4,7 +4,7 @@
 //! Matches MATLAB computePosteriorLmbSpatialDistributions.m exactly.
 
 use crate::common::types::{Model, Object};
-use crate::common::utils::prune_gaussian_mixture;
+use crate::common::utils::{prune_gaussian_mixture, update_existence_missed_detection};
 use crate::lmb::association::PosteriorParameters;
 use nalgebra::{DMatrix, DVector};
 
@@ -109,7 +109,7 @@ pub fn compute_posterior_lmb_spatial_distributions(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn update_no_measurements(mut objects: Vec<Object>, detection_probability: f64) -> Vec<Object> {
     for obj in &mut objects {
-        obj.r = (obj.r * (1.0 - detection_probability)) / (1.0 - obj.r * detection_probability);
+        obj.r = update_existence_missed_detection(obj.r, detection_probability);
     }
     objects
 }

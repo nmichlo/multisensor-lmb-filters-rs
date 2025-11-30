@@ -171,3 +171,26 @@ This document tracks code quality and performance improvements to the codebase.
 - MATLAB equivalence maintained
 
 **Rationale**: The multisensor association files had manually implemented matrix inversion fallbacks and Gaussian normalizing constant computation. By using the centralized helpers from `linalg.rs`, we ensure consistent behavior and reduce maintenance burden. The full `compute_measurement_log_likelihood()` helper was not applicable because multisensor likelihood computation involves stacked measurement vectors and block diagonal noise covariances.
+
+---
+
+## 2025-11-30: Phase 8 - Common Utility Functions
+
+**Files**:
+- `src/common/utils.rs` (added helper)
+- `src/lmb/update.rs` (refactored)
+- `src/multisensor_lmb/utils.rs` (refactored)
+
+**Changes**:
+- Added `update_existence_missed_detection()` helper function to `common/utils.rs`
+- Refactored `lmb/update.rs::update_no_measurements()` to use the helper
+- Refactored `multisensor_lmb/utils.rs::update_existence_no_measurements_sensor()` to use the helper
+- Added 1 unit test for the helper function
+
+**Impact**:
+- Unit tests: 101 → 102 (+1)
+- Centralized the missed detection formula: r' = r*(1-p_d) / (1 - r*p_d)
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: The missed detection existence update formula was duplicated across multiple files. By centralizing it in `common/utils.rs`, we ensure consistent behavior and reduce maintenance burden. Trajectory update helpers were not added as the logic differs significantly between single-sensor and multi-sensor contexts.

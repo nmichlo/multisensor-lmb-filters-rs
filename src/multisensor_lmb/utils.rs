@@ -4,6 +4,7 @@
 //! to reduce code duplication while maintaining MATLAB equivalence.
 
 use crate::common::types::{Model, Object, Trajectory};
+use crate::common::utils::update_existence_missed_detection;
 use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use nalgebra::{DMatrix, DVector};
 
@@ -28,7 +29,7 @@ pub fn update_existence_no_measurements_sensor(
         .unwrap_or(model.detection_probability);
 
     for obj in objects {
-        obj.r = (obj.r * (1.0 - p_d)) / (1.0 - obj.r * p_d);
+        obj.r = update_existence_missed_detection(obj.r, p_d);
     }
 }
 
