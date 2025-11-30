@@ -3,8 +3,9 @@
 //! Implements helper functions for comparing LBP/Gibbs approximations
 //! against exact Murty's algorithm marginals.
 
-use nalgebra::{DMatrix, DVector};
+use prak::common::types::{DMatrix, DVector, MatrixExt};
 use prak::common::rng::Rng;
+use ndarray_linalg::{Cholesky, Determinant, Inverse, UPLO};
 
 /// Calculate the total number of association events for n objects and m measurements
 ///
@@ -132,7 +133,7 @@ pub fn average_hellinger_distance(p: &DMatrix<f64>, q: &DMatrix<f64>) -> f64 {
         for j in 0..p.ncols() {
             bc += (p[(i, j)] * q[(i, j)]).sqrt();
         }
-        let h_dist = (1.0 - bc).max(0.0).sqrt();
+        let h_dist: f64 = (1.0 - bc).max(0.0).sqrt();
         h_sum += h_dist;
     }
 
@@ -184,7 +185,7 @@ pub fn generate_simplified_model(
     let mut sigma = Vec::with_capacity(num_objects);
     for _ in 0..num_objects {
         // Generate random Q matrix
-        let mut q_mat = DMatrix::zeros(x_dim, x_dim);
+        let mut q_mat = DMatrix::zeros((x_dim, x_dim));
         for i in 0..x_dim {
             for j in 0..x_dim {
                 q_mat[(i, j)] = rng.randn();
@@ -204,7 +205,7 @@ pub fn generate_simplified_model(
     }
 
     // Measurement model
-    let mut c_mat = DMatrix::zeros(z_dim, x_dim);
+    let mut c_mat = DMatrix::zeros((z_dim, x_dim));
     for i in 0..z_dim.min(x_dim) {
         c_mat[(i, i)] = 1.0;
     }
@@ -321,7 +322,7 @@ pub fn generate_association_matrices(
             for d in 0..model.z_dim {
                 noise[d] = rng.randn();
             }
-            let z = &model.c * &model.mu[i] + &q_chol * noise;
+            let z = model.c.dot(&model.mu[i]) + q_chol.dot(&noise);
             measurements.push(z);
         }
     }
@@ -342,23 +343,29 @@ pub fn generate_association_matrices(
     let n = model.num_objects;
     let m = num_measurements;
 
-    let mut l_mat = DMatrix::zeros(n, m);
+    let mut l_mat = DMatrix::zeros((n, m));
 
     for i in 0..n {
         // Marginal distribution
-        let mu_pred = &model.c * &model.mu[i];
-        let s = &model.c * &model.sigma[i] * model.c.transpose() + &model.q;
+        let mu_pred = model.c.dot(&model.mu[i]);
+        let s = model.c.dot(&model.sigma[i]).dot(&model.c.t()) + &model.q;
 
         // Compute K = S^{-1} using Cholesky decomposition
-        let k = match s.clone().cholesky() {
-            Some(chol) => chol.inverse(),
-            None => {
+        let k = match s.clone().cholesky(UPLO::Lower) {
+            Ok(chol) => match chol.inv() {
+                Ok(inv) => inv,
+                Err(_) => continue,
+            },
+            Err(_) => {
                 // If singular, skip this object
                 continue;
             }
         };
 
-        let det_k = k.determinant();
+        let det_k = match k.det() {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
         if det_k <= 0.0 {
             continue;
         }
@@ -369,18 +376,17 @@ pub fn generate_association_matrices(
         for j in 0..m {
             let nu = &measurements[j] - &mu_pred;
             let mahalanobis = nu.dot(&(&k * &nu));
+            let exp_term: f64 = (-0.5 * mahalanobis).exp();
             l_mat[(i, j)] = model.r[i] * model.detection_prob * normalizing_constant
-                          * (-0.5 * mahalanobis).exp() / model.clutter_density;
+                          * exp_term / model.clutter_density;
         }
     }
 
     // LBP association matrices
-    let eta = DVector::from_iterator(n,
-        model.r.iter().map(|&r| 1.0 - model.detection_prob * r));
-    let phi = DVector::from_iterator(n,
-        model.r.iter().map(|&r| (1.0 - model.detection_prob) * r));
+    let eta: DVector = model.r.iter().map(|&r| 1.0 - model.detection_prob * r).collect();
+    let phi: DVector = model.r.iter().map(|&r| (1.0 - model.detection_prob) * r).collect();
 
-    let mut psi = DMatrix::zeros(n, m);
+    let mut psi = DMatrix::zeros((n, m));
     for i in 0..n {
         for j in 0..m {
             psi[(i, j)] = l_mat[(i, j)] / eta[i];
@@ -388,7 +394,7 @@ pub fn generate_association_matrices(
     }
 
     // Gibbs matrices
-    let mut p = DMatrix::zeros(n, m);
+    let mut p = DMatrix::zeros((n, m));
     for i in 0..n {
         for j in 0..m {
             p[(i, j)] = l_mat[(i, j)] / (eta[i] + l_mat[(i, j)]);

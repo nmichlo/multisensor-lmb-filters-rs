@@ -82,7 +82,7 @@ fn main() {
                 model.lbp_convergence_tolerance,
                 model.maximum_number_of_lbp_iterations,
             );
-            let r = lbp_result.r.as_slice().to_vec();
+            let r = lbp_result.r.to_vec();
             let w = lbp_result.w;
 
             println!("Posterior existence (r) from LBP:");

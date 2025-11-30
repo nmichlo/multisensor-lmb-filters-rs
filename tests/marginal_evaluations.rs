@@ -17,7 +17,7 @@ use test_utils::{
     generate_simplified_model,
 };
 
-use nalgebra::DMatrix;
+use prak::common::types::DMatrix;
 use prak::common::association::lbp::{loopy_belief_propagation, AssociationMatrices};
 use prak::common::association::murtys::murtys_algorithm_wrapper;
 use prak::common::rng::SimpleRng;
@@ -72,7 +72,7 @@ fn compute_exact_marginals_murty(
     }
 
     // Determine marginals: J = reshape(associationMatrices.L(ell), numberOfEvents, n)
-    let mut j = DMatrix::zeros(num_events, n);
+    let mut j = DMatrix::zeros((num_events, n));
     for event_idx in 0..num_events {
         for i in 0..n {
             let row = i;
@@ -84,7 +84,7 @@ fn compute_exact_marginals_murty(
     // W = repmat(V, 1, 1, n+1) == reshape(0:n, 1, 1, n+1)
     // This creates a 3D array where W(:,:,k) indicates which assignments equal k-1
     // We'll compute this for each measurement index
-    let mut w_3d = vec![DMatrix::zeros(num_events, n); m + 1];
+    let mut w_3d = vec![DMatrix::zeros((num_events, n)); m + 1];
     for k in 0..=m {
         for event_idx in 0..num_events {
             for i in 0..n {
@@ -134,7 +134,7 @@ fn compute_exact_marginals_murty(
     }
 
     // Existence probabilities: rMurty = sum(Tau, 2)
-    let mut r_murty = DMatrix::zeros(n, 2);
+    let mut r_murty = DMatrix::zeros((n, 2));
     for i in 0..n {
         let r_exist: f64 = tau.row(i).iter().sum();
         r_murty[(i, 0)] = 1.0 - r_exist;
@@ -142,7 +142,7 @@ fn compute_exact_marginals_murty(
     }
 
     // Marginal association probabilities: WMurty = Tau ./ rMurty
-    let mut w_murty = DMatrix::zeros(n, m + 1);
+    let mut w_murty = DMatrix::zeros((n, m + 1));
     for i in 0..n {
         let r_exist = r_murty[(i, 1)];
         if r_exist > 1e-15 {
@@ -179,7 +179,7 @@ fn compute_approximate_marginals_lbp(
     let n = result.r.len();
 
     // Convert r to matrix format [1-r, r]
-    let mut r_lbp = DMatrix::zeros(n, 2);
+    let mut r_lbp = DMatrix::zeros((n, 2));
     for i in 0..n {
         r_lbp[(i, 0)] = 1.0 - result.r[i];
         r_lbp[(i, 1)] = result.r[i];

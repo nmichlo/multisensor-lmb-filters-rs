@@ -7,7 +7,7 @@ use prak::lmb::association::generate_lmb_association_matrices;
 use prak::lmb::prediction::lmb_prediction_step;
 use prak::lmb::update::compute_posterior_lmb_spatial_distributions;
 use prak::common::association::murtys::murtys_algorithm_wrapper;
-use nalgebra::DMatrix;
+use prak::common::types::DMatrix;
 
 #[test]
 fn extract_sigma_t64() {
@@ -52,7 +52,7 @@ fn extract_sigma_t64() {
                 let k = v.nrows();
 
                 // Determine marginal distributions (from data_association.rs lines 98-150)
-                let mut w_indicator = vec![DMatrix::zeros(k, n); m + 1];
+                let mut w_indicator = vec![DMatrix::zeros((k, n)); m + 1];
                 for meas_idx in 0..=m {
                     for i in 0..k {
                         for j in 0..n {
@@ -63,7 +63,7 @@ fn extract_sigma_t64() {
                     }
                 }
 
-                let mut j_matrix = DMatrix::zeros(k, n);
+                let mut j_matrix = DMatrix::zeros((k, n));
                 for i in 0..k {
                     for obj_idx in 0..n {
                         let meas_idx = v[(i, obj_idx)];
@@ -73,7 +73,7 @@ fn extract_sigma_t64() {
 
                 let mut l_marg = Vec::with_capacity(m + 1);
                 for meas_idx in 0..=m {
-                    let mut l_col = nalgebra::DVector::zeros(n);
+                    let mut l_col = DVector::zeros(n);
                     for obj_idx in 0..n {
                         let mut sum = 0.0;
                         for event_idx in 0..k {

@@ -1,4 +1,4 @@
-use nalgebra::DMatrix;
+use prak::common::types::{DMatrix, MatrixExt};
 use prak::common::association::gibbs::{lmb_gibbs_frequency_sampling, GibbsAssociationMatrices};
 use prak::common::rng::SimpleRng;
 

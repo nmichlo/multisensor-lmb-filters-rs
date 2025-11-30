@@ -5,7 +5,8 @@
 //!
 //! Matches MATLAB marginalEvalulations/evaluateMarginalDistributions.m
 
-use nalgebra::DMatrix;
+use ndarray::Array2;
+use prak::common::types::DMatrix;
 use prak::common::metrics::{average_hellinger_distance, average_kl_divergence};
 use prak::common::rng::SimpleRng;
 use prak::common::types::{DataAssociationMethod, ScenarioType};
@@ -16,9 +17,9 @@ use prak::common::ground_truth::generate_ground_truth;
 use prak::lmb::prediction::lmb_prediction_step;
 
 /// Convert existence probability r to a 2-element distribution [1-r, r]
-fn r_to_distribution(r: &[f64]) -> DMatrix<f64> {
+fn r_to_distribution(r: &[f64]) -> DMatrix {
     let n = r.len();
-    let mut dist = DMatrix::zeros(n, 2);
+    let mut dist = DMatrix::zeros((n, 2));
     for i in 0..n {
         dist[(i, 0)] = 1.0 - r[i];
         dist[(i, 1)] = r[i];
@@ -89,14 +90,14 @@ fn compare_algorithms(
     let (r_murty, w_murty, _) = lmb_murtys(&association_result, num_murty_assignments);
 
     // Compute metrics: Gibbs vs LBP
-    let r_kl_gibbs = r_kl_divergence(r_lbp.as_slice(), r_gibbs.as_slice());
-    let r_h_gibbs = r_hellinger_distance(r_lbp.as_slice(), r_gibbs.as_slice());
+    let r_kl_gibbs = r_kl_divergence(r_lbp.as_slice().unwrap(), r_gibbs.as_slice().unwrap());
+    let r_h_gibbs = r_hellinger_distance(r_lbp.as_slice().unwrap(), r_gibbs.as_slice().unwrap());
     let w_kl_gibbs = average_kl_divergence(&w_lbp, &w_gibbs);
     let w_h_gibbs = average_hellinger_distance(&w_lbp, &w_gibbs);
 
     // Compute metrics: Murty vs LBP
-    let r_kl_murty = r_kl_divergence(r_lbp.as_slice(), r_murty.as_slice());
-    let r_h_murty = r_hellinger_distance(r_lbp.as_slice(), r_murty.as_slice());
+    let r_kl_murty = r_kl_divergence(r_lbp.as_slice().unwrap(), r_murty.as_slice().unwrap());
+    let r_h_murty = r_hellinger_distance(r_lbp.as_slice().unwrap(), r_murty.as_slice().unwrap());
     let w_kl_murty = average_kl_divergence(&w_lbp, &w_murty);
     let w_h_murty = average_hellinger_distance(&w_lbp, &w_murty);
 

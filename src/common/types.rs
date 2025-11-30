@@ -12,12 +12,22 @@ pub type DMatrix<T> = Array2<T>;
 // Helper trait to provide nalgebra-like constructors
 pub trait MatrixExt<T> {
     fn from_row_slice(nrows: usize, ncols: usize, data: &[T]) -> Self;
+    fn from_fn<F>(nrows: usize, ncols: usize, f: F) -> Self
+    where
+        F: FnMut(usize, usize) -> T;
 }
 
 impl<T: Clone> MatrixExt<T> for Array2<T> {
     fn from_row_slice(nrows: usize, ncols: usize, data: &[T]) -> Self {
         Array2::from_shape_vec((nrows, ncols), data.to_vec())
             .expect("Invalid shape for from_row_slice")
+    }
+
+    fn from_fn<F>(nrows: usize, ncols: usize, mut f: F) -> Self
+    where
+        F: FnMut(usize, usize) -> T,
+    {
+        Array2::from_shape_fn((nrows, ncols), |(i, j)| f(i, j))
     }
 }
 

@@ -10,7 +10,7 @@
 //!
 //! Tolerance: 1e-15 (within floating point precision)
 
-use nalgebra::{DMatrix, DVector};
+use prak::common::types::{DMatrix, DVector};
 use prak::common::ground_truth::generate_ground_truth;
 use prak::common::model::generate_model;
 use prak::common::rng::SimpleRng;

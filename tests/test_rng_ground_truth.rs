@@ -2,7 +2,8 @@
 use prak::common::model::generate_model;
 use prak::common::rng::{Rng, SimpleRng};
 use prak::common::types::{DataAssociationMethod, ScenarioType};
-use nalgebra::{Cholesky, DVector};
+use ndarray_linalg::{Cholesky, UPLO};
+use prak::common::types::DVector;
 
 #[test]
 fn test_rng_ground_truth_seed42() {
@@ -23,7 +24,7 @@ fn test_rng_ground_truth_seed42() {
     let simulation_length = 3;  // Only first 3 timesteps
     let mut measurements: Vec<Vec<DVector<f64>>> = vec![Vec::new(); simulation_length];
 
-    let q_chol = Cholesky::new(model.q.clone()).expect("Q must be positive definite");
+    let q_chol = model.q.clone().cholesky(UPLO::Lower).expect("Q must be positive definite");
 
     println!("\n=== Rust RNG Trace for Seed 42, First 3 Timesteps ===\n");
 
@@ -36,7 +37,7 @@ fn test_rng_ground_truth_seed42() {
 
         for j in 0..num_clutter {
             let mut rand_vec = Vec::new();
-            let mut z = DVector::zeros(model.z_dimension);
+            let mut z = DVector::zeros(model.z_dimension as usize);
             for d in 0..model.z_dimension {
                 let r = rng.rand();
                 rand_vec.push(r);

@@ -29,7 +29,7 @@ use prak::multisensor_lmbm::association::{generate_multisensor_lmbm_association_
 use prak::multisensor_lmbm::gibbs::multisensor_lmbm_gibbs_sampling;
 use prak::multisensor_lmbm::hypothesis::determine_multisensor_posterior_hypothesis_parameters;
 
-use nalgebra::{DMatrix, DVector};
+use prak::common::types::{DMatrix, DVector, MatrixExt};
 
 const TOLERANCE: f64 = 1e-10; // Exact numerical equivalence
 
@@ -547,7 +547,7 @@ fn object_data_to_rust(obj_data: &ObjectData) -> Object {
         mu,
         sigma,
         trajectory_length: 0,
-        trajectory: DMatrix::zeros(x_dim, 100),
+        trajectory: DMatrix::zeros((x_dim, 100)),
         timestamps: Vec::new(),
     }
 }
@@ -572,7 +572,7 @@ fn model_data_to_rust(model_data: &ModelData) -> Model {
         c: DMatrix::from_row_slice(z_dim, x_dim, &model_data.c.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
         q: DMatrix::from_row_slice(z_dim, z_dim, &model_data.q.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
         detection_probability: model_data.p_d,
-        observation_space_limits: DMatrix::zeros(2, 2),
+        observation_space_limits: DMatrix::zeros((2, 2)),
         observation_space_volume: 40000.0,
         clutter_rate: 5.0,
         clutter_per_unit_volume: model_data.clutter_per_unit_volume,
@@ -673,7 +673,7 @@ fn multisensor_model_data_to_rust(model_data: &MultisensorModelData, sensor_idx:
         c: DMatrix::from_row_slice(z_dim, x_dim, &model_data.c[sensor_idx].iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
         q: DMatrix::from_row_slice(z_dim, z_dim, &model_data.q[sensor_idx].iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>()),
         detection_probability: model_data.p_d[sensor_idx],
-        observation_space_limits: DMatrix::zeros(2, 2),
+        observation_space_limits: DMatrix::zeros((2, 2)),
         observation_space_volume: 40000.0,
         clutter_rate: 5.0,
         clutter_per_unit_volume: model_data.clutter_per_unit_volume[sensor_idx],
@@ -833,7 +833,7 @@ fn validate_lmb_prediction(fixture: &LmbFixture) {
             assert!((actual.w[j] - expected.w[j]).abs() <= TOLERANCE,
                 "Object {}, component {}: weight mismatch", i, j);
 
-            assert_vec_close(actual.mu[j].as_slice(), expected.mu[j].as_slice(), TOLERANCE,
+            assert_vec_close(actual.mu[j].as_slice().unwrap(), expected.mu[j].as_slice().unwrap(), TOLERANCE,
                 &format!("Object {}, component {}: mean", i, j));
 
             assert_matrix_close(
@@ -917,7 +917,7 @@ fn validate_lmb_association(fixture: &LmbFixture) {
     assert_matrix_close(&actual_p, expected_p, TOLERANCE, "P matrix");
 
     // Validate eta vector (stored in lbp.eta)
-    assert_vec_close(association_result.lbp.eta.as_slice(), expected_eta, TOLERANCE, "eta vector");
+    assert_vec_close(association_result.lbp.eta.as_slice().unwrap(), expected_eta, TOLERANCE, "eta vector");
 
     // Validate posterior parameters structure (just check dimensions for now)
     assert_eq!(association_result.posterior_parameters.len(), fixture.step2_association.output.posterior_parameters.len(),
@@ -946,7 +946,7 @@ fn validate_lmb_lbp(fixture: &LmbFixture) {
     let expected_r = &fixture.step3a_lbp.output.r;
     let expected_w = &fixture.step3a_lbp.output.w;
 
-    assert_vec_close(actual_r.as_slice(), expected_r, TOLERANCE, "LBP existence probabilities r");
+    assert_vec_close(actual_r.as_slice().unwrap(), expected_r, TOLERANCE, "LBP existence probabilities r");
 
     let actual_w_vec: Vec<Vec<f64>> = (0..actual_w.nrows())
         .map(|i| actual_w.row(i).iter().copied().collect())
@@ -976,7 +976,7 @@ fn validate_lmb_gibbs(fixture: &LmbFixture) {
     let expected_r = &fixture.step3b_gibbs.output.r;
     let expected_w = &fixture.step3b_gibbs.output.w;
 
-    assert_vec_close(actual_r.as_slice(), expected_r, TOLERANCE, "Gibbs existence probabilities r");
+    assert_vec_close(actual_r.as_slice().unwrap(), expected_r, TOLERANCE, "Gibbs existence probabilities r");
 
     let actual_w_vec: Vec<Vec<f64>> = (0..actual_w.nrows())
         .map(|i| actual_w.row(i).iter().copied().collect())
@@ -1004,7 +1004,7 @@ fn validate_lmb_murtys(fixture: &LmbFixture) {
     let expected_r = &fixture.step3c_murtys.output.r;
     let expected_w = &fixture.step3c_murtys.output.w;
 
-    assert_vec_close(actual_r.as_slice(), expected_r, TOLERANCE, "Murty's existence probabilities r");
+    assert_vec_close(actual_r.as_slice().unwrap(), expected_r, TOLERANCE, "Murty's existence probabilities r");
 
     let actual_w_vec: Vec<Vec<f64>> = (0..actual_w.nrows())
         .map(|i| actual_w.row(i).iter().copied().collect())
@@ -1044,7 +1044,7 @@ fn validate_lmb_update(fixture: &LmbFixture) {
 
             let w_mat = if pp.w.len() == 1 {
                 // Reshape 1D array to column vector (num_meas_plus_one x 1)
-                DMatrix::from_vec(num_meas_plus_one, 1, pp.w[0].clone())
+                DMatrix::from_shape_vec((num_meas_plus_one, 1), pp.w[0].clone()).expect("Shape mismatch")
             } else {
                 // Already 2D, just flatten row-wise
                 DMatrix::from_row_slice(
@@ -1120,7 +1120,7 @@ fn validate_lmb_update(fixture: &LmbFixture) {
             assert!((actual.w[j] - expected.w[j]).abs() <= TOLERANCE,
                 "Object {}, component {}: weight mismatch: {} vs {}", i, j, actual.w[j], expected.w[j]);
 
-            assert_vec_close(actual.mu[j].as_slice(), expected.mu[j].as_slice(), TOLERANCE,
+            assert_vec_close(actual.mu[j].as_slice().unwrap(), expected.mu[j].as_slice().unwrap(), TOLERANCE,
                 &format!("Object {}, component {}: mean", i, j));
 
             // Convert DMatrix to Vec<Vec<f64>> for comparison
@@ -1667,7 +1667,7 @@ fn validate_multisensor_lmb_sensor_update(update: &SensorUpdate, model: &Model, 
     // Compute posterior objects
     let posterior_objects = compute_posterior_lmb_spatial_distributions_multisensor(
         prior_objects.clone(),
-        result.r.as_slice(),
+        result.r.as_slice().unwrap(),
         &result.w,
         &posterior_parameters,
         model
