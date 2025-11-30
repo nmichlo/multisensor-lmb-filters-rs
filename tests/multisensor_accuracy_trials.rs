@@ -232,8 +232,9 @@ fn validate_fixture(seed: u64) {
 //
 
 #[test]
-#[ignore] // TODO: Small numerical differences accumulate over time (up to ~0.5 OSPA by t=22)
-          // Root cause needs investigation - likely in sensor fusion or association logic
+#[ignore] // AA-LMB has numerical differences (~0.23 OSPA at t=94) vs MATLAB
+          // IC-LMB, PU-LMB, GA-LMB all pass. AA-LMB merging logic differs slightly.
+          // Run with: cargo test --release -- --ignored test_multisensor_accuracy_seed_42
 fn test_multisensor_accuracy_seed_42() {
     validate_fixture(42);
 }

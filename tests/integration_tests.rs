@@ -104,10 +104,8 @@ fn test_lmb_filter_lbp_fixed() {
 
 /// Test LMBM filter with Gibbs sampling
 ///
-/// NOTE: This test is computationally expensive. Run with:
-/// cargo test --release --test integration_tests -- --ignored
+/// NOTE: This test takes ~1.5s in release mode.
 #[test]
-#[ignore]
 fn test_lmbm_filter_gibbs() {
     let mut rng = SimpleRng::new(42);
 
@@ -131,10 +129,8 @@ fn test_lmbm_filter_gibbs() {
 
 /// Test LMBM filter with Murty's algorithm
 ///
-/// NOTE: This test is computationally expensive. Run with:
-/// cargo test --release --test integration_tests -- --ignored
+/// NOTE: This test takes ~1.5s in release mode.
 #[test]
-#[ignore]
 fn test_lmbm_filter_murtys() {
     let mut rng = SimpleRng::new(42);
 

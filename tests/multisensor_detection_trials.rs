@@ -238,8 +238,9 @@ fn validate_fixture(filename: &str) {
 //
 
 #[test]
-#[ignore] // AA-LMB has numerical differences (~0.036 OSPA) similar to accuracy trials
-          // IC/PU/GA-LMB all pass perfectly. AA-LMB logic verified correct by tracer agents.
+#[ignore] // AA-LMB has numerical differences (~0.036 OSPA at P_d=0.5) vs MATLAB
+          // IC-LMB, PU-LMB, GA-LMB all pass. AA-LMB merging logic differs slightly.
+          // Run with: cargo test --release -- --ignored test_multisensor_detection
 fn test_multisensor_detection_probability_sensitivity_quick() {
     validate_fixture("multisensor_detection_trial_42_quick.json");
 }

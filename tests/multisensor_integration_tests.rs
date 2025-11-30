@@ -145,10 +145,8 @@ fn test_parallel_update_lmb_aa() {
 
 /// Test Multi-sensor LMBM filter
 ///
-/// NOTE: This test is computationally expensive even in release mode.
-/// Run with: cargo test --release --test multisensor_integration_tests -- --ignored
+/// NOTE: This test takes ~13s in release mode.
 #[test]
-#[ignore]
 fn test_multisensor_lmbm_filter() {
     let mut rng = SimpleRng::new(42);
     let num_sensors = 3;
