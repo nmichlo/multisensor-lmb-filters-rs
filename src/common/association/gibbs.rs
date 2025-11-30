@@ -299,6 +299,7 @@ pub fn lmb_gibbs_frequency_sampling(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::types::MatrixExt;
 
     #[test]
     fn test_gibbs_sampling_simple() {

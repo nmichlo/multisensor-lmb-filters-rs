@@ -130,7 +130,7 @@ mod tests {
         assert!((hypothesis.r[0] - model.survival_probability * initial_r).abs() < 1e-10);
 
         // Check mean predicted
-        let expected_mu = &model.a * &initial_mu + &model.u;
+        let expected_mu = model.a.dot(&initial_mu) + &model.u;
         let diff = &hypothesis.mu[0] - &expected_mu;
         assert!(diff.norm() < 1e-10);
     }

@@ -235,6 +235,7 @@ fn murtys_algorithm(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::types::MatrixExt;
     use super::*;
 
     #[test]

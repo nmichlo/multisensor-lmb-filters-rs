@@ -6,6 +6,7 @@
 use crate::common::types::{DMatrix, DVector, Model, Object};
 use crate::common::utils::prune_gaussian_mixture;
 use crate::lmb::association::PosteriorParameters;
+use ndarray::{Array1, Array2};
 
 /// Compute posterior LMB spatial distributions
 ///

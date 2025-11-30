@@ -14,7 +14,7 @@ crate-type = ["rlib"]
 [dependencies]
 # Linear algebra - replaced nalgebra with ndarray ecosystem
 ndarray = "0.16"
-ndarray-linalg = "0.17"
+ndarray-linalg = { version = "0.17", features = ["openblas-system"] }
 
 # Random number generation
 rand = "0.8"

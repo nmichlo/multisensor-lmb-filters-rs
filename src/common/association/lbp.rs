@@ -232,6 +232,7 @@ pub fn fixed_loopy_belief_propagation(
 
 #[cfg(test)]
 mod tests {
+    use crate::common::types::MatrixExt;
     use super::*;
 
     #[test]

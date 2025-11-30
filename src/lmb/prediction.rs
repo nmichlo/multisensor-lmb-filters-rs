@@ -117,13 +117,13 @@ mod tests {
         assert!((predicted[0].r - model.survival_probability * 0.8).abs() < 1e-10);
 
         // Check mean predicted
-        let expected_mu = &model.a * &obj.mu[0] + &model.u;
+        let expected_mu = model.a.dot(&obj.mu[0]) + &model.u;
         let diff = &predicted[0].mu[0] - &expected_mu;
         assert!(diff.norm() < 1e-10);
 
         // Check covariance predicted
         let expected_sigma =
-            &model.a * &obj.sigma[0] * model.a.t() + &model.r;
+            model.a.dot(&obj.sigma[0]).dot(&model.a.t()) + &model.r;
         let diff_sigma = &predicted[0].sigma[0] - &expected_sigma;
         assert!(diff_sigma.norm() < 1e-10);
     }

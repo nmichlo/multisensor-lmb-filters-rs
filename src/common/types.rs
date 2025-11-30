@@ -9,6 +9,18 @@ use ndarray::{Array1, Array2};
 pub type DVector<T> = Array1<T>;
 pub type DMatrix<T> = Array2<T>;
 
+// Helper trait to provide nalgebra-like constructors
+pub trait MatrixExt<T> {
+    fn from_row_slice(nrows: usize, ncols: usize, data: &[T]) -> Self;
+}
+
+impl<T: Clone> MatrixExt<T> for Array2<T> {
+    fn from_row_slice(nrows: usize, ncols: usize, data: &[T]) -> Self {
+        Array2::from_shape_vec((nrows, ncols), data.to_vec())
+            .expect("Invalid shape for from_row_slice")
+    }
+}
+
 // Re-export ParallelUpdateMode for use in Model
 pub use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
 

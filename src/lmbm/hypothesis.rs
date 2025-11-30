@@ -6,6 +6,7 @@
 use crate::common::types::{DMatrix, Hypothesis, Model};
 use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::lmbm::association::LmbmPosteriorParameters;
+use ndarray::Array2;
 
 /// Determine parameters for a new set of posterior LMBM hypotheses
 ///
@@ -289,6 +290,7 @@ pub fn lmbm_state_extraction(
 
 #[cfg(test)]
 mod tests {
+    use crate::common::types::MatrixExt;
     use super::*;
     use crate::common::model::generate_model;
     use crate::common::types::{DataAssociationMethod, DMatrix, DVector, ScenarioType};

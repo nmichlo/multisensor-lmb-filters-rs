@@ -265,7 +265,7 @@ pub fn lmbm_gibbs_sampling(
 mod tests {
     use super::*;
     use crate::common::model::generate_model;
-    use crate::common::types::{DataAssociationMethod, ScenarioType};
+    use crate::common::types::{DataAssociationMethod, MatrixExt, ScenarioType};
 
     #[test]
     fn test_generate_lmbm_association_matrices() {
