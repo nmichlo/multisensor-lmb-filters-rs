@@ -4,6 +4,8 @@
 //! Matches MATLAB lmbmPredictionStep.m exactly.
 
 use crate::common::types::{Hypothesis, Model};
+use ndarray::Array2;
+use ndarray_linalg::Norm;
 
 /// LMBM prediction step
 ///
@@ -31,10 +33,10 @@ pub fn lmbm_prediction_step(mut hypothesis: Hypothesis, model: &Model, t: usize)
         hypothesis.r[i] = model.survival_probability * hypothesis.r[i];
 
         // Predict mean: mu' = A * mu + u
-        hypothesis.mu[i] = &model.a * &hypothesis.mu[i] + &model.u;
+        hypothesis.mu[i] = model.a.dot(&hypothesis.mu[i]) + &model.u;
 
         // Predict covariance: Sigma' = A * Sigma * A' + R
-        hypothesis.sigma[i] = &model.a * &hypothesis.sigma[i] * model.a.transpose() + &model.r;
+        hypothesis.sigma[i] = model.a.dot(&hypothesis.sigma[i]).dot(&model.a.t()) + &model.r;
     }
 
     // Add Bernoulli components for newly appearing objects
@@ -67,8 +69,7 @@ pub fn lmbm_prediction_step(mut hypothesis: Hypothesis, model: &Model, t: usize)
 mod tests {
     use super::*;
     use crate::common::model::generate_model;
-    use crate::common::types::{DataAssociationMethod, ScenarioType};
-    use nalgebra::{DMatrix, DVector};
+    use crate::common::types::{DataAssociationMethod, DMatrix, DVector, ScenarioType};
 
     #[test]
     fn test_lmbm_prediction_birth() {
@@ -117,7 +118,7 @@ mod tests {
             birth_time: vec![1],
             r: vec![0.8],
             mu: vec![DVector::from_vec(vec![10.0, 1.0, 20.0, 2.0])],
-            sigma: vec![DMatrix::identity(4, 4)],
+            sigma: vec![Array2::eye(4)],
         };
 
         let initial_r = hypothesis.r[0];

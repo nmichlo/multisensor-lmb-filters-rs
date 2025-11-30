@@ -6,8 +6,9 @@
 use crate::common::association::gibbs::lmb_gibbs_sampling;
 use crate::common::association::lbp::{fixed_loopy_belief_propagation, loopy_belief_propagation};
 use crate::common::association::murtys::murtys_algorithm_wrapper;
+use crate::common::types::{DMatrix, DVector};
 use crate::lmb::association::LmbAssociationResult;
-use nalgebra::{DMatrix, DVector};
+use ndarray::{Array1, Array2};
 
 /// Compute marginals using Loopy Belief Propagation
 ///
@@ -98,7 +99,7 @@ pub fn lmb_murtys(
     // W = repmat(V, 1, 1, m+1) == reshape(0:m, 1, 1, m+1)
     // This creates indicator matrices for each measurement (including 0=miss)
     let k = v.nrows();
-    let mut w_indicator = vec![DMatrix::zeros(k, n); m + 1];
+    let mut w_indicator = vec![Array2::zeros((k, n)); m + 1];
 
     for meas_idx in 0..=m {
         for i in 0..k {
@@ -112,7 +113,7 @@ pub fn lmb_murtys(
 
     // J = reshape(associationMatrices.L(n * V + (1:n)), size(V, 1), n)
     // This extracts likelihoods for the assigned measurements
-    let mut j_matrix = DMatrix::zeros(k, n);
+    let mut j_matrix = Array2::zeros((k, n));
     for i in 0..k {
         for obj_idx in 0..n {
             let meas_idx = v[(i, obj_idx)]; // 0-indexed in V
@@ -124,7 +125,7 @@ pub fn lmb_murtys(
     // This computes weighted marginals
     let mut l_marg = Vec::with_capacity(m + 1);
     for meas_idx in 0..=m {
-        let mut l_col = DVector::zeros(n);
+        let mut l_col = Array1::zeros(n);
         for obj_idx in 0..n {
             let mut sum = 0.0;
             for event_idx in 0..k {
@@ -142,7 +143,7 @@ pub fn lmb_murtys(
     }
 
     // Sigma = reshape(L, n, m+1)
-    let mut sigma = DMatrix::zeros(n, m + 1);
+    let mut sigma = Array2::zeros((n, m + 1));
     for obj_idx in 0..n {
         for meas_idx in 0..=m {
             sigma[(obj_idx, meas_idx)] = l_marg[meas_idx][obj_idx];
@@ -150,7 +151,7 @@ pub fn lmb_murtys(
     }
 
     // Tau = (Sigma .* associationMatrices.R) ./ sum(Sigma, 2)
-    let mut tau = DMatrix::zeros(n, m + 1);
+    let mut tau = Array2::zeros((n, m + 1));
     for obj_idx in 0..n {
         let row_sum: f64 = sigma.row(obj_idx).sum();
         if row_sum > 1e-15 {
@@ -163,13 +164,13 @@ pub fn lmb_murtys(
     }
 
     // r = sum(Tau, 2)
-    let mut r = DVector::zeros(n);
+    let mut r = Array1::zeros(n);
     for obj_idx in 0..n {
         r[obj_idx] = tau.row(obj_idx).sum();
     }
 
     // W = Tau ./ r
-    let mut w_result = DMatrix::zeros(n, m + 1);
+    let mut w_result = Array2::zeros((n, m + 1));
     for obj_idx in 0..n {
         if r[obj_idx] > 1e-15 {
             for meas_idx in 0..=m {

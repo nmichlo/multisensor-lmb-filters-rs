@@ -3,10 +3,9 @@
 //! Computes posterior spatial distributions for LMB filter.
 //! Matches MATLAB computePosteriorLmbSpatialDistributions.m exactly.
 
-use crate::common::types::{Model, Object};
+use crate::common::types::{DMatrix, DVector, Model, Object};
 use crate::common::utils::prune_gaussian_mixture;
 use crate::lmb::association::PosteriorParameters;
-use nalgebra::{DMatrix, DVector};
 
 /// Compute posterior LMB spatial distributions
 ///
@@ -161,8 +160,8 @@ mod tests {
             generate_lmb_association_matrices(&objects, &measurements, &model);
 
         // Create dummy r and W
-        let r = DVector::from_vec(vec![0.8; objects.len()]);
-        let w = DMatrix::from_element(objects.len(), 2, 0.5); // [miss, meas1]
+        let r = Array1::from_vec(vec![0.8; objects.len()]);
+        let w = Array2::from_elem((objects.len(), 2), 0.5); // [miss, meas1]
 
         let updated = compute_posterior_lmb_spatial_distributions(
             objects.clone(),
@@ -197,8 +196,8 @@ mod tests {
         let association_result =
             generate_lmb_association_matrices(&objects, &measurements, &model);
 
-        let r = DVector::from_vec(vec![0.75; objects.len()]);
-        let w = DMatrix::from_element(objects.len(), 2, 0.5);
+        let r = Array1::from_vec(vec![0.75; objects.len()]);
+        let w = Array2::from_elem((objects.len(), 2), 0.5);
 
         let updated = compute_posterior_lmb_spatial_distributions(
             objects.clone(),

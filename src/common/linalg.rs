@@ -3,7 +3,9 @@
 //! Mathematical functions for Gaussian operations, matrix manipulations,
 //! and numerical computations required by the tracking algorithms.
 
-use nalgebra::{DMatrix, DVector};
+use crate::common::types::{DMatrix, DVector};
+use ndarray::Array1;
+use ndarray_linalg::{Cholesky, Determinant, Inverse, Solve, UPLO};
 use std::f64::consts::PI;
 
 /// Compute multivariate Gaussian PDF
@@ -22,22 +24,32 @@ pub fn gaussian_pdf(x: &DVector<f64>, mu: &DVector<f64>, sigma: &DMatrix<f64>) -
     let n = x.len() as f64;
     let diff = x - mu;
 
-    // Compute determinant and inverse
-    let det = sigma.determinant();
+    // Compute determinant
+    let det = match sigma.det() {
+        Ok(d) => d,
+        Err(_) => return 0.0,
+    };
+
     if det <= 0.0 {
         return 0.0; // Singular covariance
     }
 
     // Cholesky decomposition for numerical stability
-    match sigma.clone().cholesky() {
-        Some(chol) => {
-            let inv_sigma_diff = chol.solve(&diff);
-            let mahalanobis = diff.dot(&inv_sigma_diff);
-
-            let coeff = 1.0 / ((2.0 * PI).powf(n / 2.0) * det.sqrt());
-            coeff * (-0.5 * mahalanobis).exp()
+    // TODO(faer): Cholesky decomposition in hot path.
+    // faer's blocked algorithm is faster for matrices > 64x64.
+    // See REFACTOR.md Phase 4 for benchmarks.
+    match sigma.cholesky(UPLO::Lower) {
+        Ok(chol) => {
+            match chol.solve(&diff) {
+                Ok(inv_sigma_diff) => {
+                    let mahalanobis = diff.dot(&inv_sigma_diff);
+                    let coeff = 1.0 / ((2.0 * PI).powf(n / 2.0) * det.sqrt());
+                    coeff * (-0.5 * mahalanobis).exp()
+                }
+                Err(_) => 0.0,
+            }
         }
-        None => 0.0, // Failed Cholesky
+        Err(_) => 0.0, // Failed Cholesky
     }
 }
 
@@ -53,12 +65,12 @@ pub fn gaussian_pdf(x: &DVector<f64>, mu: &DVector<f64>, sigma: &DMatrix<f64>) -
 pub fn mahalanobis_distance(x: &DVector<f64>, mu: &DVector<f64>, sigma: &DMatrix<f64>) -> f64 {
     let diff = x - mu;
 
-    match sigma.clone().cholesky() {
-        Some(chol) => {
-            let inv_sigma_diff = chol.solve(&diff);
-            diff.dot(&inv_sigma_diff).sqrt()
-        }
-        None => f64::INFINITY, // Singular covariance
+    match sigma.cholesky(UPLO::Lower) {
+        Ok(chol) => match chol.solve(&diff) {
+            Ok(inv_sigma_diff) => diff.dot(&inv_sigma_diff).sqrt(),
+            Err(_) => f64::INFINITY,
+        },
+        Err(_) => f64::INFINITY, // Singular covariance
     }
 }
 
@@ -75,19 +87,24 @@ pub fn log_gaussian_pdf(x: &DVector<f64>, mu: &DVector<f64>, sigma: &DMatrix<f64
     let n = x.len() as f64;
     let diff = x - mu;
 
-    let det = sigma.determinant();
+    let det = match sigma.det() {
+        Ok(d) => d,
+        Err(_) => return f64::NEG_INFINITY,
+    };
+
     if det <= 0.0 {
         return f64::NEG_INFINITY;
     }
 
-    match sigma.clone().cholesky() {
-        Some(chol) => {
-            let inv_sigma_diff = chol.solve(&diff);
-            let mahalanobis = diff.dot(&inv_sigma_diff);
-
-            -0.5 * (n * (2.0 * PI).ln() + det.ln() + mahalanobis)
-        }
-        None => f64::NEG_INFINITY,
+    match sigma.cholesky(UPLO::Lower) {
+        Ok(chol) => match chol.solve(&diff) {
+            Ok(inv_sigma_diff) => {
+                let mahalanobis = diff.dot(&inv_sigma_diff);
+                -0.5 * (n * (2.0 * PI).ln() + det.ln() + mahalanobis)
+            }
+            Err(_) => f64::NEG_INFINITY,
+        },
+        Err(_) => f64::NEG_INFINITY,
     }
 }
 
@@ -112,36 +129,29 @@ pub fn kalman_update(
     r: &DMatrix<f64>,
 ) -> (DVector<f64>, DMatrix<f64>, DVector<f64>, DMatrix<f64>, f64) {
     // Innovation
-    let z_pred = h * x_pred;
-    let innovation = z - z_pred;
+    let z_pred = h.dot(x_pred);
+    let innovation = z - &z_pred;
 
     // Innovation covariance
-    let s = h * p_pred * h.transpose() + r;
+    let s = h.dot(p_pred).dot(&h.t()) + r;
 
-    // Kalman gain
-    let k = match s.clone().cholesky() {
-        Some(chol) => {
-            let temp = chol.solve(&(h * p_pred).transpose()).transpose();
-            p_pred * h.transpose() * temp
-        }
-        None => {
-            // Fallback to pseudo-inverse
-            match s.clone().try_inverse() {
-                Some(s_inv) => p_pred * h.transpose() * s_inv,
-                None => return (x_pred.clone(), p_pred.clone(), innovation.clone(), s, 0.0),
-            }
-        }
+    // Kalman gain: K = P * H' * inv(S)
+    // Use Cholesky solve or fallback to direct inverse
+    let k = match s.inv() {
+        Ok(s_inv) => p_pred.dot(&h.t()).dot(&s_inv),
+        Err(_) => return (x_pred.clone(), p_pred.clone(), innovation.clone(), s, 0.0),
     };
 
     // Updated state
-    let x_updated = x_pred + &k * &innovation;
+    let x_updated = x_pred + &k.dot(&innovation);
 
     // Updated covariance (Joseph form for numerical stability)
-    let i_minus_kh = DMatrix::identity(x_pred.len(), x_pred.len()) - &k * h;
-    let p_updated = &i_minus_kh * p_pred * i_minus_kh.transpose() + &k * r * k.transpose();
+    let i_minus_kh = DMatrix::eye(x_pred.len()) - &k.dot(h);
+    let p_updated = &i_minus_kh.dot(p_pred).dot(&i_minus_kh.t())
+        + &k.dot(r).dot(&k.t());
 
     // Likelihood
-    let likelihood = gaussian_pdf(&innovation, &DVector::zeros(innovation.len()), &s);
+    let likelihood = gaussian_pdf(&innovation, &Array1::zeros(innovation.len()), &s);
 
     (x_updated, p_updated, innovation, s, likelihood)
 }
@@ -191,7 +201,7 @@ pub fn normalize_log_weights(log_weights: &[f64]) -> Vec<f64> {
 /// # Returns
 /// true if positive definite
 pub fn is_positive_definite(matrix: &DMatrix<f64>) -> bool {
-    matrix.clone().cholesky().is_some()
+    matrix.cholesky(UPLO::Lower).is_ok()
 }
 
 /// Make matrix symmetric
@@ -204,5 +214,5 @@ pub fn is_positive_definite(matrix: &DMatrix<f64>) -> bool {
 /// # Returns
 /// Symmetric matrix
 pub fn symmetrize(matrix: &DMatrix<f64>) -> DMatrix<f64> {
-    0.5 * (matrix + matrix.transpose())
+    0.5 * (matrix + &matrix.t())
 }

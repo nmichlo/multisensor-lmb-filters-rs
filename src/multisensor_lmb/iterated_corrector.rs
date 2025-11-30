@@ -6,14 +6,14 @@
 use crate::common::association::gibbs::{lmb_gibbs_sampling, GibbsAssociationMatrices};
 use crate::common::association::lbp::{loopy_belief_propagation, AssociationMatrices};
 use crate::common::association::murtys::murtys_algorithm_wrapper;
-use crate::common::types::{DataAssociationMethod, Model, Trajectory};
+use crate::common::types::{DataAssociationMethod, DMatrix, DVector, Model, Trajectory};
+use ndarray::Array2;
 use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::lmb::prediction::lmb_prediction_step;
 use crate::multisensor_lmb::association::generate_lmb_sensor_association_matrices;
 use crate::multisensor_lmb::parallel_update::{
     compute_posterior_lmb_spatial_distributions_multisensor, ParallelUpdateStateEstimates,
 };
-use nalgebra::{DMatrix, DVector};
 
 /// Run the iterated corrector (IC) multi-sensor LMB filter
 ///
@@ -77,7 +77,7 @@ pub fn run_ic_lmb_filter(
                             model.lbp_convergence_tolerance,
                             model.maximum_number_of_lbp_iterations,
                         );
-                        (result.r.as_slice().to_vec(), result.w)
+                        (result.r.to_vec(), result.w)
                     }
                     DataAssociationMethod::Gibbs | DataAssociationMethod::LBPFixed => {
                         let gibbs_matrices = GibbsAssociationMatrices {
@@ -87,7 +87,7 @@ pub fn run_ic_lmb_filter(
                             c: association_matrices.cost.clone(),
                         };
                         let result = lmb_gibbs_sampling(rng, &gibbs_matrices, model.number_of_samples);
-                        (result.r.as_slice().to_vec(), result.w)
+                        (result.r.to_vec(), result.w)
                     }
                     DataAssociationMethod::Murty => {
                         let murty_result = murtys_algorithm_wrapper(
@@ -109,9 +109,9 @@ pub fn run_ic_lmb_filter(
                         let n = objects.len();
                         let m = measurements[s][t].len();
                         let mut r_vec = vec![0.0; n];
-                        let mut w_matrix = DMatrix::zeros(n, m + 1);
+                        let mut w_matrix = Array2::zeros((n, m + 1));
 
-                        for (assignment_idx, assignment) in murty_result.assignments.row_iter().enumerate() {
+                        for (assignment_idx, assignment) in murty_result.assignments.rows().into_iter().enumerate() {
                             let weight = assignment_weights[assignment_idx];
                             for (obj_idx, &meas_assign) in assignment.iter().enumerate() {
                                 w_matrix[(obj_idx, meas_assign)] += weight;
@@ -165,7 +165,19 @@ pub fn run_ic_lmb_filter(
                 let traj = Trajectory {
                     birth_location: obj.birth_location,
                     birth_time: obj.birth_time,
-                    trajectory: DMatrix::from_columns(&obj.mu.iter().map(|m| m.clone()).collect::<Vec<_>>()),
+                    trajectory: {
+                        let ncols = obj.mu.len();
+                        if ncols == 0 {
+                            Array2::zeros((0, 0))
+                        } else {
+                            let nrows = obj.mu[0].len();
+                            let mut traj = Array2::zeros((nrows, ncols));
+                            for (j, col) in obj.mu.iter().enumerate() {
+                                traj.column_mut(j).assign(col);
+                            }
+                            traj
+                        }
+                    },
                     trajectory_length: obj.trajectory_length,
                     timestamps: (0..obj.trajectory_length).map(|i| t - obj.trajectory_length + i + 1).collect(),
                 };
@@ -185,7 +197,7 @@ pub fn run_ic_lmb_filter(
         let (n_map, map_indices) = lmb_map_cardinality_estimate(&r_vec);
 
         // Extract RFS state estimate
-        let mut labels_t = DMatrix::zeros(2, n_map);
+        let mut labels_t = Array2::zeros((2, n_map));
         let mut mu_t = Vec::with_capacity(n_map);
         let mut sigma_t = Vec::with_capacity(n_map);
 
@@ -218,7 +230,19 @@ pub fn run_ic_lmb_filter(
             let traj = Trajectory {
                 birth_location: obj.birth_location,
                 birth_time: obj.birth_time,
-                trajectory: DMatrix::from_columns(&obj.mu.iter().map(|m| m.clone()).collect::<Vec<_>>()),
+                trajectory: {
+                    let ncols = obj.mu.len();
+                    if ncols == 0 {
+                        Array2::zeros((0, 0))
+                    } else {
+                        let nrows = obj.mu[0].len();
+                        let mut traj = Array2::zeros((nrows, ncols));
+                        for (j, col) in obj.mu.iter().enumerate() {
+                            traj.column_mut(j).assign(col);
+                        }
+                        traj
+                    }
+                },
                 trajectory_length: obj.trajectory_length,
                 timestamps: obj.timestamps.clone(),
             };

@@ -55,3 +55,6 @@ Only after checking all these should you resort to execution tracing.
 - **Run full tests** after changing common/shared Rust code (might break other algorithms)
 - **Use correct tools**: `rg` for search, NOT grep/find/cat/xargs
 - **Question assumptions**: If tests require loose tolerances (>1e-10), there's likely a real bug
+- 1. read entire file 2. migrate all according to plan in that file, 3. move to next file
+- don't make edits unless you have checked the docs. you could have done this in one pass. ALWAYS plan against official documentation befor emaking edits... instead of guessing... And ALWAYS STULL compare against the original matlab source code..
+- ALWAYS check documentation first before refactoring to use different APIs, DO NOT GUESS.

@@ -10,8 +10,9 @@
 //! - `detection_probability: Vec<f64>` (one per sensor, currently single f64)
 //! - `clutter_per_unit_volume: Vec<f64>` (one per sensor, currently single f64)
 
-use crate::common::types::{Model, Object};
-use nalgebra::{DMatrix, DVector};
+use crate::common::types::{DMatrix, DVector, Model, Object};
+use ndarray::{Array1, Array2};
+use ndarray_linalg::{Cholesky, Determinant, Inverse, Solve, SVD, UPLO};
 
 /// Association matrices for multi-sensor LMB data association
 #[derive(Debug, Clone)]
@@ -94,7 +95,7 @@ pub fn generate_lmb_sensor_association_matrices(
         .unwrap_or(&model.q);
 
     // Auxiliary matrices
-    let mut l_matrix = DMatrix::zeros(number_of_objects, number_of_measurements);
+    let mut l_matrix = Array2::zeros((number_of_objects, number_of_measurements));
     let mut phi = vec![0.0; number_of_objects];
     let mut eta = vec![0.0; number_of_objects];
 
@@ -109,8 +110,8 @@ pub fn generate_lmb_sensor_association_matrices(
 
         // Preallocate posterior components (miss + measurements)
         let mut w_obj = vec![vec![0.0; num_gm]; number_of_measurements + 1];
-        let mut mu_obj = vec![vec![DVector::zeros(0); num_gm]; number_of_measurements + 1];
-        let mut sigma_obj = vec![vec![DMatrix::zeros(0, 0); num_gm]; number_of_measurements + 1];
+        let mut mu_obj = vec![vec![Array1::zeros(0); num_gm]; number_of_measurements + 1];
+        let mut sigma_obj = vec![vec![Array2::zeros((0, 0)); num_gm]; number_of_measurements + 1];
 
         // Initialize with miss detection
         // Matches MATLAB line 40: log(objects(i).w * (1 - pd))
@@ -127,16 +128,17 @@ pub fn generate_lmb_sensor_association_matrices(
         // For each GM component
         for j in 0..num_gm {
             // Predicted measurement and innovation covariance
-            let mu_z = c_matrix * &objects[i].mu[j];
-            let z_cov = c_matrix * &objects[i].sigma[j] * c_matrix.transpose() + q_matrix;
+            let mu_z = c_matrix.dot(&objects[i].mu[j]);
+            let z_cov = c_matrix.dot(&objects[i].sigma[j]).dot(&c_matrix.t()) + q_matrix;
 
             // Log Gaussian normalizing constant
-            let log_gauss_norm = if let Some(chol) = z_cov.clone().cholesky() {
-                let log_det = 2.0 * chol.l().diagonal().iter().map(|x| x.ln()).sum::<f64>();
+            let log_gauss_norm = if let Ok(chol) = z_cov.clone().cholesky(UPLO::Lower) {
+                let log_det = 2.0 * chol.diag().iter().map(|x| x.ln()).sum::<f64>();
                 -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln() - 0.5 * log_det
             } else {
+                let det_z_cov = z_cov.det().expect("z_cov should be positive definite");
                 -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
-                    - 0.5 * z_cov.determinant().ln()
+                    - 0.5 * det_z_cov.ln()
             };
 
             let log_likelihood_ratio_terms = objects[i].r.ln()
@@ -145,26 +147,27 @@ pub fn generate_lmb_sensor_association_matrices(
                 - clutter_pvu.ln();
 
             // Compute Z inverse and Kalman gain
-            let z_inv = if let Some(chol) = z_cov.clone().cholesky() {
-                let identity = DMatrix::identity(z_cov.nrows(), z_cov.ncols());
-                chol.solve(&identity)
-            } else {
-                z_cov.clone().try_inverse().unwrap_or_else(|| {
-                    let svd = z_cov.svd(true, true);
-                    svd.pseudo_inverse(1e-10).unwrap()
-                })
+            let z_inv = match z_cov.clone().cholesky(UPLO::Lower) {
+                Ok(chol) => {
+                    chol.inv().unwrap_or_else(|_| {
+                        z_cov.clone().inv().expect("Cannot invert z_cov")
+                    })
+                }
+                Err(_) => {
+                    z_cov.clone().inv().expect("Cannot invert innovation covariance z_cov")
+                }
             };
 
-            let k = &objects[i].sigma[j] * c_matrix.transpose() * &z_inv;
-            let sigma_updated = (DMatrix::identity(model.x_dimension, model.x_dimension)
-                - &k * c_matrix)
-                * &objects[i].sigma[j];
+            let k = objects[i].sigma[j].dot(&c_matrix.t()).dot(&z_inv);
+            let sigma_updated = (Array2::eye(model.x_dimension)
+                - k.dot(c_matrix))
+                .dot(&objects[i].sigma[j]);
 
             // For each measurement
             for k_idx in 0..number_of_measurements {
                 let nu = &measurements[k_idx] - &mu_z;
-                let quadratic_form = nu.transpose() * &z_inv * &nu;
-                let gauss_log_likelihood = log_gauss_norm - 0.5 * quadratic_form[(0, 0)];
+                let quadratic_form = nu.dot(&z_inv.dot(&nu));
+                let gauss_log_likelihood = log_gauss_norm - 0.5 * quadratic_form;
 
                 // Accumulate to L matrix (linear space)
                 l_matrix[(i, k_idx)] +=
@@ -177,7 +180,7 @@ pub fn generate_lmb_sensor_association_matrices(
                     - clutter_pvu.ln();
 
                 // Posterior mean and covariance
-                mu_obj[k_idx + 1][j] = &objects[i].mu[j] + &k * &nu;
+                mu_obj[k_idx + 1][j] = &objects[i].mu[j] + k.dot(&nu);
                 sigma_obj[k_idx + 1][j] = sigma_updated.clone();
             }
         }
@@ -202,7 +205,7 @@ pub fn generate_lmb_sensor_association_matrices(
     let r = objects.iter().map(|obj| obj.r).collect();
 
     // LBP matrices
-    let mut psi = DMatrix::zeros(number_of_objects, number_of_measurements);
+    let mut psi = Array2::zeros((number_of_objects, number_of_measurements));
     for i in 0..number_of_objects {
         for j in 0..number_of_measurements {
             psi[(i, j)] = l_matrix[(i, j)] / eta[i];
@@ -213,14 +216,14 @@ pub fn generate_lmb_sensor_association_matrices(
     let eta_vec = DVector::from_vec(eta.clone());
 
     // Gibbs matrices
-    let mut p_gibbs = DMatrix::zeros(number_of_objects, number_of_measurements);
+    let mut p_gibbs = Array2::zeros((number_of_objects, number_of_measurements));
     for i in 0..number_of_objects {
         for j in 0..number_of_measurements {
             p_gibbs[(i, j)] = l_matrix[(i, j)] / (l_matrix[(i, j)] + eta[i]);
         }
     }
 
-    let mut l_gibbs = DMatrix::zeros(number_of_objects, number_of_measurements + 1);
+    let mut l_gibbs = DMatrix::zeros((number_of_objects, number_of_measurements + 1));
     for i in 0..number_of_objects {
         l_gibbs[(i, 0)] = eta[i];
         for j in 0..number_of_measurements {
@@ -228,7 +231,7 @@ pub fn generate_lmb_sensor_association_matrices(
         }
     }
 
-    let mut r_gibbs = DMatrix::zeros(number_of_objects, number_of_measurements + 1);
+    let mut r_gibbs = DMatrix::zeros((number_of_objects, number_of_measurements + 1));
     for i in 0..number_of_objects {
         r_gibbs[(i, 0)] = phi[i] / eta[i];
         for j in 1..=number_of_measurements {

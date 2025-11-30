@@ -464,8 +464,8 @@ Record the total test time after each stage to ensure no performance regressions
 
 | Stage | Date | Test Time (--release) | Notes |
 |-------|------|----------------------|-------|
-| Stage 1: Foundation | | | |
-| Stage 2: Core Utilities | | | |
+| Stage 1: Foundation | 2025-11-29 | N/A (compilation only) | Added ndarray, updated types.rs |
+| Stage 2: Core Utilities | IN PROGRESS | PENDING | linalg.rs template complete |
 | Stage 3: Association Matrices | | | |
 | Stage 4: Update Steps | | | |
 | Stage 5: Data Association | | | |
@@ -531,3 +531,84 @@ These files have proven-correct logic. Only change nalgebra→ndarray types, do 
 - Existing equivalence tests: `tests/numerical_equivalence_*.rs`
 - Step-by-step validation: `tests/step_by_step_validation.rs`
 - MIGRATE.md: Full history of bugs and fixes
+
+---
+
+## File-by-File Migration Checklist
+
+Total files to migrate: **24 files** (1 done, 23 remaining)
+
+### ✅ Completed (1/24)
+
+- [x] `src/common/linalg.rs` - **TEMPLATE** - Use this as reference for all other files
+
+### Remaining Files (23/24)
+
+**Common utilities** (4 files):
+- [ ] `src/common/model.rs` - Model generation
+- [ ] `src/common/metrics.rs` - OSPA, KL divergence, Hellinger
+- [ ] `src/common/ground_truth.rs` - Ground truth generation
+- [ ] `src/common/association/hungarian.rs` - Hungarian algorithm
+- [ ] `src/common/association/lbp.rs` - Loopy Belief Propagation
+- [ ] `src/common/association/gibbs.rs` - Gibbs sampling
+- [ ] `src/common/association/murtys.rs` - Murty's algorithm
+
+**LMB filter** (5 files):
+- [ ] `src/lmb/filter.rs` - Main filter loop
+- [ ] `src/lmb/prediction.rs` - Prediction step
+- [ ] `src/lmb/association.rs` - Association matrices
+- [ ] `src/lmb/update.rs` - Update step
+- [ ] `src/lmb/data_association.rs` - Data association wrapper
+
+**LMBM filter** (4 files):
+- [ ] `src/lmbm/filter.rs` - Main filter loop
+- [ ] `src/lmbm/prediction.rs` - Prediction step
+- [ ] `src/lmbm/association.rs` - Association matrices
+- [ ] `src/lmbm/hypothesis.rs` - Hypothesis management
+
+**Multi-sensor LMB** (4 files):
+- [ ] `src/multisensor_lmb/iterated_corrector.rs` - IC-LMB
+- [ ] `src/multisensor_lmb/parallel_update.rs` - PU-LMB
+- [ ] `src/multisensor_lmb/merging.rs` - GA/AA-LMB merging
+- [ ] `src/multisensor_lmb/association.rs` - Multi-sensor association
+
+**Multi-sensor LMBM** (3 files):
+- [ ] `src/multisensor_lmbm/filter.rs` - Main filter loop
+- [ ] `src/multisensor_lmbm/association.rs` - Association matrices
+- [ ] `src/multisensor_lmbm/hypothesis.rs` - Hypothesis management
+- [ ] `src/multisensor_lmbm/gibbs.rs` - Gibbs sampling
+
+### Migration Workflow (Per File)
+
+For each file:
+
+1. **Open MATLAB reference** (find corresponding .m file)
+2. **Update imports** (Pattern 1)
+3. **Fix creation calls** (Pattern 2) - Search for:
+   - `DMatrix::zeros(`
+   - `DVector::zeros(`
+   - `DMatrix::identity(`
+4. **Fix operations** (Pattern 3) - Search for:
+   - `.transpose()`
+   - `*` (check if it's matrix multiply)
+5. **Fix linalg ops** (Pattern 4) - Search for:
+   - `.determinant()`
+   - `.cholesky()`
+   - `.try_inverse()`
+   - `.solve(`
+6. **Fix borrowing** (Pattern 6) - Compiler will tell you
+7. **Compile**: `cargo build 2>&1 | grep "filename"`
+8. **Test**: `cargo test --lib` after file compiles
+
+### Quick Reference: Common Replacements
+
+```bash
+# Use these search patterns to find what needs changing:
+rg "\.transpose\(\)" src/
+rg "\.determinant\(\)" src/
+rg "\.cholesky\(\)" src/
+rg "\.try_inverse\(\)" src/
+rg "DMatrix::identity" src/
+rg "DMatrix::zeros" src/
+rg "DVector::zeros" src/
+```

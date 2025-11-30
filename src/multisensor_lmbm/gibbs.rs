@@ -3,8 +3,9 @@
 //! Implements Gibbs sampling for multi-sensor LMBM data association.
 //! Matches MATLAB multisensorLmbmGibbsSampling.m and generateMultisensorAssociationEvent.m exactly.
 
-use nalgebra::DMatrix;
+use crate::common::types::DMatrix;
 use std::collections::HashSet;
+use ndarray::Array2;
 
 /// Generate association events using multi-sensor Gibbs sampler
 ///
@@ -41,8 +42,8 @@ pub fn multisensor_lmbm_gibbs_sampling(
     let max_m = *m.iter().max().unwrap_or(&0);
 
     // Initialize association matrices
-    let mut v = DMatrix::zeros(number_of_objects, number_of_sensors);
-    let mut w = DMatrix::zeros(max_m, number_of_sensors);
+    let mut v = Array2::zeros((number_of_objects, number_of_sensors));
+    let mut w = Array2::zeros((max_m, number_of_sensors));
 
     // Store samples as HashSet to keep only unique
     let mut unique_samples = HashSet::new();
@@ -69,7 +70,7 @@ pub fn multisensor_lmbm_gibbs_sampling(
 
     let num_unique = unique_vec.len();
 
-    let mut a = DMatrix::zeros(num_unique, number_of_objects * number_of_sensors);
+    let mut a = Array2::zeros((num_unique, number_of_objects * number_of_sensors));
     for (row_idx, sample) in unique_vec.iter().enumerate() {
         for (col_idx, &val) in sample.iter().enumerate() {
             a[(row_idx, col_idx)] = val;

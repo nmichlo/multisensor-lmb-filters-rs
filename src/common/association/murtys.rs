@@ -3,7 +3,9 @@
 //! Implements Murty's algorithm for finding the K-best ranked optimal assignments.
 //! Matches MATLAB murtysAlgorithm.m and murtysAlgorithmWrapper.m exactly.
 
-use nalgebra::DMatrix;
+use crate::common::types::DMatrix;
+use ndarray::Array2;
+use ndarray::s;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 
@@ -59,7 +61,7 @@ impl Ord for QueueEntry {
 pub fn murtys_algorithm_wrapper(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
     if m == 0 {
         return MurtysResult {
-            assignments: DMatrix::zeros(0, 0),
+            assignments: Array2::zeros((0, 0)),
             costs: Vec::new(),
         };
     }
@@ -68,12 +70,12 @@ pub fn murtys_algorithm_wrapper(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
     let n2 = p0.ncols();
 
     // Padding block for dummy variables (matching MATLAB: -log(ones(n1,n1)) = 0)
-    let blk1 = DMatrix::from_element(n1, n1, -(1.0_f64).ln());
+    let blk1 = Array2::from_elem((n1, n1), -(1.0_f64).ln());
 
     // Concatenate: P0 = [P0 blk1]
-    let mut p0_padded = DMatrix::zeros(n1, n2 + n1);
-    p0_padded.view_mut((0, 0), (n1, n2)).copy_from(p0);
-    p0_padded.view_mut((0, n2), (n1, n1)).copy_from(&blk1);
+    let mut p0_padded = Array2::zeros((n1, n2 + n1));
+    p0_padded.slice_mut(s![0..n1, 0..n2]).assign(p0);
+    p0_padded.slice_mut(s![0..n1, n2..n2+n1]).assign(&blk1);
 
     // Make costs non-negative
     let x = p0_padded.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -86,7 +88,7 @@ pub fn murtys_algorithm_wrapper(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
 
     // Restore correct costs
     let mut costs = Vec::new();
-    let mut assignments_mat = DMatrix::zeros(result.assignments.nrows(), n1);
+    let mut assignments_mat = Array2::zeros((result.assignments.nrows(), n1));
 
     for i in 0..result.assignments.nrows() {
         let num_assigned = result.assignments.row(i).iter().filter(|&&v| v > 0).count();
@@ -134,7 +136,7 @@ fn murtys_algorithm(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
     let c0 = initial.cost;
 
     if m == 1 {
-        let mut assignments = DMatrix::zeros(1, num_rows);
+        let mut assignments = Array2::zeros((1, num_rows));
         for j in 0..num_rows {
             assignments[(0, j)] = s0[j];
         }
@@ -218,7 +220,7 @@ fn murtys_algorithm(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
     }
 
     // Convert to matrix
-    let mut assignments = DMatrix::zeros(assignments_list.len(), num_rows);
+    let mut assignments = Array2::zeros((assignments_list.len(), num_rows));
     for (i, assign) in assignments_list.iter().enumerate() {
         for (j, &val) in assign.iter().enumerate() {
             assignments[(i, j)] = val;

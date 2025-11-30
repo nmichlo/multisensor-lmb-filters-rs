@@ -3,7 +3,11 @@
 //! This module defines the fundamental data structures used throughout
 //! the tracking library, matching the MATLAB implementation exactly.
 
-use nalgebra::{DMatrix, DVector};
+use ndarray::{Array1, Array2};
+
+// Type aliases for clean migration from nalgebra
+pub type DVector<T> = Array1<T>;
+pub type DMatrix<T> = Array2<T>;
 
 // Re-export ParallelUpdateMode for use in Model
 pub use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
@@ -95,7 +99,7 @@ impl Object {
             mu: Vec::new(),
             sigma: Vec::new(),
             trajectory_length: 0,
-            trajectory: DMatrix::zeros(x_dim, 100), // Pre-allocate 100 timesteps
+            trajectory: Array2::zeros((x_dim, 100)), // Pre-allocate 100 timesteps
             timestamps: Vec::new(),
         }
     }
@@ -155,7 +159,7 @@ impl Trajectory {
         Self {
             birth_location: 0,
             birth_time: 0,
-            trajectory: DMatrix::zeros(x_dim, 100),
+            trajectory: Array2::zeros((x_dim, 100)),
             trajectory_length: 0,
             timestamps: Vec::new(),
         }
@@ -316,7 +320,7 @@ impl Measurement {
     /// Create empty measurement set
     pub fn empty(z_dim: usize) -> Self {
         Self {
-            z: DMatrix::zeros(z_dim, 0),
+            z: Array2::zeros((z_dim, 0)),
             count: 0,
         }
     }

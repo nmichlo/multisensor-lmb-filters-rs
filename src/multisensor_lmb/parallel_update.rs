@@ -6,13 +6,13 @@
 use crate::common::association::gibbs::{lmb_gibbs_sampling, GibbsAssociationMatrices};
 use crate::common::association::lbp::{loopy_belief_propagation, AssociationMatrices};
 use crate::common::association::murtys::murtys_algorithm_wrapper;
-use crate::common::types::{DataAssociationMethod, Model, Object, Trajectory};
+use crate::common::types::{DataAssociationMethod, DMatrix, DVector, Model, Object, Trajectory};
 use crate::common::utils::prune_gaussian_mixture;
+use ndarray::{Array1, Array2};
 use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::lmb::prediction::lmb_prediction_step;
 use crate::multisensor_lmb::association::{generate_lmb_sensor_association_matrices, LmbPosteriorParameters};
 use crate::multisensor_lmb::merging::{aa_lmb_track_merging, ga_lmb_track_merging, pu_lmb_track_merging};
-use nalgebra::{DMatrix, DVector};
 
 /// Parallel update mode for track merging
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,7 +188,7 @@ pub fn run_parallel_update_lmb_filter(
                             model.lbp_convergence_tolerance,
                             model.maximum_number_of_lbp_iterations,
                         );
-                        (result.r.as_slice().to_vec(), result.w)
+                        (result.r.to_vec(), result.w)
                     }
                     DataAssociationMethod::Gibbs | DataAssociationMethod::LBPFixed => {
                         let gibbs_matrices = GibbsAssociationMatrices {
@@ -198,7 +198,7 @@ pub fn run_parallel_update_lmb_filter(
                             c: association_matrices.cost.clone(),
                         };
                         let result = lmb_gibbs_sampling(rng, &gibbs_matrices, model.number_of_samples);
-                        (result.r.as_slice().to_vec(), result.w)
+                        (result.r.to_vec(), result.w)
                     }
                     DataAssociationMethod::Murty => {
                         // Matches MATLAB lmbMurtysAlgorithm.m and single-sensor Rust implementation
@@ -214,7 +214,7 @@ pub fn run_parallel_update_lmb_filter(
                         // Determine marginal distributions
                         // W = repmat(V, 1, 1, m+1) == reshape(0:m, 1, 1, m+1)
                         let k = v.nrows();
-                        let mut w_indicator = vec![DMatrix::zeros(k, n); m + 1];
+                        let mut w_indicator = vec![Array2::zeros((k, n)); m + 1];
 
                         for meas_idx in 0..=m {
                             for i in 0..k {
@@ -227,7 +227,7 @@ pub fn run_parallel_update_lmb_filter(
                         }
 
                         // J = reshape(associationMatrices.L(n * V + (1:n)), size(V, 1), n)
-                        let mut j_matrix = DMatrix::zeros(k, n);
+                        let mut j_matrix = Array2::zeros((k, n));
                         for i in 0..k {
                             for obj_idx in 0..n {
                                 let meas_idx = v[(i, obj_idx)];
@@ -255,7 +255,7 @@ pub fn run_parallel_update_lmb_filter(
                         }
 
                         // Sigma = reshape(L, n, m+1)
-                        let mut sigma = DMatrix::zeros(n, m + 1);
+                        let mut sigma = Array2::zeros((n, m + 1));
                         for obj_idx in 0..n {
                             for meas_idx in 0..=m {
                                 sigma[(obj_idx, meas_idx)] = l_marg[meas_idx][obj_idx];
@@ -264,7 +264,7 @@ pub fn run_parallel_update_lmb_filter(
 
                         // Tau = (Sigma .* R) ./ sum(Sigma, 2)
                         // CRITICAL: This was missing in the old implementation!
-                        let mut tau = DMatrix::zeros(n, m + 1);
+                        let mut tau = Array2::zeros((n, m + 1));
                         for obj_idx in 0..n {
                             let row_sum: f64 = sigma.row(obj_idx).sum();
                             if row_sum > 1e-15 {
@@ -283,7 +283,7 @@ pub fn run_parallel_update_lmb_filter(
                         }
 
                         // W = Tau ./ r
-                        let mut w_matrix = DMatrix::zeros(n, m + 1);
+                        let mut w_matrix = Array2::zeros((n, m + 1));
                         for obj_idx in 0..n {
                             if r_vec[obj_idx] > 1e-15 {
                                 for meas_idx in 0..=m {
@@ -385,7 +385,19 @@ pub fn run_parallel_update_lmb_filter(
                 let traj = Trajectory {
                     birth_location: obj.birth_location,
                     birth_time: obj.birth_time,
-                    trajectory: DMatrix::from_columns(&obj.mu.iter().map(|m| m.clone()).collect::<Vec<_>>()),
+                    trajectory: {
+                        let ncols = obj.mu.len();
+                        if ncols == 0 {
+                            Array2::zeros((0, 0))
+                        } else {
+                            let nrows = obj.mu[0].len();
+                            let mut traj = Array2::zeros((nrows, ncols));
+                            for (j, col) in obj.mu.iter().enumerate() {
+                                traj.column_mut(j).assign(col);
+                            }
+                            traj
+                        }
+                    },
                     trajectory_length: obj.trajectory_length,
                     timestamps: (0..obj.trajectory_length).map(|i| t - obj.trajectory_length + i + 1).collect(),
                 };
@@ -417,7 +429,7 @@ pub fn run_parallel_update_lmb_filter(
         }
 
         // Extract RFS state estimate
-        let mut labels_t = DMatrix::zeros(2, n_map);
+        let mut labels_t = Array2::zeros((2, n_map));
         let mut mu_t = Vec::with_capacity(n_map);
         let mut sigma_t = Vec::with_capacity(n_map);
 
@@ -451,7 +463,19 @@ pub fn run_parallel_update_lmb_filter(
             let traj = Trajectory {
                 birth_location: obj.birth_location,
                 birth_time: obj.birth_time,
-                trajectory: DMatrix::from_columns(&obj.mu.iter().map(|m| m.clone()).collect::<Vec<_>>()),
+                trajectory: {
+                    let ncols = obj.mu.len();
+                    if ncols == 0 {
+                        Array2::zeros((0, 0))
+                    } else {
+                        let nrows = obj.mu[0].len();
+                        let mut traj = Array2::zeros((nrows, ncols));
+                        for (j, col) in obj.mu.iter().enumerate() {
+                            traj.column_mut(j).assign(col);
+                        }
+                        traj
+                    }
+                },
                 trajectory_length: obj.trajectory_length,
                 timestamps: obj.timestamps.clone(),
             };

@@ -4,7 +4,7 @@
 
 use crate::common::types::*;
 use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
-use nalgebra::{DMatrix, DVector};
+use ndarray::{Array1, Array2, s};
 
 /// Generate a tracking model
 ///
@@ -40,10 +40,10 @@ pub fn generate_model(
     let existence_threshold = 1e-2;
 
     // State transition matrix A = [I T*I; 0 I]
-    let mut a = DMatrix::zeros(x_dimension, x_dimension);
-    a.view_mut((0, 0), (2, 2)).copy_from(&DMatrix::identity(2, 2));
-    a.view_mut((0, 2), (2, 2)).copy_from(&(t * DMatrix::identity(2, 2)));
-    a.view_mut((2, 2), (2, 2)).copy_from(&DMatrix::identity(2, 2));
+    let mut a = Array2::zeros((x_dimension, x_dimension));
+    a.slice_mut(s![0..2, 0..2]).assign(&Array2::eye(2));
+    a.slice_mut(s![0..2, 2..4]).assign(&(t * &Array2::eye(2)));
+    a.slice_mut(s![2..4, 2..4]).assign(&Array2::eye(2));
 
     // Control input (zero)
     let u = DVector::zeros(x_dimension);
@@ -52,22 +52,22 @@ pub fn generate_model(
     let r0 = 1.0;
     let t_sq = t * t;
     let t_cb = t * t * t;
-    let mut r = DMatrix::zeros(x_dimension, x_dimension);
-    r.view_mut((0, 0), (2, 2)).copy_from(&((t_cb / 3.0) * r0 * DMatrix::identity(2, 2)));
-    r.view_mut((0, 2), (2, 2)).copy_from(&((t_sq / 2.0) * r0 * DMatrix::identity(2, 2)));
-    r.view_mut((2, 0), (2, 2)).copy_from(&((t_sq / 2.0) * r0 * DMatrix::identity(2, 2)));
-    r.view_mut((2, 2), (2, 2)).copy_from(&(t * r0 * DMatrix::identity(2, 2)));
+    let mut r = Array2::zeros((x_dimension, x_dimension));
+    r.slice_mut(s![0..2, 0..2]).assign(&((t_cb / 3.0) * r0 * &Array2::eye(2)));
+    r.slice_mut(s![0..2, 2..4]).assign(&((t_sq / 2.0) * r0 * &Array2::eye(2)));
+    r.slice_mut(s![2..4, 0..2]).assign(&((t_sq / 2.0) * r0 * &Array2::eye(2)));
+    r.slice_mut(s![2..4, 2..4]).assign(&(t * r0 * &Array2::eye(2)));
 
     // Observation matrix C = [I 0]
-    let mut c = DMatrix::zeros(z_dimension, x_dimension);
-    c.view_mut((0, 0), (2, 2)).copy_from(&DMatrix::identity(2, 2));
+    let mut c = Array2::zeros((z_dimension, x_dimension));
+    c.slice_mut(s![0..2, 0..2]).assign(&Array2::eye(2));
 
     // Measurement noise covariance Q
     let q0 = 3.0_f64.powi(2);
-    let q = q0 * DMatrix::identity(z_dimension, z_dimension);
+    let q = q0 * &Array2::eye(z_dimension);
 
     // Observation space
-    let mut observation_space_limits = DMatrix::zeros(2, 2);
+    let mut observation_space_limits = Array2::zeros((2, 2));
     observation_space_limits[(0, 0)] = -100.0;
     observation_space_limits[(0, 1)] = 100.0;
     observation_space_limits[(1, 0)] = -100.0;
@@ -83,7 +83,7 @@ pub fn generate_model(
         ScenarioType::Fixed => {
             // Four fixed birth locations
             // Each column is [x, y, vx, vy] for one birth location (matches MATLAB)
-            let mut locs = DMatrix::zeros(x_dimension, 4);
+            let mut locs = Array2::zeros((x_dimension, 4));
             // Location 1: [-80, -20, 0, 0] -> x=-80, y=-20, vx=0, vy=0
             locs[(0, 0)] = -80.0;  // x
             locs[(1, 0)] = -20.0;  // y
@@ -108,7 +108,7 @@ pub fn generate_model(
         }
         ScenarioType::Random => {
             let n = number_of_birth_locations.expect("Must specify number of birth locations for Random scenario");
-            let mut locs = DMatrix::zeros(x_dimension, n);
+            let mut locs = Array2::zeros((x_dimension, n));
 
             for i in 0..n {
                 let range0 = observation_space_limits[(0, 1)] - observation_space_limits[(0, 0)];
@@ -132,8 +132,8 @@ pub fn generate_model(
     let mut sigma_b: Vec<DMatrix<f64>> = Vec::new();
 
     for i in 0..num_birth_locs {
-        mu_b.push(birth_locations.column(i).into());
-        sigma_b.push(DMatrix::from_diagonal(&DVector::from_element(x_dimension, 0.5_f64.powi(2))));
+        mu_b.push(birth_locations.column(i).to_owned());
+        sigma_b.push(Array2::from_diag(&Array1::from_elem(x_dimension, 0.5_f64.powi(2))));
     }
 
     // Create birth parameters as objects
@@ -150,7 +150,7 @@ pub fn generate_model(
         obj.mu = vec![mu_b[i].clone()];
         obj.sigma = vec![sigma_b[i].clone()];
         obj.trajectory_length = 0;
-        obj.trajectory = DMatrix::from_element(x_dimension, 100, 80.0);
+        obj.trajectory = Array2::from_elem((x_dimension, 100), 80.0);
         obj.timestamps = Vec::new();
 
         birth_parameters.push(obj);
@@ -159,7 +159,7 @@ pub fn generate_model(
         traj.birth_location = birth_location_labels[i];
         traj.birth_time = 0;
         traj.trajectory_length = 0;
-        traj.trajectory = DMatrix::from_element(x_dimension, 100, 80.0);
+        traj.trajectory = Array2::from_elem((x_dimension, 100), 80.0);
         traj.timestamps = Vec::new();
 
         birth_trajectory.push(traj);
@@ -266,10 +266,10 @@ pub fn generate_multisensor_model(
     let existence_threshold = 1e-2;
 
     // State transition matrix A = [I T*I; 0 I]
-    let mut a = DMatrix::zeros(x_dimension, x_dimension);
-    a.view_mut((0, 0), (2, 2)).copy_from(&DMatrix::identity(2, 2));
-    a.view_mut((0, 2), (2, 2)).copy_from(&(t * DMatrix::identity(2, 2)));
-    a.view_mut((2, 2), (2, 2)).copy_from(&DMatrix::identity(2, 2));
+    let mut a = Array2::zeros((x_dimension, x_dimension));
+    a.slice_mut(s![0..2, 0..2]).assign(&Array2::eye(2));
+    a.slice_mut(s![0..2, 2..4]).assign(&(t * &Array2::eye(2)));
+    a.slice_mut(s![2..4, 2..4]).assign(&Array2::eye(2));
 
     // Control input (zero)
     let u = DVector::zeros(x_dimension);
@@ -278,25 +278,25 @@ pub fn generate_multisensor_model(
     let r0 = 1.0;
     let t_sq = t * t;
     let t_cb = t * t * t;
-    let mut r = DMatrix::zeros(x_dimension, x_dimension);
-    r.view_mut((0, 0), (2, 2)).copy_from(&((t_cb / 3.0) * r0 * DMatrix::identity(2, 2)));
-    r.view_mut((0, 2), (2, 2)).copy_from(&((t_sq / 2.0) * r0 * DMatrix::identity(2, 2)));
-    r.view_mut((2, 0), (2, 2)).copy_from(&((t_sq / 2.0) * r0 * DMatrix::identity(2, 2)));
-    r.view_mut((2, 2), (2, 2)).copy_from(&(t * r0 * DMatrix::identity(2, 2)));
+    let mut r = Array2::zeros((x_dimension, x_dimension));
+    r.slice_mut(s![0..2, 0..2]).assign(&((t_cb / 3.0) * r0 * &Array2::eye(2)));
+    r.slice_mut(s![0..2, 2..4]).assign(&((t_sq / 2.0) * r0 * &Array2::eye(2)));
+    r.slice_mut(s![2..4, 0..2]).assign(&((t_sq / 2.0) * r0 * &Array2::eye(2)));
+    r.slice_mut(s![2..4, 2..4]).assign(&(t * r0 * &Array2::eye(2)));
 
     // Multisensor observation parameters
     // Observation matrices C (one per sensor, typically identical)
     let mut c_multisensor = Vec::new();
     for _ in 0..number_of_sensors {
-        let mut c = DMatrix::zeros(z_dimension, x_dimension);
-        c.view_mut((0, 0), (2, 2)).copy_from(&DMatrix::identity(2, 2));
+        let mut c = Array2::zeros((z_dimension, x_dimension));
+        c.slice_mut(s![0..2, 0..2]).assign(&Array2::eye(2));
         c_multisensor.push(c);
     }
 
     // Measurement noise covariances Q (different per sensor)
     let mut q_multisensor = Vec::new();
     for &q_val in &q_values {
-        let q = (q_val * q_val) * DMatrix::identity(z_dimension, z_dimension);
+        let q = (q_val * q_val) * &Array2::eye(z_dimension);
         q_multisensor.push(q);
     }
 
@@ -306,7 +306,7 @@ pub fn generate_multisensor_model(
     let detection_probability = detection_probabilities[0];
 
     // Observation space
-    let mut observation_space_limits = DMatrix::zeros(2, 2);
+    let mut observation_space_limits = Array2::zeros((2, 2));
     observation_space_limits[(0, 0)] = -100.0;
     observation_space_limits[(0, 1)] = 100.0;
     observation_space_limits[(1, 0)] = -100.0;
@@ -329,7 +329,7 @@ pub fn generate_multisensor_model(
     let (num_birth_locs, birth_locations) = match scenario_type {
         ScenarioType::Fixed => {
             // Four fixed birth locations
-            let mut locs = DMatrix::zeros(x_dimension, 4);
+            let mut locs = Array2::zeros((x_dimension, 4));
             locs[(0, 0)] = -80.0;
             locs[(1, 0)] = -20.0;
             locs[(0, 1)] = -20.0;
@@ -342,7 +342,7 @@ pub fn generate_multisensor_model(
         }
         ScenarioType::Random => {
             let n = number_of_birth_locations.expect("Must specify number of birth locations for Random scenario");
-            let mut locs = DMatrix::zeros(x_dimension, n);
+            let mut locs = Array2::zeros((x_dimension, n));
 
             for i in 0..n {
                 let range0 = observation_space_limits[(0, 1)] - observation_space_limits[(0, 0)];
@@ -366,8 +366,8 @@ pub fn generate_multisensor_model(
     let mut sigma_b: Vec<DMatrix<f64>> = Vec::new();
 
     for i in 0..num_birth_locs {
-        mu_b.push(birth_locations.column(i).into());
-        sigma_b.push(DMatrix::from_diagonal(&DVector::from_element(x_dimension, 10.0_f64.powi(2))));
+        mu_b.push(birth_locations.column(i).to_owned());
+        sigma_b.push(Array2::from_diag(&Array1::from_elem(x_dimension, 10.0_f64.powi(2))));
     }
 
     // Create birth parameters as objects
@@ -384,7 +384,7 @@ pub fn generate_multisensor_model(
         obj.mu = vec![mu_b[i].clone()];
         obj.sigma = vec![sigma_b[i].clone()];
         obj.trajectory_length = 0;
-        obj.trajectory = DMatrix::from_element(x_dimension, 100, 80.0);
+        obj.trajectory = Array2::from_elem((x_dimension, 100), 80.0);
         obj.timestamps = Vec::new();
 
         birth_parameters.push(obj);
@@ -393,7 +393,7 @@ pub fn generate_multisensor_model(
         traj.birth_location = birth_location_labels[i];
         traj.birth_time = 0;
         traj.trajectory_length = 0;
-        traj.trajectory = DMatrix::from_element(x_dimension, 100, 80.0);
+        traj.trajectory = Array2::from_elem((x_dimension, 100), 80.0);
         traj.timestamps = Vec::new();
 
         birth_trajectory.push(traj);

@@ -3,14 +3,14 @@
 //! Implements the complete LMB filter for multi-object tracking.
 //! Matches MATLAB runLmbFilter.m exactly.
 
-use crate::common::types::{DataAssociationMethod, Model, Object};
+use crate::common::types::{DataAssociationMethod, DMatrix, DVector, Model, Object};
 use crate::common::utils::gate_objects_by_existence;
+use ndarray::{s, Array1, Array2};
 use crate::lmb::association::generate_lmb_association_matrices;
 use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::lmb::data_association::{lmb_gibbs, lmb_lbp, lmb_lbp_fixed, lmb_murtys};
 use crate::lmb::prediction::lmb_prediction_step;
 use crate::lmb::update::{compute_posterior_lmb_spatial_distributions, update_no_measurements};
-use nalgebra::{DMatrix, DVector};
 
 /// State estimates output from LMB filter
 #[derive(Debug, Clone)]
@@ -131,7 +131,7 @@ pub fn run_lmb_filter(
         let (n_map, map_indices) = lmb_map_cardinality_estimate(&existence_probs);
 
         // Extract RFS state estimate
-        let mut labels_t = DMatrix::zeros(2, n_map);
+        let mut labels_t = Array2::zeros((2, n_map));
         let mut mu_t = Vec::with_capacity(n_map);
         let mut sigma_t = Vec::with_capacity(n_map);
 
@@ -153,13 +153,14 @@ pub fn run_lmb_filter(
 
             // Resize trajectory if needed
             if obj.trajectory.ncols() < j + 1 {
-                let mut new_traj = DMatrix::zeros(obj.mu[0].len(), j + 2);
-                new_traj.view_mut((0, 0), (obj.mu[0].len(), obj.trajectory.ncols()))
-                    .copy_from(&obj.trajectory);
+                let mut new_traj = Array2::zeros((obj.mu[0].len(), j + 2));
+                let ncols = obj.trajectory.ncols();
+                new_traj.slice_mut(s![0..obj.mu[0].len(), 0..ncols])
+                    .assign(&obj.trajectory);
                 obj.trajectory = new_traj;
             }
 
-            obj.trajectory.column_mut(j).copy_from(&obj.mu[0]);
+            obj.trajectory.column_mut(j).assign(&obj.mu[0]);
 
             if obj.timestamps.len() <= j {
                 obj.timestamps.resize(j + 1, 0);

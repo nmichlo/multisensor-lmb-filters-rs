@@ -4,6 +4,8 @@
 //! Matches MATLAB lmbPredictionStep.m exactly.
 
 use crate::common::types::{Model, Object};
+use ndarray::Array2;
+use ndarray_linalg::Norm;
 
 /// LMB prediction step
 ///
@@ -34,10 +36,10 @@ pub fn lmb_prediction_step(mut objects: Vec<Object>, model: &Model, t: usize) ->
         // Predict each GM component
         for j in 0..obj.number_of_gm_components {
             // Predict mean: mu' = A * mu + u
-            obj.mu[j] = &model.a * &obj.mu[j] + &model.u;
+            obj.mu[j] = model.a.dot(&obj.mu[j]) + &model.u;
 
             // Predict covariance: Sigma' = A * Sigma * A' + R
-            obj.sigma[j] = &model.a * &obj.sigma[j] * model.a.transpose() + &model.r;
+            obj.sigma[j] = model.a.dot(&obj.sigma[j]).dot(&model.a.t()) + &model.r;
         }
     }
 
@@ -55,8 +57,7 @@ pub fn lmb_prediction_step(mut objects: Vec<Object>, model: &Model, t: usize) ->
 mod tests {
     use super::*;
     use crate::common::model::generate_model;
-    use crate::common::types::{DataAssociationMethod, ScenarioType};
-    use nalgebra::{DMatrix, DVector};
+    use crate::common::types::{DataAssociationMethod, DMatrix, DVector, ScenarioType};
 
     #[test]
     fn test_lmb_prediction_empty() {
@@ -97,9 +98,9 @@ mod tests {
             number_of_gm_components: 1,
             w: vec![1.0],
             mu: vec![DVector::from_vec(vec![10.0, 1.0, 20.0, 2.0])],
-            sigma: vec![DMatrix::identity(4, 4)],
+            sigma: vec![Array2::eye(4)],
             trajectory_length: 0,
-            trajectory: DMatrix::zeros(4, 0),
+            trajectory: Array2::zeros((4, 0)),
             timestamps: vec![],
         };
 
@@ -122,7 +123,7 @@ mod tests {
 
         // Check covariance predicted
         let expected_sigma =
-            &model.a * &obj.sigma[0] * model.a.transpose() + &model.r;
+            &model.a * &obj.sigma[0] * model.a.t() + &model.r;
         let diff_sigma = &predicted[0].sigma[0] - &expected_sigma;
         assert!(diff_sigma.norm() < 1e-10);
     }

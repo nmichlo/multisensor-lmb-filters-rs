@@ -7,8 +7,9 @@
 //!
 //! Matches MATLAB aaLmbTrackMerging.m, gaLmbTrackMerging.m, and puLmbTrackMerging.m exactly.
 
-use crate::common::types::{Model, Object};
-use nalgebra::{DMatrix, DVector};
+use crate::common::types::{DMatrix, DVector, Model, Object};
+use ndarray::{Array1, Array2};
+use ndarray_linalg::{Cholesky, Determinant, Inverse, SVD, UPLO};
 
 /// Arithmetic Average (AA) track merging
 ///
@@ -124,14 +125,14 @@ fn m_projection(obj: &Object) -> (DVector<f64>, DMatrix<f64>) {
     // Compute weighted mean
     let mut nu = DVector::zeros(dim);
     for j in 0..obj.number_of_gm_components {
-        nu += &obj.mu[j] * obj.w[j];
+        nu = nu + &obj.mu[j] * obj.w[j];
     }
 
     // Compute weighted covariance
-    let mut t = DMatrix::zeros(dim, dim);
+    let mut t = DMatrix::zeros((dim, dim));
     for j in 0..obj.number_of_gm_components {
         let mu_diff = &obj.mu[j] - &nu;
-        t += (&obj.sigma[j] + &mu_diff * mu_diff.transpose()) * obj.w[j];
+        t = t + (&obj.sigma[j] + mu_diff.dot(&mu_diff.t())) * obj.w[j];
     }
 
     (nu, t)
@@ -177,8 +178,8 @@ pub fn ga_lmb_track_merging(
     // For each object
     for i in 0..number_of_objects {
         // Initialize canonical form accumulators
-        let mut k = DMatrix::zeros(x_dimension, x_dimension);
-        let mut h = DVector::zeros(x_dimension);
+        let mut k = Array2::zeros((x_dimension, x_dimension));
+        let mut h = Array1::zeros(x_dimension);
         let mut g = 0.0;
 
 
@@ -190,17 +191,17 @@ pub fn ga_lmb_track_merging(
 
             // Convert to canonical form and weight
             // Use LU decomposition (try_inverse) first to match MATLAB's inv()
-            let t_det = t.determinant();
-            let t_inv = t.clone().try_inverse().unwrap_or_else(|| {
-                t.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
-                    let svd = t.clone().svd(true, true);
-                    svd.pseudo_inverse(1e-10).unwrap()
+            let t_det = t.det().expect("Matrix t should be positive definite");
+            let t_inv = t.clone().inv().unwrap_or_else(|_| {
+                t.clone().cholesky(UPLO::Lower).and_then(|c| c.inv()).unwrap_or_else(|_| {
+                    // Fallback: just use regular inverse and panic if that fails
+                    t.clone().inv().expect("Cannot invert matrix t")
                 })
             });
 
             let k_matched = &t_inv * sensor_weights[s];
-            let h_matched = &k_matched * &nu;
-            let g_matched = -0.5 * nu.dot(&(&k_matched * &nu))
+            let h_matched = k_matched.dot(&nu);
+            let g_matched = -0.5 * nu.dot(&k_matched.dot(&nu))
                 - 0.5 * sensor_weights[s] * (2.0 * std::f64::consts::PI * t_det).ln();
 
             // Accumulate
@@ -211,15 +212,14 @@ pub fn ga_lmb_track_merging(
 
         // Convert back to covariance form
         // Use LU decomposition (try_inverse) first to match MATLAB's inv()
-        let sigma_ga = k.clone().try_inverse().unwrap_or_else(|| {
-            k.clone().cholesky().map(|c| c.inverse()).unwrap_or_else(|| {
-                let svd = k.clone().svd(true, true);
-                svd.pseudo_inverse(1e-10).unwrap()
+        let sigma_ga = k.clone().inv().unwrap_or_else(|_| {
+            k.clone().cholesky(UPLO::Lower).and_then(|c| c.inv()).unwrap_or_else(|_| {
+                k.clone().inv().expect("Cannot invert information matrix k")
             })
         });
-        let mu_ga = &sigma_ga * &h;
-        let k_times_mu_ga = &k * &mu_ga;
-        let sigma_ga_det_final = sigma_ga.determinant();
+        let mu_ga = sigma_ga.dot(&h);
+        let k_times_mu_ga = k.dot(&mu_ga);
+        let sigma_ga_det_final = sigma_ga.det().expect("Sigma_GA should be positive definite");
         let eta = (g + 0.5 * mu_ga.dot(&k_times_mu_ga)
             + 0.5 * (2.0 * std::f64::consts::PI * sigma_ga_det_final).ln()).exp();
 
@@ -280,14 +280,12 @@ pub fn pu_lmb_track_merging(
         // Convert prior to canonical form (use first component only)
         let k_prior = prior_objects[i].sigma[0]
             .clone()
-            .try_inverse()
-            .unwrap_or_else(|| {
-                let svd = prior_objects[i].sigma[0].clone().svd(true, true);
-                svd.pseudo_inverse(1e-10).unwrap()
-            });
-        let h_prior = &k_prior * &prior_objects[i].mu[0];
-        let g_prior = -0.5 * prior_objects[i].mu[0].dot(&(&k_prior * &prior_objects[i].mu[0]))
-            - 0.5 * (2.0 * std::f64::consts::PI * prior_objects[i].sigma[0].determinant()).ln();
+            .inv()
+            .expect("Cannot invert prior covariance matrix");
+        let h_prior = k_prior.dot(&prior_objects[i].mu[0]);
+        let prior_sigma_det = prior_objects[i].sigma[0].det().expect("Prior sigma should be positive definite");
+        let g_prior = -0.5 * prior_objects[i].mu[0].dot(&k_prior.dot(&prior_objects[i].mu[0]))
+            - 0.5 * (2.0 * std::f64::consts::PI * prior_sigma_det).ln();
 
         // Determine number of GM components from each sensor
         let mut num_gm_per_sensor = vec![0; number_of_sensors];
@@ -318,13 +316,11 @@ pub fn pu_lmb_track_merging(
                 let mu = &sensor_objects[s][i].mu[j];
                 let sigma = &sensor_objects[s][i].sigma[j];
 
-                let k_c = sigma.clone().try_inverse().unwrap_or_else(|| {
-                    let svd = sigma.clone().svd(true, true);
-                    svd.pseudo_inverse(1e-10).unwrap()
-                });
-                let h_c = &k_c * mu;
-                let quad_term = -0.5 * mu.dot(&(&k_c * mu));
-                let det_term = -0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln();
+                let k_c = sigma.clone().inv().expect("Cannot invert sensor component covariance");
+                let h_c = k_c.dot(mu);
+                let quad_term = -0.5 * mu.dot(&k_c.dot(mu));
+                let sigma_det = sigma.det().expect("Sensor sigma should be positive definite");
+                let det_term = -0.5 * (2.0 * std::f64::consts::PI * sigma_det).ln();
                 let weight_term = w.ln();
                 let g_c = quad_term + det_term + weight_term;
 
@@ -346,15 +342,13 @@ pub fn pu_lmb_track_merging(
 
         for j in 0..num_posterior_gm {
             let k_canonical = k_components[j].clone();  // T in MATLAB
-            let sigma = k_components[j].clone().try_inverse().unwrap_or_else(|| {
-                let svd = k_components[j].clone().svd(true, true);
-                svd.pseudo_inverse(1e-10).unwrap()
-            });
-            let mu = &sigma * &h_components[j];  // h{j} = K{j} * h{j} in MATLAB (line 70)
+            let sigma = k_components[j].clone().inv().expect("Cannot invert information matrix k_components[j]");
+            let mu = sigma.dot(&h_components[j]);  // h{j} = K{j} * h{j} in MATLAB (line 70)
             // MATLAB line 71: g(j) = g(j) + 0.5 * h{j}' * T * h{j} + 0.5 * log(det(2 * pi * K{j}))
             // where h{j} is NOW mu (updated on line 70), T is K_canonical, and K{j} is Sigma
-            let g = g_components[j] + 0.5 * mu.dot(&(&k_canonical * &mu))
-                + 0.5 * (2.0 * std::f64::consts::PI * sigma.determinant()).ln();
+            let sigma_det = sigma.det().expect("Posterior sigma should be positive definite");
+            let g = g_components[j] + 0.5 * mu.dot(&k_canonical.dot(&mu))
+                + 0.5 * (2.0 * std::f64::consts::PI * sigma_det).ln();
 
             sigma_components.push(sigma);
             mu_components.push(mu);

@@ -6,13 +6,13 @@
 //! WARNING: This implementation can be very memory intensive for large numbers
 //! of objects and sensors, matching the MATLAB behavior.
 
-use crate::common::types::{Model, Trajectory};
+use crate::common::types::{DMatrix, DVector, Model, Trajectory};
+use ndarray::Array2;
 use crate::lmbm::hypothesis::{lmbm_normalisation_and_gating, lmbm_state_extraction};
 use crate::lmbm::prediction::lmbm_prediction_step;
 use crate::multisensor_lmbm::association::generate_multisensor_lmbm_association_matrices;
 use crate::multisensor_lmbm::gibbs::multisensor_lmbm_gibbs_sampling;
 use crate::multisensor_lmbm::hypothesis::determine_multisensor_posterior_hypothesis_parameters;
-use nalgebra::{DMatrix, DVector};
 
 /// State estimates output from multi-sensor LMBM filter
 #[derive(Debug, Clone)]
@@ -79,7 +79,7 @@ pub fn run_multisensor_lmbm_filter(
             let birth_traj = Trajectory {
                 birth_location: birth_loc,
                 birth_time: t + 1,
-                trajectory: DMatrix::zeros(model.x_dimension, 0),
+                trajectory: Array2::zeros((model.x_dimension, 0)),
                 trajectory_length: 0,
                 timestamps: vec![],
             };
@@ -183,7 +183,7 @@ pub fn run_multisensor_lmbm_filter(
             lmbm_state_extraction(&normalized_hypotheses, false);
 
         // Extract RFS state estimate
-        let mut labels_t = DMatrix::zeros(2, cardinality_estimate);
+        let mut labels_t = Array2::zeros((2, cardinality_estimate));
         let mut mu_t = Vec::with_capacity(cardinality_estimate);
         let mut sigma_t = Vec::with_capacity(cardinality_estimate);
 

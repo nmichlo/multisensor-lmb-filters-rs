@@ -4,14 +4,14 @@
 //! Matches MATLAB runLmbmFilter.m exactly.
 
 use crate::common::association::murtys::murtys_algorithm_wrapper;
-use crate::common::types::{DataAssociationMethod, Model, Trajectory};
+use crate::common::types::{DataAssociationMethod, DMatrix, DVector, Model, Trajectory};
+use ndarray::{s, Array1, Array2};
 use crate::lmbm::association::{generate_lmbm_association_matrices, lmbm_gibbs_sampling};
 use crate::lmbm::hypothesis::{
     determine_posterior_hypothesis_parameters, lmbm_normalisation_and_gating,
     lmbm_state_extraction,
 };
 use crate::lmbm::prediction::lmbm_prediction_step;
-use nalgebra::{DMatrix, DVector};
 
 /// State estimates output from LMBM filter
 #[derive(Debug, Clone)]
@@ -159,7 +159,7 @@ pub fn run_lmbm_filter(
             lmbm_state_extraction(&hypotheses, false);
 
         // Extract RFS state estimate
-        let mut labels_t = DMatrix::zeros(2, cardinality_estimate);
+        let mut labels_t = Array2::zeros((2, cardinality_estimate));
         let mut mu_t = Vec::with_capacity(cardinality_estimate);
         let mut sigma_t = Vec::with_capacity(cardinality_estimate);
 
@@ -188,14 +188,15 @@ pub fn run_lmbm_filter(
 
                     // Resize trajectory if needed
                     if obj.trajectory.ncols() < j + 1 {
-                        let mut new_traj = DMatrix::zeros(hypotheses[0].mu[i].len(), j + 2);
+                        let mut new_traj = Array2::zeros((hypotheses[0].mu[i].len(), j + 2));
+                        let ncols = obj.trajectory.ncols();
                         new_traj
-                            .view_mut((0, 0), (hypotheses[0].mu[i].len(), obj.trajectory.ncols()))
-                            .copy_from(&obj.trajectory);
+                            .slice_mut(s![0..hypotheses[0].mu[i].len(), 0..ncols])
+                            .assign(&obj.trajectory);
                         obj.trajectory = new_traj;
                     }
 
-                    obj.trajectory.column_mut(j).copy_from(&hypotheses[0].mu[i]);
+                    obj.trajectory.column_mut(j).assign(&hypotheses[0].mu[i]);
 
                     if obj.timestamps.len() <= j {
                         obj.timestamps.resize(j + 1, 0);

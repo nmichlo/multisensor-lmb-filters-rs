@@ -4,9 +4,10 @@
 //! Matches MATLAB generateLmbmAssociationMatrices.m and lmbmGibbsSampling.m exactly.
 
 use crate::common::association::gibbs::{generate_gibbs_sample, initialize_gibbs_association_vectors};
-use crate::common::types::{Hypothesis, Model};
+use crate::common::types::{DMatrix, DVector, Hypothesis, Model};
 use crate::common::linalg::is_positive_definite;
-use nalgebra::{DMatrix, DVector};
+use ndarray::{Array1, Array2};
+use ndarray_linalg::{Cholesky, Determinant, Inverse, Solve, SVD, UPLO};
 
 /// Posterior parameters for LMBM update
 #[derive(Debug, Clone)]
@@ -65,7 +66,7 @@ pub fn generate_lmbm_association_matrices(
     let number_of_measurements = measurements.len();
 
     // Log likelihood matrix
-    let mut r_matrix = DMatrix::zeros(number_of_objects, number_of_measurements);
+    let mut r_matrix = Array2::zeros((number_of_objects, number_of_measurements));
 
     // Auxiliary variables
     let mut phi = vec![0.0; number_of_objects];
@@ -82,7 +83,7 @@ pub fn generate_lmbm_association_matrices(
     }
 
     // Posterior mu: n x (m+1), where column 0 is miss, columns 1..m+1 are measurements
-    let mut posterior_mu = vec![vec![DVector::zeros(0); number_of_measurements + 1]; number_of_objects];
+    let mut posterior_mu = vec![vec![Array1::zeros(0); number_of_measurements + 1]; number_of_objects];
 
     // Posterior Sigma: same as prior (updated only once per object)
     let mut posterior_sigma = hypothesis.sigma.clone();
@@ -93,27 +94,28 @@ pub fn generate_lmbm_association_matrices(
         posterior_mu[i][0] = hypothesis.mu[i].clone();
 
         // Determine posterior parameters for each object's spatial distribution
-        let mu_z = &model.c * &hypothesis.mu[i];
-        let z_matrix = &model.c * &hypothesis.sigma[i] * model.c.transpose() + &model.q;
+        let mu_z = model.c.dot(&hypothesis.mu[i]);
+        let z_matrix = model.c.dot(&hypothesis.sigma[i]).dot(&model.c.t()) + &model.q;
 
         // Compute log Gaussian normalizing constant
         let log_gaussian_normalising_constant = if is_positive_definite(&z_matrix) {
-            match z_matrix.clone().cholesky() {
-                Some(chol) => {
-                    let log_det = 2.0 * chol.l().diagonal().iter().map(|x| x.ln()).sum::<f64>();
+            match z_matrix.clone().cholesky(UPLO::Lower) {
+                Ok(chol) => {
+                    let log_det = 2.0 * chol.diag().iter().map(|x| x.ln()).sum::<f64>();
                     -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
                         - 0.5 * log_det
                 }
-                None => {
+                Err(_) => {
                     // Fallback to determinant
-                    let det = z_matrix.determinant();
+                    let det = z_matrix.det().expect("z_matrix should be positive definite");
                     -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
                         - 0.5 * det.ln()
                 }
             }
         } else {
+            let det_z = z_matrix.det().expect("z_matrix should be positive definite");
             -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
-                - 0.5 * z_matrix.determinant().ln()
+                - 0.5 * det_z.ln()
         };
 
         let log_likelihood_ratio_terms = hypothesis.r[i].ln()
@@ -121,40 +123,34 @@ pub fn generate_lmbm_association_matrices(
             - model.clutter_per_unit_volume.ln();
 
         // Compute Z inverse and Kalman gain
-        let z_inv = match z_matrix.clone().cholesky() {
-            Some(chol) => {
-                let identity = DMatrix::identity(z_matrix.nrows(), z_matrix.ncols());
-                chol.solve(&identity)
+        let z_inv = match z_matrix.clone().cholesky(UPLO::Lower) {
+            Ok(chol) => {
+                chol.inv().unwrap_or_else(|_| {
+                    z_matrix.clone().inv().expect("Failed to invert z_matrix")
+                })
             }
-            None => {
-                // Fallback to pseudo-inverse if Cholesky fails
-                match z_matrix.clone().try_inverse() {
-                    Some(inv) => inv,
-                    None => {
-                        // Use SVD-based pseudo-inverse as last resort
-                        let svd = z_matrix.svd(true, true);
-                        svd.pseudo_inverse(1e-10).unwrap()
-                    }
-                }
+            Err(_) => {
+                // Fallback to inverse if Cholesky fails
+                z_matrix.clone().inv().expect("Failed to invert z_matrix - matrix is singular")
             }
         };
 
-        let k = &hypothesis.sigma[i] * model.c.transpose() * &z_inv;
-        posterior_sigma[i] = (DMatrix::identity(model.x_dimension, model.x_dimension)
-            - &k * &model.c)
-            * &hypothesis.sigma[i];
+        let k = hypothesis.sigma[i].dot(&model.c.t()).dot(&z_inv);
+        posterior_sigma[i] = (Array2::eye(model.x_dimension)
+            - k.dot(&model.c))
+            .dot(&hypothesis.sigma[i]);
 
         // Determine total marginal likelihood and posterior components
         for j in 0..number_of_measurements {
             // Determine marginal likelihood ratio
             let nu = &measurements[j] - &mu_z;
-            let quadratic_form = nu.transpose() * &z_inv * &nu;
+            let quadratic_form = nu.dot(&z_inv.dot(&nu));
             let gaussian_log_likelihood =
-                log_gaussian_normalising_constant - 0.5 * quadratic_form[(0, 0)];
+                log_gaussian_normalising_constant - 0.5 * quadratic_form;
             r_matrix[(i, j)] = log_likelihood_ratio_terms + gaussian_log_likelihood;
 
             // Determine posterior mean for each measurement
-            posterior_mu[i][j + 1] = &hypothesis.mu[i] + &k * &nu;
+            posterior_mu[i][j + 1] = &hypothesis.mu[i] + k.dot(&nu);
         }
     }
 
@@ -163,7 +159,7 @@ pub fn generate_lmbm_association_matrices(
 
     // Gibbs sampler association matrices
     // P = RLinear ./ (RLinear + eta)
-    let mut p_matrix = DMatrix::zeros(number_of_objects, number_of_measurements);
+    let mut p_matrix = Array2::zeros((number_of_objects, number_of_measurements));
     for i in 0..number_of_objects {
         for j in 0..number_of_measurements {
             p_matrix[(i, j)] = r_linear[(i, j)] / (r_linear[(i, j)] + eta[i]);
@@ -171,7 +167,7 @@ pub fn generate_lmbm_association_matrices(
     }
 
     // L = [log(eta) R]
-    let mut l_matrix = DMatrix::zeros(number_of_objects, number_of_measurements + 1);
+    let mut l_matrix = Array2::zeros((number_of_objects, number_of_measurements + 1));
     for i in 0..number_of_objects {
         l_matrix[(i, 0)] = eta[i].ln();
         for j in 0..number_of_measurements {
@@ -226,7 +222,7 @@ pub fn lmbm_gibbs_sampling(
     let (mut v, mut w) = initialize_gibbs_association_vectors(c);
 
     // Association vectors storage
-    let mut v_samples = DMatrix::zeros(number_of_samples, n);
+    let mut v_samples = Array2::zeros((number_of_samples, n));
 
     // Gibbs sampling
     for i in 0..number_of_samples {
@@ -255,7 +251,7 @@ pub fn lmbm_gibbs_sampling(
 
     // Convert to matrix
     let num_unique = unique_samples.len();
-    let mut result = DMatrix::zeros(num_unique, n);
+    let mut result = Array2::zeros((num_unique, n));
     for (i, row) in unique_samples.iter().enumerate() {
         for (j, &val) in row.iter().enumerate() {
             result[(i, j)] = val;

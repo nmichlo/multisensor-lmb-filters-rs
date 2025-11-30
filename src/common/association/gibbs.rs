@@ -4,7 +4,8 @@
 //! Matches MATLAB generateGibbsSample.m, initialiseGibbsAssociationVectors.m,
 //! and lmbGibbsSampling.m exactly.
 
-use nalgebra::{DMatrix, DVector};
+use crate::common::types::{DMatrix, DVector};
+use ndarray::Array2;
 use std::collections::HashMap;
 
 /// Gibbs sampling result
@@ -149,7 +150,7 @@ pub fn lmb_gibbs_sampling(
     }
 
     // Convert samples to matrix
-    let mut v_samples = DMatrix::zeros(v_samples_vec.len(), n);
+    let mut v_samples = Array2::zeros((v_samples_vec.len(), n));
     for (i, sample) in v_samples_vec.iter().enumerate() {
         for (j, &val) in sample.iter().enumerate() {
             v_samples[(i, j)] = val;
@@ -166,7 +167,7 @@ pub fn lmb_gibbs_sampling(
 
     // Compute marginal distributions
     // This is complex due to MATLAB's advanced indexing
-    let mut sigma = DMatrix::zeros(n, m + 1);
+    let mut sigma = Array2::zeros((n, m + 1));
 
     for v_event in &unique_v {
         // Compute likelihood of this event
@@ -185,7 +186,7 @@ pub fn lmb_gibbs_sampling(
     }
 
     // Normalize: Tau = (Sigma .* R) ./ sum(Sigma, 2)
-    let mut tau = DMatrix::zeros(n, m + 1);
+    let mut tau = Array2::zeros((n, m + 1));
     for i in 0..n {
         let row_sum: f64 = sigma.row(i).sum();
         if row_sum > 1e-15 {
@@ -202,7 +203,7 @@ pub fn lmb_gibbs_sampling(
     }
 
     // Marginal association probabilities: W = Tau ./ r
-    let mut w_result = DMatrix::zeros(n, m + 1);
+    let mut w_result = Array2::zeros((n, m + 1));
     for i in 0..n {
         if r[i] > 1e-15 {
             for j in 0..(m + 1) {
@@ -250,7 +251,7 @@ pub fn lmb_gibbs_frequency_sampling(
     let (mut v, mut w) = initialize_gibbs_association_vectors(&matrices.c);
 
     // Sigma = zeros(n, m+1) - tally matrix
-    let mut sigma = DMatrix::zeros(n, m + 1);
+    let mut sigma = Array2::zeros((n, m + 1));
 
     // Gibbs sampling with frequency counting
     for _ in 0..num_samples {
@@ -267,7 +268,7 @@ pub fn lmb_gibbs_frequency_sampling(
     }
 
     // Normalize: Tau = Sigma .* R
-    let tau = sigma.component_mul(&matrices.r);
+    let tau = &sigma * &matrices.r;
 
     // Existence probabilities: r = sum(Tau, 2)
     let mut r = DVector::zeros(n);
@@ -276,7 +277,7 @@ pub fn lmb_gibbs_frequency_sampling(
     }
 
     // Marginal association probabilities: W = Tau ./ r
-    let mut w_result = DMatrix::zeros(n, m + 1);
+    let mut w_result = Array2::zeros((n, m + 1));
     for i in 0..n {
         if r[i] > 1e-15 {
             for j in 0..(m + 1) {
@@ -286,7 +287,7 @@ pub fn lmb_gibbs_frequency_sampling(
     }
 
     // V samples not needed for frequency variant
-    let v_samples = DMatrix::zeros(0, n);
+    let v_samples = Array2::zeros((0, n));
 
     GibbsResult {
         r,

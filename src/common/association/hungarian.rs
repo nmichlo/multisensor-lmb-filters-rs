@@ -3,7 +3,8 @@
 //! Implements the Hungarian algorithm for finding minimum cost assignments
 //! in a bipartite graph. Matches MATLAB Hungarian.m exactly.
 
-use nalgebra::DMatrix;
+use crate::common::types::DMatrix;
+use ndarray::Array2;
 
 /// Hungarian algorithm result
 #[derive(Debug, Clone)]
@@ -27,7 +28,7 @@ pub struct HungarianResult {
 pub fn hungarian(perf: &DMatrix<f64>) -> HungarianResult {
     let m = perf.nrows();
     let n = perf.ncols();
-    let mut matching = DMatrix::zeros(m, n);
+    let mut matching = Array2::zeros((m, n));
 
     // Find connected vertices (non-infinite entries)
     let mut x_con = Vec::new();
@@ -54,7 +55,7 @@ pub fn hungarian(perf: &DMatrix<f64>) -> HungarianResult {
 
     // Assemble condensed performance matrix
     let p_size = x_con.len().max(y_con.len());
-    let mut p_cond = DMatrix::zeros(p_size, p_size);
+    let mut p_cond = Array2::zeros((p_size, p_size));
 
     for (i_new, &i_old) in x_con.iter().enumerate() {
         for (j_new, &j_old) in y_con.iter().enumerate() {
@@ -86,7 +87,7 @@ pub fn hungarian(perf: &DMatrix<f64>) -> HungarianResult {
     }
 
     let final_size = p_size + cnum;
-    let mut p_final = DMatrix::from_element(final_size, final_size, pmax);
+    let mut p_final = Array2::from_elem((final_size, final_size), pmax);
 
     for (i_new, &i_old) in x_con.iter().enumerate() {
         for (j_new, &j_old) in y_con.iter().enumerate() {
@@ -174,7 +175,7 @@ fn step2(p_cond: &DMatrix<f64>) -> (Vec<usize>, Vec<usize>, DMatrix<f64>) {
     let p_size = p_cond.nrows();
     let mut r_cov = vec![0; p_size];
     let mut c_cov = vec![0; p_size];
-    let mut m = DMatrix::zeros(p_size, p_size);
+    let mut m = Array2::zeros((p_size, p_size));
 
     for i in 0..p_size {
         for j in 0..p_size {
@@ -402,7 +403,7 @@ mod tests {
     #[test]
     fn test_hungarian_simple() {
         // Simple 3x3 cost matrix
-        let mut perf = DMatrix::from_element(3, 3, 0.0);
+        let mut perf = Array2::from_elem((3, 3), 0.0);
         perf[(0, 0)] = 1.0;
         perf[(0, 1)] = 2.0;
         perf[(0, 2)] = 3.0;
@@ -433,7 +434,7 @@ mod tests {
     #[test]
     fn test_hungarian_with_infinity() {
         // Matrix with some impossible assignments
-        let mut perf = DMatrix::from_element(2, 2, 0.0);
+        let mut perf = Array2::from_elem((2, 2), 0.0);
         perf[(0, 0)] = 1.0;
         perf[(0, 1)] = f64::INFINITY;
         perf[(1, 0)] = f64::INFINITY;

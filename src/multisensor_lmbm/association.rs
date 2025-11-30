@@ -7,9 +7,10 @@
 //! WARNING: This implementation can be very memory intensive for large numbers
 //! of objects and sensors, matching the MATLAB behavior.
 
-use crate::common::types::{Hypothesis, Model};
-use nalgebra::{DMatrix, DVector};
+use crate::common::types::{DMatrix, DVector, Hypothesis, Model};
 use std::f64::consts::PI;
+use ndarray::{Array1, Array2};
+use ndarray_linalg::{Cholesky, Determinant, Inverse, Solve, SVD, UPLO};
 
 /// Posterior parameters for multi-sensor LMBM update
 #[derive(Debug, Clone)]
@@ -72,8 +73,8 @@ fn determine_log_likelihood_ratio(
     if number_of_assignments > 0 {
         // Determine measurement vector by stacking measurements from detecting sensors
         let z_dim_total = model.z_dimension * number_of_assignments;
-        let mut z = DVector::zeros(z_dim_total);
-        let mut c = DMatrix::zeros(z_dim_total, model.x_dimension);
+        let mut z = Array1::zeros(z_dim_total);
+        let mut c = Array2::zeros((z_dim_total, model.x_dimension));
         let mut q_blocks = Vec::new();
 
         // Get per-sensor observation matrices and noise covariances
@@ -86,15 +87,13 @@ fn determine_log_likelihood_ratio(
         for s in 0..number_of_sensors {
             if assignments[s] {
                 let start = model.z_dimension * counter;
-                let _end = start + model.z_dimension;
+                let end = start + model.z_dimension;
 
                 // Copy measurement (a is 1-indexed: 0=miss, 1+=measurement, so subtract 1 for array access)
-                z.rows_mut(start, model.z_dimension)
-                    .copy_from(&measurements[s][a[s] - 1]);
+                z.slice_mut(ndarray::s![start..end]).assign(&measurements[s][a[s] - 1]);
 
                 // Copy observation matrix for sensor s
-                c.view_mut((start, 0), (model.z_dimension, model.x_dimension))
-                    .copy_from(&c_multisensor[s]);
+                c.slice_mut(ndarray::s![start..end, ..]).assign(&c_multisensor[s]);
 
                 // Collect Q matrix for sensor s
                 q_blocks.push(q_multisensor[s].clone());
@@ -104,28 +103,26 @@ fn determine_log_likelihood_ratio(
         }
 
         // Block diagonal Q
-        let mut q = DMatrix::zeros(z_dim_total, z_dim_total);
+        let mut q = Array2::zeros((z_dim_total, z_dim_total));
         let mut offset = 0;
         for q_block in &q_blocks {
-            q.view_mut((offset, offset), (model.z_dimension, model.z_dimension))
-                .copy_from(q_block);
+            let end_offset = offset + model.z_dimension;
+            q.slice_mut(ndarray::s![offset..end_offset, offset..end_offset]).assign(q_block);
             offset += model.z_dimension;
         }
 
         // Likelihood computation
-        let nu = &z - &c * &hypothesis.mu[i];
-        let z_matrix = &c * &hypothesis.sigma[i] * c.transpose() + &q;
+        let nu = &z - c.dot(&hypothesis.mu[i]);
+        let z_matrix = c.dot(&hypothesis.sigma[i]).dot(&c.t()) + &q;
 
-        let z_inv = z_matrix.clone().try_inverse().unwrap_or_else(|| {
-            let svd = z_matrix.clone().svd(true, true);
-            svd.pseudo_inverse(1e-10).unwrap()
-        });
+        let z_inv = z_matrix.clone().inv().expect("Cannot invert innovation covariance z_matrix");
 
-        let k = &hypothesis.sigma[i] * c.transpose() * &z_inv;
+        let k = hypothesis.sigma[i].dot(&c.t()).dot(&z_inv);
         // eta = -0.5 * log(det(2*pi*Z))
         // For n×n matrix: det(c*A) = c^n * det(A)
         // So det(2*pi*Z) = (2*pi)^n * det(Z) where n = z_dim_total
-        let eta = -0.5 * ((2.0 * PI).powi(z_dim_total as i32) * z_matrix.determinant()).ln();
+        let z_matrix_det = z_matrix.det().expect("Innovation covariance z_matrix should be positive definite");
+        let eta = -0.5 * ((2.0 * PI).powi(z_dim_total as i32) * z_matrix_det).ln();
 
         // Detection probabilities (use per-sensor values for multisensor)
         let detection_probs = model.detection_probability_multisensor.as_ref()
@@ -151,13 +148,14 @@ fn determine_log_likelihood_ratio(
             .map(|(s, _)| clutter_per_unit_volumes[s].ln())
             .sum();
 
-        let l = hypothesis.r[i].ln() + pd_log + eta - 0.5 * nu.dot(&(&z_inv * &nu)) - kappa_log;
+        let quadratic = nu.dot(&z_inv.dot(&nu));
+        let l = hypothesis.r[i].ln() + pd_log + eta - 0.5 * quadratic - kappa_log;
 
         // Posterior parameters
         let r = 1.0;
-        let mu = &hypothesis.mu[i] + &k * &nu;
-        let sigma = (DMatrix::identity(model.x_dimension, model.x_dimension) - &k * &c)
-            * &hypothesis.sigma[i];
+        let mu = &hypothesis.mu[i] + k.dot(&nu);
+        let sigma = (Array2::eye(model.x_dimension) - k.dot(&c))
+            .dot(&hypothesis.sigma[i]);
 
         (l, r, mu, sigma)
     } else {
@@ -225,8 +223,8 @@ pub fn generate_multisensor_lmbm_association_matrices(
     // Preallocate flattened arrays
     let mut l = vec![0.0; number_of_entries];
     let mut r = vec![0.0; number_of_entries];
-    let mut mu = vec![DVector::zeros(0); number_of_entries];
-    let mut sigma = vec![DMatrix::zeros(0, 0); number_of_entries];
+    let mut mu = vec![Array1::zeros(0); number_of_entries];
+    let mut sigma = vec![Array2::zeros((0, 0)); number_of_entries];
 
     // Populate likelihood matrix
     for ell in 0..number_of_entries {

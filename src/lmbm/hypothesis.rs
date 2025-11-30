@@ -3,10 +3,9 @@
 //! Implements hypothesis parameter determination, normalization, gating, and state extraction for LMBM filter.
 //! Matches MATLAB determinePosteriorHypothesisParameters.m, lmbmNormalisationAndGating.m, and lmbmStateExtraction.m exactly.
 
-use crate::common::types::{Hypothesis, Model};
+use crate::common::types::{DMatrix, Hypothesis, Model};
 use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::lmbm::association::LmbmPosteriorParameters;
-use nalgebra::DMatrix;
 
 /// Determine parameters for a new set of posterior LMBM hypotheses
 ///
@@ -292,8 +291,7 @@ pub fn lmbm_state_extraction(
 mod tests {
     use super::*;
     use crate::common::model::generate_model;
-    use crate::common::types::{DataAssociationMethod, ScenarioType};
-    use nalgebra::{DMatrix, DVector};
+    use crate::common::types::{DataAssociationMethod, DMatrix, DVector, ScenarioType};
 
     #[test]
     fn test_determine_posterior_hypothesis_parameters() {
@@ -314,13 +312,13 @@ mod tests {
         let v = DMatrix::from_row_slice(2, n, &vec![0; 2 * n]);
 
         // Create dummy L matrix
-        let l = DMatrix::from_element(n, 2, -1.0);
+        let l = Array2::from_elem((n, 2), -1.0);
 
         // Create dummy posterior parameters
         let posterior_params = LmbmPosteriorParameters {
             r: vec![0.5; n],
             mu: vec![vec![DVector::zeros(4); 2]; n],
-            sigma: vec![DMatrix::identity(4, 4); n],
+            sigma: vec![Array2::eye(4); n],
         };
 
         let posterior = determine_posterior_hypothesis_parameters(&v, &l, &posterior_params, &prior_hypothesis);

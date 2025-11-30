@@ -3,9 +3,9 @@
 //! Implements posterior hypothesis parameter determination for multi-sensor LMBM.
 //! Matches MATLAB determineMultisensorPosteriorHypothesisParameters.m exactly.
 
-use crate::common::types::Hypothesis;
+use crate::common::types::{DMatrix, DVector, Hypothesis};
 use crate::multisensor_lmbm::association::MultisensorLmbmPosteriorParameters;
-use nalgebra::{DMatrix, DVector};
+use ndarray::Array2;
 
 /// Determine parameters for a new set of posterior LMBM hypotheses
 ///
@@ -47,7 +47,7 @@ pub fn determine_multisensor_posterior_hypothesis_parameters(
     for i in 0..number_of_posterior_hypotheses {
         // Build association matrix U (n x (S+1))
         // Columns: [sensor1_assoc, sensor2_assoc, ..., sensorS_assoc, object_index]
-        let mut u = DMatrix::zeros(number_of_objects, number_of_sensors + 1);
+        let mut u = Array2::zeros((number_of_objects, number_of_sensors + 1));
 
         // Fill sensor associations (convert from flattened row)
         for obj_idx in 0..number_of_objects {
@@ -162,7 +162,7 @@ mod tests {
 
         // Create association matrix: 1 event, 2 objects * 2 sensors = 4 entries
         // Event: all misses (0-indexed)
-        let mut a = DMatrix::zeros(1, 4);
+        let mut a = Array2::zeros((1, 4));
 
         // Create simple likelihood matrix
         let l = vec![0.0; total_size];
@@ -171,7 +171,7 @@ mod tests {
         let posterior_parameters = MultisensorLmbmPosteriorParameters {
             r: vec![0.5; total_size],
             mu: vec![DVector::from_vec(vec![0.0, 0.0]); total_size],
-            sigma: vec![DMatrix::identity(2, 2); total_size],
+            sigma: vec![Array2::eye(2); total_size],
         };
 
         // Create prior hypothesis
@@ -184,7 +184,7 @@ mod tests {
                 DVector::from_vec(vec![0.0, 0.0]),
                 DVector::from_vec(vec![1.0, 1.0]),
             ],
-            sigma: vec![DMatrix::identity(2, 2), DMatrix::identity(2, 2)],
+            sigma: vec![Array2::eye(2), Array2::eye(2)],
         };
 
         let posterior = determine_multisensor_posterior_hypothesis_parameters(

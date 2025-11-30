@@ -4,7 +4,8 @@
 //! and posterior existence probabilities. Matches MATLAB loopyBeliefPropagation.m
 //! and fixedLoopyBeliefPropagation.m exactly.
 
-use nalgebra::{DMatrix, DVector};
+use crate::common::types::{DMatrix, DVector};
+use ndarray::{Array1, Array2};
 
 /// LBP result containing existence probabilities and association weights
 #[derive(Debug, Clone)]
@@ -48,7 +49,7 @@ pub fn loopy_belief_propagation(
     let n_measurements = matrices.psi.ncols();
 
     // Initialize messages
-    let mut sigma_mt = DMatrix::from_element(n_objects, n_measurements, 1.0);
+    let mut sigma_mt = Array2::from_elem((n_objects, n_measurements), 1.0);
     let mut not_converged = true;
     let mut counter = 0;
 
@@ -58,10 +59,10 @@ pub fn loopy_belief_propagation(
         let sigma_mt_old = sigma_mt.clone();
 
         // Pass messages from object to measurement clusters
-        let b = matrices.psi.component_mul(&sigma_mt);
+        let b = &matrices.psi * &sigma_mt;
 
         // sigma_tm = Psi ./ (-B + sum(B, 2) + 1)
-        let mut sigma_tm = DMatrix::zeros(n_objects, n_measurements);
+        let mut sigma_tm = Array2::zeros((n_objects, n_measurements));
         for i in 0..n_objects {
             let row_sum: f64 = b.row(i).sum();
             for j in 0..n_measurements {
@@ -99,10 +100,10 @@ pub fn loopy_belief_propagation(
     }
 
     // Compute final results
-    let b = matrices.psi.component_mul(&sigma_mt);
+    let b = &matrices.psi * &sigma_mt;
 
     // Gamma = [phi, B .* eta]
-    let mut gamma = DMatrix::zeros(n_objects, n_measurements + 1);
+    let mut gamma = Array2::zeros((n_objects, n_measurements + 1));
     for i in 0..n_objects {
         gamma[(i, 0)] = matrices.phi[i];
         for j in 0..n_measurements {
@@ -114,7 +115,7 @@ pub fn loopy_belief_propagation(
     let q: Vec<f64> = (0..n_objects).map(|i| gamma.row(i).sum()).collect();
 
     // W = Gamma ./ q
-    let mut w = DMatrix::zeros(n_objects, n_measurements + 1);
+    let mut w = Array2::zeros((n_objects, n_measurements + 1));
     for i in 0..n_objects {
         if q[i].abs() > 1e-15 {
             for j in 0..(n_measurements + 1) {
@@ -156,15 +157,15 @@ pub fn fixed_loopy_belief_propagation(
     let n_measurements = matrices.psi.ncols();
 
     // Initialize messages
-    let mut sigma_mt = DMatrix::from_element(n_objects, n_measurements, 1.0);
+    let mut sigma_mt = Array2::from_elem((n_objects, n_measurements), 1.0);
 
     // Fixed number of iterations
     for _ in 0..max_iterations {
         // Pass messages from object to measurement clusters
-        let b = matrices.psi.component_mul(&sigma_mt);
+        let b = &matrices.psi * &sigma_mt;
 
         // sigma_tm = Psi ./ (-B + sum(B, 2) + 1)
-        let mut sigma_tm = DMatrix::zeros(n_objects, n_measurements);
+        let mut sigma_tm = Array2::zeros((n_objects, n_measurements));
         for i in 0..n_objects {
             let row_sum: f64 = b.row(i).sum();
             for j in 0..n_measurements {
@@ -195,9 +196,9 @@ pub fn fixed_loopy_belief_propagation(
     }
 
     // Compute final results (same as converged version)
-    let b = matrices.psi.component_mul(&sigma_mt);
+    let b = &matrices.psi * &sigma_mt;
 
-    let mut gamma = DMatrix::zeros(n_objects, n_measurements + 1);
+    let mut gamma = Array2::zeros((n_objects, n_measurements + 1));
     for i in 0..n_objects {
         gamma[(i, 0)] = matrices.phi[i];
         for j in 0..n_measurements {
@@ -207,7 +208,7 @@ pub fn fixed_loopy_belief_propagation(
 
     let q: Vec<f64> = (0..n_objects).map(|i| gamma.row(i).sum()).collect();
 
-    let mut w = DMatrix::zeros(n_objects, n_measurements + 1);
+    let mut w = Array2::zeros((n_objects, n_measurements + 1));
     for i in 0..n_objects {
         if q[i].abs() > 1e-15 {
             for j in 0..(n_measurements + 1) {

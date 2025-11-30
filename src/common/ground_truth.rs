@@ -4,7 +4,8 @@
 
 use crate::common::rng::Rng;
 use crate::common::types::*;
-use nalgebra::{DMatrix, DVector};
+use ndarray::{Array1, Array2, s};
+use ndarray_linalg::{Cholesky, Inverse, UPLO};
 
 /// Ground truth trajectory for a single object
 #[derive(Debug, Clone)]
@@ -72,7 +73,7 @@ pub fn generate_ground_truth(
                 let indices = vec![1, 2, 3, 4, 1, 4, 1, 2, 3, 4];
 
                 // Prior locations matrix (4 x 10)
-                let mut locs = DMatrix::zeros(4, n_objs);
+                let mut locs = Array2::zeros((4, n_objs));
                 // Object 1: birth location 1
                 locs[(0, 0)] = -80.0; locs[(1, 0)] = -20.0; locs[(2, 0)] = 0.75; locs[(3, 0)] = 1.5;
                 // Object 2: birth location 2
@@ -107,7 +108,7 @@ pub fn generate_ground_truth(
                     .collect();
 
                 // Prior locations from birth means
-                let mut locs = DMatrix::zeros(4, n_objs);
+                let mut locs = Array2::zeros((4, n_objs));
                 for i in 0..n_objs {
                     let birth_idx = indices[i] - 1;
                     locs[(0, i)] = model.mu_b[birth_idx][0];
@@ -148,7 +149,7 @@ pub fn generate_ground_truth(
     }
 
     // Cholesky decomposition of measurement noise
-    let q_chol = model.q.clone().cholesky().expect("Q must be positive definite");
+    let q_chol = model.q.clone().cholesky(UPLO::Lower).expect("Q must be positive definite");
 
     // Simulate each object
     for obj_idx in 0..num_objects {
@@ -159,7 +160,7 @@ pub fn generate_ground_truth(
 
         // Initialize state
         // Prior locations are [x, y, vx, vy] - use directly
-        let mut x = DVector::from_column_slice(&[
+        let mut x = Array1::from_vec(vec![
             prior_locations[(0, obj_idx)],
             prior_locations[(1, obj_idx)],
             prior_locations[(2, obj_idx)],
@@ -170,7 +171,7 @@ pub fn generate_ground_truth(
         let mut sigma = model.sigma_b[birth_loc_idx].clone();
 
         // Allocate trajectory storage: [t; x; y; vx; vy] - matches MATLAB exactly
-        let mut states = DMatrix::zeros(5, trajectory_length);
+        let mut states = Array2::zeros((5, trajectory_length));
 
         // Simulate trajectory
         for j in 0..trajectory_length {
@@ -178,36 +179,36 @@ pub fn generate_ground_truth(
 
             // Prediction step (skip for j=0)
             if j > 0 {
-                x = &model.a * &x + &model.u;
-                mu = &model.a * &mu + &model.u;
-                sigma = &model.a * &sigma * model.a.transpose() + &model.r;
+                x = model.a.dot(&x) + &model.u;
+                mu = model.a.dot(&mu) + &model.u;
+                sigma = model.a.dot(&sigma).dot(&model.a.t()) + &model.r;
             }
 
             // Store state with timestamp
             states[(0, j)] = t as f64;
-            states.view_mut((1, j), (4, 1)).copy_from(&x);
+            states.slice_mut(s![1..5, j..j+1]).assign(&x.view().to_shape((4, 1)).unwrap());
 
             // Generate measurement with detection probability
             if rng.rand() < model.detection_probability {
                 // Measurement = C * x + noise
-                let mut z = &model.c * &x;
-                let noise = DVector::from_fn(model.z_dimension, |_, _| rng.randn());
-                z += q_chol.l() * noise;
+                let mut z = model.c.dot(&x);
+                let noise = Array1::from_shape_fn(model.z_dimension, |_| rng.randn());
+                z = z + q_chol.dot(&noise);
 
                 measurements[t - 1].push(z.clone());
 
                 // Kalman filter update
-                let z_pred = &model.c * &mu;
+                let z_pred = model.c.dot(&mu);
                 let innovation = &z - &z_pred;
-                let s = &model.c * &sigma * model.c.transpose() + &model.q;
+                let s = model.c.dot(&sigma).dot(&model.c.t()) + &model.q;
 
                 // Kalman gain
-                let s_inv = s.try_inverse().expect("Innovation covariance must be invertible");
-                let k = &sigma * model.c.transpose() * s_inv;
+                let s_inv = s.inv().expect("Innovation covariance must be invertible");
+                let k = sigma.dot(&model.c.t()).dot(&s_inv);
 
-                mu = &mu + &k * innovation;
-                let i_minus_kc = DMatrix::identity(model.x_dimension, model.x_dimension) - &k * &model.c;
-                sigma = i_minus_kc * sigma;
+                mu = &mu + k.dot(&innovation);
+                let i_minus_kc = Array2::eye(model.x_dimension) - k.dot(&model.c);
+                sigma = i_minus_kc.dot(&sigma);
             }
 
             // Add to RFS (t-1 for 0-indexing)
@@ -274,7 +275,7 @@ pub fn generate_multisensor_ground_truth(
                 let birth_locs = vec![1, 2, 3, 4, 1, 4, 1, 2, 3, 4];
 
                 // Prior locations: [x, y, vx, vy] for each object (matches MATLAB)
-                let mut locs = DMatrix::zeros(4, n_obj);
+                let mut locs = Array2::zeros((4, n_obj));
                 // Object 1
                 locs[(0, 0)] = -80.0; locs[(1, 0)] = -20.0;
                 locs[(2, 0)] = 0.75; locs[(3, 0)] = 1.5;
@@ -315,7 +316,7 @@ pub fn generate_multisensor_ground_truth(
                 let deaths = vec![sim_len; n_obj];
                 let birth_locs: Vec<usize> = (1..=model.number_of_birth_locations).collect();
 
-                let mut locs = DMatrix::zeros(4, n_obj);
+                let mut locs = Array2::zeros((4, n_obj));
                 for i in 0..n_obj {
                     locs[(0, i)] = model.mu_b[birth_locs[i] - 1][0];
                     locs[(2, i)] = model.mu_b[birth_locs[i] - 1][2];
@@ -373,7 +374,7 @@ pub fn generate_multisensor_ground_truth(
         let death_time = death_times[obj_idx];
         let trajectory_length = death_time - birth_time + 1;
 
-        let mut states = DMatrix::zeros(5, trajectory_length); // [t, x, y, vx, vy]
+        let mut states = Array2::zeros((5, trajectory_length)); // [t, x, y, vx, vy]
         // Prior locations are [x, y, vx, vy] - use directly
         let mut x = prior_locations.column(obj_idx).into_owned();
         let mut mu = model.mu_b[birth_location_indices[obj_idx] - 1].clone();
@@ -381,7 +382,7 @@ pub fn generate_multisensor_ground_truth(
 
         // Initial state
         states[(0, 0)] = birth_time as f64;
-        states.view_mut((1, 0), (4, 1)).copy_from(&x);
+        states.slice_mut(s![1..5, 0..1]).assign(&x.view().into_shape((4, 1)).unwrap());
 
         // Simulate trajectory
         for j in 0..trajectory_length {
@@ -390,14 +391,14 @@ pub fn generate_multisensor_ground_truth(
             // Prediction (except for first timestep)
             if j > 0 {
                 // Point estimate
-                x = &model.a * &x + &model.u;
+                x = model.a.dot(&x) + &model.u;
                 // Kalman filter prediction
-                mu = &model.a * &mu + &model.u;
-                sigma = &model.a * &sigma * model.a.transpose() + &model.r;
+                mu = model.a.dot(&mu) + &model.u;
+                sigma = model.a.dot(&sigma).dot(&model.a.t()) + &model.r;
 
                 // Store state
                 states[(0, j)] = t as f64;
-                states.view_mut((1, j), (4, 1)).copy_from(&x);
+                states.slice_mut(s![1..5, j..j+1]).assign(&x.view().to_shape((4, 1)).unwrap());
             }
 
             // Generate measurements for each sensor
@@ -416,15 +417,17 @@ pub fn generate_multisensor_ground_truth(
             if num_detections > 0 {
                 // Generate measurements and stack for multi-sensor update
                 let mut z = DVector::zeros(model.z_dimension * num_detections);
-                let mut c_stacked = DMatrix::zeros(model.z_dimension * num_detections, model.x_dimension);
+                let mut c_stacked = Array2::zeros((model.z_dimension * num_detections, model.x_dimension));
                 let mut q_blocks = Vec::new();
 
                 let mut counter = 0;
                 for s in 0..number_of_sensors {
                     if generated_measurement[s] {
                         // Generate measurement with sensor-specific noise
-                        let noise = q_multisensor[s].clone().cholesky().unwrap().l() * DVector::from_fn(model.z_dimension, |_, _| rng.randn());
-                        let y = &c_multisensor[s] * &x + noise;
+                        let q_chol_s = q_multisensor[s].clone().cholesky(UPLO::Lower).expect("Q must be positive definite");
+                        let noise_vec = Array1::from_shape_fn(model.z_dimension, |_| rng.randn());
+                        let noise = q_chol_s.dot(&noise_vec);
+                        let y = c_multisensor[s].dot(&x) + noise;
                         if t == 1 {
                             eprintln!("  Adding detection to measurements[{}][{}]", s, t - 1);
                         }
@@ -432,9 +435,10 @@ pub fn generate_multisensor_ground_truth(
 
                         // Stack for Kalman update
                         let start = model.z_dimension * counter;
-                        z.view_mut((start, 0), (model.z_dimension, 1)).copy_from(&y);
-                        c_stacked.view_mut((start, 0), (model.z_dimension, model.x_dimension))
-                            .copy_from(&c_multisensor[s]);
+                        let end_z = start + model.z_dimension;
+                        z.slice_mut(s![start..end_z]).assign(&y);
+                        c_stacked.slice_mut(s![start..end_z, ..])
+                            .assign(&c_multisensor[s]);
                         q_blocks.push(q_multisensor[s].clone());
                         counter += 1;
                     }
@@ -442,12 +446,12 @@ pub fn generate_multisensor_ground_truth(
 
                 // Multi-sensor Kalman filter update using block diagonal Q
                 let q_block_diag = create_block_diagonal(&q_blocks);
-                let innovation = &z - &c_stacked * &mu;
-                let s_mat = &c_stacked * &sigma * c_stacked.transpose() + q_block_diag;
-                let k = &sigma * c_stacked.transpose() * s_mat.clone().try_inverse().unwrap();
-                mu = &mu + &k * innovation;
-                let i_minus_kc = DMatrix::identity(model.x_dimension, model.x_dimension) - &k * &c_stacked;
-                sigma = i_minus_kc * sigma;
+                let innovation = &z - c_stacked.dot(&mu);
+                let s_mat = c_stacked.dot(&sigma).dot(&c_stacked.t()) + q_block_diag;
+                let k = sigma.dot(&c_stacked.t()).dot(&s_mat.clone().inv().unwrap());
+                mu = &mu + k.dot(&innovation);
+                let i_minus_kc = Array2::eye(model.x_dimension) - k.dot(&c_stacked);
+                sigma = i_minus_kc.dot(&sigma);
             }
 
             // Add to RFS (t-1 for 0-indexing)
@@ -475,7 +479,7 @@ pub fn generate_multisensor_ground_truth(
 /// Helper function to create block diagonal matrix from a vector of matrices
 fn create_block_diagonal(blocks: &[DMatrix<f64>]) -> DMatrix<f64> {
     if blocks.is_empty() {
-        return DMatrix::zeros(0, 0);
+        return Array2::zeros((0, 0));
     }
 
     let block_rows = blocks[0].nrows();
@@ -484,14 +488,16 @@ fn create_block_diagonal(blocks: &[DMatrix<f64>]) -> DMatrix<f64> {
     let total_rows = block_rows * n;
     let total_cols = block_cols * n;
 
-    let mut result = DMatrix::zeros(total_rows, total_cols);
+    let mut result = Array2::zeros((total_rows, total_cols));
 
     for (i, block) in blocks.iter().enumerate() {
         let row_start = i * block_rows;
         let col_start = i * block_cols;
+        let row_end = row_start + block_rows;
+        let col_end = col_start + block_cols;
         result
-            .view_mut((row_start, col_start), (block_rows, block_cols))
-            .copy_from(block);
+            .slice_mut(s![row_start..row_end, col_start..col_end])
+            .assign(block);
     }
 
     result

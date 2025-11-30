@@ -3,8 +3,9 @@
 //! Implements OSPA (Optimal Sub-Pattern Assignment) metrics for evaluating
 //! tracking performance. Matches MATLAB ospa.m exactly.
 
-use nalgebra::{DMatrix, DVector};
-use crate::common::types::OspaParameters;
+use crate::common::types::{DMatrix, DVector, OspaParameters};
+use ndarray::Array2;
+use ndarray_linalg::{Cholesky, Determinant, Inverse, Norm, Solve, UPLO};
 
 /// OSPA metric result
 #[derive(Debug, Clone)]
@@ -46,14 +47,26 @@ fn compute_hellinger_distance(
     let zeta = mu2 - mu1;
 
     // Z \ zeta (solve Z * x = zeta)
-    let z_inv_zeta = match z.clone().cholesky() {
-        Some(chol) => chol.solve(&zeta),
-        None => return 1.0, // Maximum distance if singular
+    let z_inv_zeta = match z.clone().cholesky(UPLO::Lower) {
+        Ok(chol) => match chol.solve(&zeta) {
+            Ok(result) => result,
+            Err(_) => return 1.0,
+        },
+        Err(_) => return 1.0, // Maximum distance if singular
     };
 
-    let det_sigma1 = sigma1.determinant();
-    let det_sigma2 = sigma2.determinant();
-    let det_z = z.determinant();
+    let det_sigma1 = match sigma1.det() {
+        Ok(d) => d,
+        Err(_) => return 1.0,
+    };
+    let det_sigma2 = match sigma2.det() {
+        Ok(d) => d,
+        Err(_) => return 1.0,
+    };
+    let det_z = match z.det() {
+        Ok(d) => d,
+        Err(_) => return 1.0,
+    };
 
     if det_sigma1 <= 0.0 || det_sigma2 <= 0.0 || det_z <= 0.0 {
         return 1.0; // Maximum distance if non-positive definite
@@ -64,7 +77,7 @@ fn compute_hellinger_distance(
         + 0.25 * det_sigma2.ln()
         - 0.5 * det_z.ln();
 
-    let h_val = 1.0 - exp_arg.exp();
+    let h_val: f64 = 1.0 - exp_arg.exp();
     h_val.max(0.0).sqrt()
 }
 
@@ -245,8 +258,8 @@ pub fn ospa(
     let q = (m as i32 - n as i32).abs() as usize;
 
     // Populate distance matrices
-    let mut euclidean_distances = DMatrix::zeros(n, m);
-    let mut hellinger_distances = DMatrix::zeros(n, m);
+    let mut euclidean_distances = Array2::zeros((n, m));
+    let mut hellinger_distances = Array2::zeros((n, m));
 
     for i in 0..m {
         for j in 0..n {
@@ -262,8 +275,8 @@ pub fn ospa(
     }
 
     // Apply cutoffs
-    let mut euclidean_cutoff = DMatrix::zeros(n, m);
-    let mut hellinger_cutoff = DMatrix::zeros(n, m);
+    let mut euclidean_cutoff = Array2::zeros((n, m));
+    let mut hellinger_cutoff = Array2::zeros((n, m));
 
     for i in 0..n {
         for j in 0..m {
@@ -338,7 +351,7 @@ mod tests {
 
         let x = vec![DVector::from_vec(vec![1.0, 2.0])];
         let mu = vec![DVector::from_vec(vec![1.0, 2.0])];
-        let sigma = vec![DMatrix::identity(2, 2)];
+        let sigma = vec![Array2::eye(2)];
 
         let result = ospa(&x, &mu, &sigma, &[], &[], &params);
 
@@ -357,9 +370,9 @@ mod tests {
 
         let x = vec![DVector::from_vec(vec![1.0, 2.0])];
         let mu = vec![DVector::from_vec(vec![1.0, 2.0])];
-        let sigma = vec![DMatrix::identity(2, 2)];
+        let sigma = vec![Array2::eye(2)];
         let nu = vec![DVector::from_vec(vec![1.0, 2.0])];
-        let t = vec![DMatrix::identity(2, 2)];
+        let t = vec![Array2::eye(2)];
 
         let result = ospa(&x, &mu, &sigma, &nu, &t, &params);
 
@@ -370,7 +383,7 @@ mod tests {
     #[test]
     fn test_hellinger_distance_identical() {
         let mu = DVector::from_vec(vec![0.0, 0.0]);
-        let sigma = DMatrix::identity(2, 2);
+        let sigma = Array2::eye(2);
 
         let h = compute_hellinger_distance(&mu, &sigma, &mu, &sigma);
 

@@ -5,8 +5,9 @@
 
 use crate::common::association::gibbs::GibbsAssociationMatrices;
 use crate::common::association::lbp::AssociationMatrices;
-use crate::common::types::{Model, Object};
-use nalgebra::{DMatrix, DVector};
+use crate::common::types::{DMatrix, DVector, Model, Object};
+use ndarray::{Array1, Array2, s};
+use ndarray_linalg::{Cholesky, Determinant, Inverse, UPLO};
 
 /// Posterior spatial distribution parameters for one object
 #[derive(Debug, Clone)]
@@ -63,9 +64,9 @@ pub fn generate_lmb_association_matrices(
     let number_of_measurements = measurements.len();
 
     // Auxiliary matrices
-    let mut l_matrix = DMatrix::zeros(number_of_objects, number_of_measurements);
-    let mut phi = DVector::zeros(number_of_objects);
-    let mut eta = DVector::zeros(number_of_objects);
+    let mut l_matrix = Array2::zeros((number_of_objects, number_of_measurements));
+    let mut phi = Array1::zeros(number_of_objects);
+    let mut eta = Array1::zeros(number_of_objects);
 
     // Posterior parameters for each object
     let mut posterior_parameters = Vec::with_capacity(number_of_objects);
@@ -76,9 +77,9 @@ pub fn generate_lmb_association_matrices(
 
         // Predeclare object's posterior components (m+1 rows, num_components cols)
         let num_comp = obj.number_of_gm_components;
-        let mut w_log = DMatrix::zeros(number_of_measurements + 1, num_comp);
-        let mut mu_posterior = vec![vec![DVector::zeros(model.x_dimension); num_comp]; number_of_measurements + 1];
-        let mut sigma_posterior = vec![vec![DMatrix::zeros(model.x_dimension, model.x_dimension); num_comp]; number_of_measurements + 1];
+        let mut w_log = Array2::zeros((number_of_measurements + 1, num_comp));
+        let mut mu_posterior = vec![vec![Array1::zeros(model.x_dimension); num_comp]; number_of_measurements + 1];
+        let mut sigma_posterior = vec![vec![Array2::zeros((model.x_dimension, model.x_dimension)); num_comp]; number_of_measurements + 1];
 
         // Row 0: missed detection event
         for j in 0..num_comp {
@@ -94,12 +95,13 @@ pub fn generate_lmb_association_matrices(
         // Determine marginal likelihood ratio for each measurement
         for j in 0..num_comp {
             // Predicted measurement and innovation covariance
-            let mu_z = &model.c * &obj.mu[j];
-            let z_cov = &model.c * &obj.sigma[j] * model.c.transpose() + &model.q;
+            let mu_z = model.c.dot(&obj.mu[j]);
+            let z_cov = model.c.dot(&obj.sigma[j]).dot(&model.c.t()) + &model.q;
 
             // Log normalizing constant
+            let det_z_cov = z_cov.det().expect("z_cov should be positive definite");
             let log_gaussian_norm = -(0.5 * model.z_dimension as f64) * (2.0 * std::f64::consts::PI).ln()
-                - 0.5 * z_cov.determinant().ln();
+                - 0.5 * det_z_cov.ln();
 
             // Likelihood ratio terms
             let log_likelihood_ratio_terms = obj.r.ln()
@@ -108,17 +110,20 @@ pub fn generate_lmb_association_matrices(
                 - model.clutter_per_unit_volume.ln();
 
             // Kalman gain and updated covariance
-            let z_inv = match z_cov.clone().cholesky() {
-                Some(chol) => chol.inverse(),
-                None => {
+            let z_inv = match z_cov.clone().cholesky(UPLO::Lower) {
+                Ok(chol) => match chol.inv() {
+                    Ok(inv) => inv,
+                    Err(_) => continue,
+                },
+                Err(_) => {
                     // Singular covariance, skip this component
                     continue;
                 }
             };
 
-            let k = &obj.sigma[j] * model.c.transpose() * &z_inv;
+            let k = obj.sigma[j].dot(&model.c.t()).dot(&z_inv);
             let sigma_updated =
-                (DMatrix::identity(model.x_dimension, model.x_dimension) - &k * &model.c) * &obj.sigma[j];
+                (Array2::eye(model.x_dimension) - k.dot(&model.c)).dot(&obj.sigma[j]);
 
             // Process each measurement
             for (meas_idx, z) in measurements.iter().enumerate() {
@@ -126,7 +131,7 @@ pub fn generate_lmb_association_matrices(
                 let nu = z - &mu_z;
 
                 // Gaussian log-likelihood
-                let gaussian_log_likelihood = log_gaussian_norm - 0.5 * nu.dot(&(&z_inv * &nu));
+                let gaussian_log_likelihood = log_gaussian_norm - 0.5 * nu.dot(&z_inv.dot(&nu));
 
                 // Update L matrix
                 l_matrix[(i, meas_idx)] += (log_likelihood_ratio_terms + gaussian_log_likelihood).exp();
@@ -137,7 +142,7 @@ pub fn generate_lmb_association_matrices(
                     + model.detection_probability.ln()
                     - model.clutter_per_unit_volume.ln();
 
-                mu_posterior[meas_idx + 1][j] = &obj.mu[j] + &k * &nu;
+                mu_posterior[meas_idx + 1][j] = &obj.mu[j] + k.dot(&nu);
                 sigma_posterior[meas_idx + 1][j] = sigma_updated.clone();
             }
         }
@@ -153,7 +158,7 @@ pub fn generate_lmb_association_matrices(
         }
 
         // Convert log-weights to linear
-        let mut w_normalized = DMatrix::zeros(number_of_measurements + 1, num_comp);
+        let mut w_normalized = Array2::zeros((number_of_measurements + 1, num_comp));
         for row in 0..=number_of_measurements {
             for j in 0..num_comp {
                 w_normalized[(row, j)] = w_log[(row, j)].exp();
@@ -170,7 +175,7 @@ pub fn generate_lmb_association_matrices(
     // Build association matrices
 
     // LBP matrices: Psi = L ./ eta (broadcast division)
-    let mut psi = DMatrix::zeros(number_of_objects, number_of_measurements);
+    let mut psi = Array2::zeros((number_of_objects, number_of_measurements));
     for i in 0..number_of_objects {
         for j in 0..number_of_measurements {
             psi[(i, j)] = l_matrix[(i, j)] / eta[i];
@@ -184,7 +189,7 @@ pub fn generate_lmb_association_matrices(
     let lbp = AssociationMatrices { psi, phi, eta };
 
     // Gibbs matrices: P = L ./ (L + eta) (broadcast division)
-    let mut p = DMatrix::zeros(number_of_objects, number_of_measurements);
+    let mut p = Array2::zeros((number_of_objects, number_of_measurements));
     for i in 0..number_of_objects {
         for j in 0..number_of_measurements {
             p[(i, j)] = l_matrix[(i, j)] / (l_matrix[(i, j)] + eta_gibbs[i]);
@@ -192,13 +197,13 @@ pub fn generate_lmb_association_matrices(
     }
 
     // L = [eta, L]
-    let mut l_gibbs = DMatrix::zeros(number_of_objects, number_of_measurements + 1);
-    l_gibbs.column_mut(0).copy_from(&eta_gibbs);
-    l_gibbs.view_mut((0, 1), (number_of_objects, number_of_measurements))
-        .copy_from(&l_matrix);
+    let mut l_gibbs = Array2::zeros((number_of_objects, number_of_measurements + 1));
+    l_gibbs.column_mut(0).assign(&eta_gibbs);
+    l_gibbs.slice_mut(s![0..number_of_objects, 1..number_of_measurements + 1])
+        .assign(&l_matrix);
 
     // R = [phi./eta, ones(n,m)]
-    let mut r_gibbs = DMatrix::zeros(number_of_objects, number_of_measurements + 1);
+    let mut r_gibbs = Array2::zeros((number_of_objects, number_of_measurements + 1));
     for i in 0..number_of_objects {
         r_gibbs[(i, 0)] = phi_gibbs[i] / eta_gibbs[i];
         for j in 1..=number_of_measurements {
