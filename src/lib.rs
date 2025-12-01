@@ -19,6 +19,11 @@ Labelled Multi-Bernoulli (LMB) filters and their variants, including:
 - `multisensor_lmbm` - Multi-sensor LMBM implementation
 */
 
+// Use mimalloc allocator when enabled (typically 5-15% faster for allocation-heavy workloads)
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub mod common;
 pub mod lmb;
 pub mod lmbm;

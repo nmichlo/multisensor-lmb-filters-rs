@@ -121,8 +121,16 @@ pub fn run_multisensor_lmbm_filter(
                         number_of_sensors,
                     );
 
+                // Reset access tracing before Gibbs sampling
+                #[cfg(feature = "gibbs-trace")]
+                super::reset_access_trace(l.len());
+
                 // Generate posterior hypotheses using Gibbs sampling
                 let a = multisensor_lmbm_gibbs_sampling(rng, &l, &dimensions, model.number_of_samples);
+
+                // Report access patterns after Gibbs sampling
+                #[cfg(feature = "gibbs-trace")]
+                super::print_access_report();
 
                 // Determine each posterior hypothesis' parameters
                 let new_hypotheses = determine_multisensor_posterior_hypothesis_parameters(

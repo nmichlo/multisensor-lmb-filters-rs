@@ -12,7 +12,7 @@ name = "prak"
 crate-type = ["rlib"]
 
 [dependencies]
-# Linear algebra
+# Linear algebra (SIMD support via simba is included by default)
 nalgebra = "0.33"
 
 # Random number generation
@@ -32,6 +32,9 @@ clap = { version = "4.5", features = ["derive"] }
 # Profiling (optional)
 hotpath = { version = "0.7", optional = true }
 
+# Custom allocator (optional, for performance)
+mimalloc = { version = "0.1", default-features = false, optional = true }
+
 [dev-dependencies]
 # Testing
 approx = "0.5"      # Floating point comparisons
@@ -40,6 +43,8 @@ criterion = "0.5"   # Benchmarking
 [features]
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
+mimalloc = ["dep:mimalloc"]
+gibbs-trace = []  # Enable Gibbs sampling access pattern tracing
 
 [[bench]]
 name = "lmb_performance"

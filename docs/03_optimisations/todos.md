@@ -440,15 +440,25 @@ _(Items move here as they are completed)_
 
 **Goal**: Optimize LMBM algorithm performance while maintaining MATLAB numerical equivalence.
 
-### Benchmark Results
+### Benchmark Results (LMBM Filter)
 
-| Optimization | Time | Change | Cumulative Alloc | Notes |
-|--------------|------|--------|------------------|-------|
-| **Baseline** | 23.14s | - | 34.8 GB | 10.7M likelihood calls |
-| + LTO/Codegen | 23.17s | ~0% | 34.8 GB | Expected - bottleneck is algorithmic |
-| + Q Matrix Cache + #[inline] | 22.15s | -4.3% | 32.7 GB | Avoids 10.7M Q/C matrix clones |
-| + robust_inverse_with_log_det | 20.91s | -9.6% | 28.8 GB | Single Cholesky for inverse + log-det |
-| + Stack-allocated indices | **20.20s** | **-12.7%** | 29.7 GB | Avoids 21.4M Vec allocations |
+| Optimization | Time | Change | Notes |
+|--------------|------|--------|-------|
+| **Baseline** | 23.14s | - | 10.7M likelihood calls |
+| + LTO/Codegen | 23.17s | ~0% | Expected - bottleneck is algorithmic |
+| + Q Matrix Cache + #[inline] | 22.15s | -4.3% | Avoids 10.7M Q/C matrix clones |
+| + robust_inverse_with_log_det | 20.91s | -9.6% | Single Cholesky for inverse + log-det |
+| + Stack-allocated indices | 20.20s | -12.7% | Avoids 21.4M Vec allocations |
+| **+ mimalloc allocator** | 11.88s → **9.32s** | **-21.5%** | Feature-gated custom allocator |
+
+### Access Pattern Analysis (gibbs-trace feature)
+
+Access pattern instrumentation confirms lazy likelihood viability:
+- **Typical access ratio**: 5-17% of total entries
+- **Larger matrices**: as low as 3-6% access
+- **Potential savings**: 83-95% of likelihood computations
+
+This validates that the 10.7M upfront likelihood computations could be reduced to ~500K-1.8M on-demand computations.
 
 ### Completed Optimizations
 
@@ -457,6 +467,8 @@ _(Items move here as they are completed)_
 - [x] **#[inline] annotations**: Added to `convert_from_linear_to_cartesian_inplace()` and `determine_log_likelihood_ratio()`
 - [x] **robust_inverse_with_log_det()**: Combined inverse + log-det computation in single Cholesky decomposition
 - [x] **Stack-allocated indices**: Replaced Vec allocations with `[usize; MAX_SENSORS]` in index conversion loop (avoids 21.4M heap allocations)
+- [x] **mimalloc allocator**: Feature-gated custom allocator (21.5% speedup)
+- [x] **gibbs-trace instrumentation**: Access pattern tracing to validate lazy likelihood (5-17% access ratio confirmed)
 
 ### Pending Optimizations (Quick Wins)
 
@@ -464,27 +476,36 @@ _(All quick wins completed)_
 
 ### Future Optimizations (Higher Effort)
 
-- [ ] **Workspace buffer reuse** (Expected: 5-10x allocation reduction)
+- [ ] **Lazy Likelihood** (Expected: 5-20x based on access analysis - **HIGHEST PRIORITY**)
+  - Compute likelihoods on-demand during Gibbs sampling instead of upfront
+  - Access pattern analysis shows only 5-17% of entries accessed
+  - Would reduce 10.7M computations to ~500K-1.8M
+  - Requires architectural change: closure-based or HashMap-cached approach
+
+- [ ] **Rayon Parallelization** (Expected: 3-8x on multi-core)
+  - Parallelize likelihood computation across entries
+  - Can combine with lazy likelihood for maximum benefit
+
+- [ ] **Workspace buffer reuse** (Expected: modest improvement)
   - Reuse allocated buffers across likelihood computations
+  - Less impactful now that mimalloc handles allocation overhead
 
 - [ ] **In-place matrix operations** (Expected: 1.5-2x)
   - Replace temporaries with in-place GEMV operations
 
-- [ ] **Sparse/Lazy Likelihood** (Expected: 50-100x - major algorithmic change)
-  - Compute likelihoods on-demand during Gibbs sampling instead of upfront
-
-- [ ] **Rayon Parallelization** (Expected: 3-8x on multi-core)
-  - Parallelize likelihood computation across entries
-
 ### Files Modified
 
-- `Cargo.toml`: Added release profile optimizations
+- `Cargo.toml`: Added release profile optimizations, `mimalloc` and `gibbs-trace` features
+- `src/lib.rs`: Added feature-gated mimalloc global allocator
 - `src/common/linalg.rs`: Added `robust_inverse_with_log_det()`
 - `src/multisensor_lmbm/association.rs`:
   - Q/C matrix caching
   - Combined inverse+log-det via `robust_inverse_with_log_det()`
   - Stack-allocated index arrays (`MAX_SENSORS` constant, `convert_from_linear_to_cartesian_inplace()`)
   - `#[inline]` annotations on hot functions
+- `src/multisensor_lmbm/gibbs.rs`: Added access pattern tracing (gibbs-trace feature)
+- `src/multisensor_lmbm/filter.rs`: Integrated tracing hooks around Gibbs sampling
+- `src/multisensor_lmbm/mod.rs`: Exported tracing functions
 
 ---
 

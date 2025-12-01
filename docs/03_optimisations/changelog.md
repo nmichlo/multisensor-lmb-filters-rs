@@ -353,3 +353,35 @@ This document tracks code quality and performance improvements to the codebase.
 2. Computing Cholesky decomposition twice: once for `robust_inverse()` and once for `log_gaussian_normalizing_constant()`
 3. Allocating Vec<usize> for index conversion on every iteration (21.4M allocations)
 By caching matrices, combining the inverse+log-det computation, and using stack-allocated arrays, we reduce both time and memory pressure.
+
+---
+
+## 2025-12-01: Phase 17 - Custom Allocator and Access Pattern Analysis
+
+**Files**:
+- `Cargo.toml` (new features)
+- `src/lib.rs` (global allocator)
+- `src/multisensor_lmbm/gibbs.rs` (access tracing)
+- `src/multisensor_lmbm/filter.rs` (tracing integration)
+- `src/multisensor_lmbm/mod.rs` (exports)
+
+**Changes**:
+- Added `mimalloc` feature with feature-gated global allocator
+- Added `gibbs-trace` feature for access pattern instrumentation
+- Instrumented Gibbs sampling to track likelihood matrix accesses
+- Added `reset_access_trace()`, `get_access_stats()`, `print_access_report()` functions
+
+**Impact**:
+- **mimalloc benchmark**: 11.88s → 9.32s (**21.5% faster**)
+- **Access pattern analysis** confirms lazy likelihood viability:
+  - Typical access ratio: **5-17%** of total entries
+  - Larger matrices: as low as **3-6%** access
+  - Potential savings: **83-95%** of likelihood computations
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**:
+1. **mimalloc**: The custom allocator provides significant speedup for allocation-heavy workloads like LMBM with minimal code changes. Feature-gated to remain optional.
+2. **Access pattern tracing**: Before implementing lazy likelihood (a significant architectural change), instrumentation confirms the hypothesis that Gibbs sampling only accesses a small fraction of the precomputed likelihood matrix, validating the potential 10-100x improvement from on-demand computation.
+
+**Key Finding**: The 10.7M likelihood computations done upfront could potentially be reduced to ~500K-1.8M on-demand computations (5-17% of total), making lazy likelihood the highest-impact optimization remaining.

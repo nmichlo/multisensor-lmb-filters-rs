@@ -7,6 +7,46 @@ use super::determine_linear_index;
 use nalgebra::DMatrix;
 use std::collections::HashSet;
 
+// Access pattern tracing for lazy likelihood investigation
+#[cfg(feature = "gibbs-trace")]
+use std::cell::RefCell;
+
+#[cfg(feature = "gibbs-trace")]
+thread_local! {
+    static ACCESSED_INDICES: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+    static TOTAL_ENTRIES: RefCell<usize> = RefCell::new(0);
+}
+
+/// Reset access pattern tracking (call before sampling)
+#[cfg(feature = "gibbs-trace")]
+pub fn reset_access_trace(total_entries: usize) {
+    ACCESSED_INDICES.with(|indices| indices.borrow_mut().clear());
+    TOTAL_ENTRIES.with(|total| *total.borrow_mut() = total_entries);
+}
+
+/// Get access pattern statistics: (unique_accesses, total_entries, access_ratio)
+#[cfg(feature = "gibbs-trace")]
+pub fn get_access_stats() -> (usize, usize, f64) {
+    let unique = ACCESSED_INDICES.with(|indices| indices.borrow().len());
+    let total = TOTAL_ENTRIES.with(|total| *total.borrow());
+    let ratio = if total > 0 { unique as f64 / total as f64 } else { 0.0 };
+    (unique, total, ratio)
+}
+
+/// Print access pattern report
+#[cfg(feature = "gibbs-trace")]
+pub fn print_access_report() {
+    let (unique, total, ratio) = get_access_stats();
+    eprintln!("[gibbs-trace] Accessed {}/{} entries ({:.2}%)", unique, total, ratio * 100.0);
+    eprintln!("[gibbs-trace] Potential savings: {:.2}% of likelihood computations", (1.0 - ratio) * 100.0);
+}
+
+#[cfg(feature = "gibbs-trace")]
+#[inline]
+fn record_access(idx: usize) {
+    ACCESSED_INDICES.with(|indices| indices.borrow_mut().insert(idx));
+}
+
 /// Generate association events using multi-sensor Gibbs sampler
 ///
 /// Generates a set of posterior hypotheses for a given prior hypothesis
@@ -50,7 +90,7 @@ pub fn multisensor_lmbm_gibbs_sampling(
     let mut unique_samples = HashSet::new();
 
     // Gibbs sampling
-    for sample_idx in 0..number_of_samples {
+    for _sample_idx in 0..number_of_samples {
         // Generate new Gibbs sample
         generate_multisensor_association_event(rng, l, dimensions, &m, &mut v, &mut w);
 
@@ -141,6 +181,13 @@ fn generate_multisensor_association_event(
                     // Miss: object i does not generate measurement j
                     u[s] = 1; // Miss is index 1 in MATLAB (0 in Rust + 1)
                     let r_idx = determine_linear_index(&u, dimensions);
+
+                    // Record accesses for lazy likelihood analysis
+                    #[cfg(feature = "gibbs-trace")]
+                    {
+                        record_access(q_idx);
+                        record_access(r_idx);
+                    }
 
                     // P = 1 / (exp(L_miss - L_detect) + 1)
                     let p = 1.0 / ((l[r_idx] - l[q_idx]).exp() + 1.0);
