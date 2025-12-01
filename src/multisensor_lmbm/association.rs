@@ -68,7 +68,7 @@ fn convert_from_linear_to_cartesian_inplace(mut ell: usize, page_sizes: &[usize]
 fn determine_log_likelihood_ratio(
     i: usize,
     a: &[usize],
-    measurements: &[Vec<DVector<f64>>],
+    measurements: &[&[DVector<f64>]],
     hypothesis: &Hypothesis,
     model: &Model,
     q_cache: &[DMatrix<f64>],
@@ -195,7 +195,7 @@ fn determine_log_likelihood_ratio(
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn generate_multisensor_lmbm_association_matrices(
     hypothesis: &Hypothesis,
-    measurements: &[Vec<DVector<f64>>],
+    measurements: &[&[DVector<f64>]],
     model: &Model,
     number_of_sensors: usize,
 ) -> (Vec<f64>, MultisensorLmbmPosteriorParameters, Vec<usize>) {
@@ -330,10 +330,13 @@ mod tests {
         let hypothesis = model.hypotheses.clone();
 
         // 2 sensors, 1 measurement each
-        let measurements = vec![
+        let measurements_owned = vec![
             vec![DVector::from_vec(vec![0.0, 0.0])],
             vec![DVector::from_vec(vec![1.0, 1.0])],
         ];
+        let measurements: Vec<&[DVector<f64>]> = measurements_owned.iter()
+            .map(|v| v.as_slice())
+            .collect();
 
         let (l, posterior, dimensions) =
             generate_multisensor_lmbm_association_matrices(&hypothesis, &measurements, &model, 2);

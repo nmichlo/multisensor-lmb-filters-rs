@@ -456,6 +456,32 @@ cargo run --release --features rayon,mimalloc --example multi_sensor -- --filter
 
 ---
 
+## 2025-12-01: Phase 21 - Clone Elimination
+
+**Files**:
+- `src/multisensor_lmbm/filter.rs` (clone elimination)
+- `src/multisensor_lmbm/association.rs` (signature change)
+- `tests/step_by_step_validation.rs` (updated tests)
+
+**Changes**:
+- Removed measurement vector cloning in filter.rs:
+  - Changed from `measurements[s][t].clone()` to slice references
+  - API signature changed: `&[Vec<DVector<f64>>]` → `&[&[DVector<f64>]]`
+- Removed hypothesis cloning in filter.rs:
+  - Changed from `hypotheses[i].clone()` to `std::mem::replace(..., Hypothesis::empty())`
+  - Takes ownership instead of cloning since hypotheses are overwritten at end of each timestep
+- Updated association.rs and tests to use new signature
+
+**Impact**:
+- **Benchmark**: 2.79s → 2.77s (**~0.7% improvement**)
+- Cleaner code with less unnecessary work
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: The filter was cloning measurements and hypotheses unnecessarily. Measurements are read-only and hypotheses are overwritten at the end of each timestep. By using references and ownership transfer, we eliminate unnecessary memory operations. The small improvement is expected since these clones were not in the hot 10.7M iteration loop.
+
+---
+
 ## Summary: Final Optimization State
 
 **Current best configuration**: `--features rayon,mimalloc`
@@ -465,7 +491,8 @@ cargo run --release --features rayon,mimalloc --example multi_sensor -- --filter
 | Baseline | 13.90s | - |
 | +lto+cache+logdet+stack | 12.20s | -12.2% |
 | +mimalloc | 9.58s | -31.1% |
-| **+rayon** | **2.79s** | **-79.9%** |
+| +rayon | 2.79s | -79.9% |
+| **+clone elimination** | **2.77s** | **-80.1%** |
 
 **Total speedup: 5x**
 

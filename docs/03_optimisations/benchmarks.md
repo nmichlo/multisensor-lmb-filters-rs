@@ -31,13 +31,14 @@ cargo run --release --example multi_sensor -- --seed 42 --filter-type LMBM --num
 | `b8f6871` | +buffer (REVERTED) | rayon,mimalloc | 2.76s | 2.76s | 2.73s | **2.76s** | -80.1% |
 | `4b1306f` | +lazy (REVERTED) | default | 4.99s | 4.92s | 4.91s | **4.92s** | -64.6% |
 | `4769c6b` | -buffer (lazy only, REVERTED) | default | 4.93s | 5.01s | 4.94s | **4.94s** | -64.5% |
+| (uncommitted) | +clone elimination | rayon,mimalloc | 2.77s | 2.73s | 2.77s | **2.77s** | -80.1% |
 
 ---
 
 ## Summary
 
-### Current Best (after reverts): rayon+mimalloc
-- **Time**: 2.79s
+### Current Best: rayon+mimalloc+clone_elimination
+- **Time**: 2.77s
 - **Speedup**: 5x vs baseline
 - **Command**: `cargo run --release --features rayon,mimalloc --example multi_sensor ...`
 
@@ -64,7 +65,8 @@ cargo run --release --example multi_sensor -- --seed 42 --filter-type LMBM --num
 Baseline:           13.90s  ████████████████████████████████████████
 +lto+cache+logdet:  12.20s  ███████████████████████████████████
 +mimalloc:           9.58s  ███████████████████████████
-+rayon:              2.79s  ████████  <- CURRENT BEST
++rayon:              2.79s  ████████
++clone_elimination:  2.77s  ████████  <- CURRENT BEST
 +buffer:             2.76s  ████████  (reverted - negligible gain)
 +lazy:               4.94s  ██████████████  (reverted - slower than rayon)
 ```

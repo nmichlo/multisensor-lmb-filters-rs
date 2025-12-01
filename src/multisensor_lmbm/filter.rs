@@ -99,16 +99,23 @@ pub fn run_multisensor_lmbm_filter(
             }
         }
 
-        // Collect measurements for this time step [sensor][measurements]
-        let mut measurements_t = Vec::with_capacity(number_of_sensors);
-        for s in 0..number_of_sensors {
-            measurements_t.push(measurements[s][t].clone());
-        }
+        // Collect measurement references for this time step [sensor][measurements]
+        // NOTE: Uses references to avoid cloning measurement vectors
+        let measurements_t: Vec<&[DVector<f64>]> = (0..number_of_sensors)
+            .map(|s| measurements[s][t].as_slice())
+            .collect();
 
         // Generate posterior hypotheses for each prior hypothesis
+        // NOTE: We take ownership of each hypothesis to avoid cloning, since hypotheses
+        // is overwritten at the end of each timestep with normalized_hypotheses
         for i in 0..hypotheses.len() {
-            // Prediction step
-            let prior_hypothesis = lmbm_prediction_step(hypotheses[i].clone(), model, t + 1);
+            // Prediction step - take ownership instead of cloning
+            // Use replace to swap with empty hypothesis (mem::take needs Default)
+            let prior_hypothesis = lmbm_prediction_step(
+                std::mem::replace(&mut hypotheses[i], crate::common::types::Hypothesis::empty()),
+                model,
+                t + 1,
+            );
 
             // Measurement update
             if measurements_are_available {

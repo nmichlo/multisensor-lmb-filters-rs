@@ -1868,8 +1868,11 @@ fn validate_multisensor_lmbm_association(fixture: &MultisensorLmbmFixture) {
     let predicted_hypothesis = hypothesis_data_to_rust(&fixture.step2_association.input.predicted_hypothesis);
 
     // Convert per-sensor measurements
-    let measurements: Vec<Vec<DVector<f64>>> = fixture.step2_association.input.measurements.iter()
+    let measurements_owned: Vec<Vec<DVector<f64>>> = fixture.step2_association.input.measurements.iter()
         .map(|sensor_meas| measurements_to_rust(sensor_meas))
+        .collect();
+    let measurements: Vec<&[DVector<f64>]> = measurements_owned.iter()
+        .map(|v| v.as_slice())
         .collect();
 
     let model = multisensor_model_data_to_rust(&fixture.model, 0);
@@ -1933,8 +1936,11 @@ fn validate_multisensor_lmbm_gibbs(fixture: &MultisensorLmbmFixture) {
 fn validate_multisensor_lmbm_hypothesis_parameters(fixture: &MultisensorLmbmFixture) {
     let predicted_hypothesis = hypothesis_data_to_rust(&fixture.step4_hypothesis.input.predicted_hypothesis);
     let model = multisensor_model_data_to_rust(&fixture.model, 0);
-    let measurements: Vec<Vec<DVector<f64>>> = fixture.measurements.iter()
+    let measurements_owned: Vec<Vec<DVector<f64>>> = fixture.measurements.iter()
         .map(|sensor_meas| measurements_to_rust(sensor_meas))
+        .collect();
+    let measurements: Vec<&[DVector<f64>]> = measurements_owned.iter()
+        .map(|v| v.as_slice())
         .collect();
 
     // Use the L matrix from the fixture (don't regenerate it)

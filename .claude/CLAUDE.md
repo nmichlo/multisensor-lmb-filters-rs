@@ -68,3 +68,5 @@ Only after checking all these should you resort to execution tracing.
   
 - if you come across code and notice any code that can be de-duplicated or should be turned into traits make not of it in ./docs/03_optimisations/todos.md
 - use hotpath when running benchmarks with the flag --features='hotpath,hotpath-alloc'
+- REMEMER, the correct way to run the benchmarks is: `⏺ Bash(for i in 1 2 3; do echo "Run $i:"; cargo run --release --features rayon,mimalloc --example multi_sensor -- --seed 42 --filter-type LMBM   timeout: 10m
+      --num-sensors 3 --data-a…)`
