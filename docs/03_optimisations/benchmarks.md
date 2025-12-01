@@ -34,15 +34,17 @@ cargo run --release --example multi_sensor -- --seed 42 --filter-type LMBM --num
 | (uncommitted) | +clone elimination | rayon,mimalloc | 2.77s | 2.73s | 2.77s | **2.77s** | -80.1% |
 | (uncommitted) | +Phase B: gating | rayon,mimalloc | 1.50s | 1.48s | 1.48s | **1.48s** | -89.4% |
 | (uncommitted) | +Phase C: deferred params | rayon,mimalloc | 1.37s | 1.39s | 1.38s | **1.38s** | -90.1% |
+| (uncommitted) | +Phase D: stack arrays | rayon,mimalloc | 1.42s | 1.38s | 1.40s | **1.40s** | -89.9% |
+| (uncommitted) | +Phase F: parallel Gibbs | rayon,mimalloc | 0.68s | 0.65s | 0.65s | **0.65s** | -95.3% |
 
 ---
 
 ## Summary
 
-### Current Best: rayon+mimalloc+Phase B+C
-- **Time**: 1.38s
-- **Speedup**: 10.1x vs baseline (13.90s)
-- **Speedup**: 2.0x vs rayon+mimalloc (2.77s)
+### Current Best: rayon+mimalloc+Phase B+C+D+F
+- **Time**: 0.65s
+- **Speedup**: 21.4x vs baseline (13.90s)
+- **Speedup**: 4.3x vs rayon+mimalloc (2.77s)
 - **Command**: `cargo run --release --features rayon,mimalloc --example multi_sensor ...`
 
 ### Failed Optimizations
@@ -71,12 +73,14 @@ Baseline:           13.90s  █████████████████�
 +rayon:              2.79s  ████████
 +clone_elimination:  2.77s  ████████
 +Phase B (gating):   1.48s  ████
-+Phase C (deferred): 1.38s  ████  <- CURRENT BEST
++Phase C (deferred): 1.38s  ████
++Phase D (stack):    1.40s  ████
++Phase F (parallel): 0.65s  ██  <- CURRENT BEST
 +buffer:             2.76s  ████████  (reverted - negligible gain)
 +lazy:               4.94s  ██████████████  (reverted - slower than rayon)
 ```
 
-### Successful Optimizations (Phase B+C)
+### Successful Optimizations (Phase B+C+D+F)
 
 #### 1. Measurement Gating (Phase B)
 - **Result**: 2.77s → 1.48s (1.87x improvement)
@@ -89,6 +93,16 @@ Baseline:           13.90s  █████████████████�
 - **How it works**: Compute L for all 10.7M entries in parallel, but only compute (r, mu, sigma) for ~1000 unique indices actually used by Gibbs sampling
 - **Lesson**: Most savings came from gating; deferred params provide incremental benefit
 
+#### 3. Stack Arrays & Ownership (Phase D)
+- **Result**: No measurable improvement (~1.40s)
+- **How it works**: Replace small heap Vec allocations with stack arrays [bool; MAX_SENSORS], take ownership in robust_inverse_with_log_det
+- **Lesson**: mimalloc already handles small allocations efficiently
+
+#### 4. Parallel Gibbs Chains (Phase F)
+- **Result**: 1.38s → 0.65s (2.1x improvement)
+- **How it works**: Run multiple independent Gibbs chains in parallel (one per CPU core), merge unique samples
+- **Lesson**: Embarrassingly parallel task gives excellent speedup with rayon
+
 ---
 
 ## Recommended Configuration
@@ -98,6 +112,9 @@ For best performance, use:
 cargo run --release --features rayon,mimalloc --example multi_sensor -- --filter-type LMBM
 ```
 
-This provides **5x speedup** over baseline with:
-- Parallel likelihood computation via rayon
+This provides **21x speedup** over baseline with:
+- Parallel likelihood computation via rayon (Phase B+C)
+- Measurement gating to skip impossible associations (Phase B)
+- Deferred posterior param computation (Phase C)
+- Parallel Gibbs sampling chains (Phase F)
 - Efficient memory allocation via mimalloc
