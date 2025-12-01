@@ -4,7 +4,8 @@
 //! Matches MATLAB lmbmPredictionStep.m exactly.
 
 use crate::common::linalg::{predict_covariance, predict_existence, predict_mean};
-use crate::common::types::{Hypothesis, Model};
+use crate::common::types::{Cov4x4, Hypothesis, Model, State4};
+use nalgebra::{DMatrix, DVector};
 
 /// LMBM prediction step
 ///
@@ -30,8 +31,13 @@ pub fn lmbm_prediction_step(mut hypothesis: Hypothesis, model: &Model, t: usize)
     // Put existing Bernoulli components through the motion model
     for i in 0..number_of_objects {
         hypothesis.r[i] = predict_existence(hypothesis.r[i], model.survival_probability);
-        hypothesis.mu[i] = predict_mean(&hypothesis.mu[i], &model.a, &model.u);
-        hypothesis.sigma[i] = predict_covariance(&hypothesis.sigma[i], &model.a, &model.r);
+        // Convert static → dynamic for prediction helpers, then back to static
+        let mu_dyn = DVector::from_column_slice(hypothesis.mu[i].as_slice());
+        let sigma_dyn = DMatrix::from_column_slice(4, 4, hypothesis.sigma[i].as_slice());
+        let mu_predicted = predict_mean(&mu_dyn, &model.a, &model.u);
+        let sigma_predicted = predict_covariance(&sigma_dyn, &model.a, &model.r);
+        hypothesis.mu[i] = State4::from_column_slice(mu_predicted.as_slice());
+        hypothesis.sigma[i] = Cov4x4::from_column_slice(sigma_predicted.as_slice());
     }
 
     // Add Bernoulli components for newly appearing objects
@@ -42,19 +48,20 @@ pub fn lmbm_prediction_step(mut hypothesis: Hypothesis, model: &Model, t: usize)
         let global_idx = stride_start + idx;
 
         // Resize vectors if needed
+        // Convert model birth params (DVector/DMatrix) to static types (State4/Cov4x4)
         if hypothesis.birth_location.len() <= global_idx {
             hypothesis.birth_location.resize(stride_end, 0);
             hypothesis.birth_time.resize(stride_end, 0);
             hypothesis.r.resize(stride_end, 0.0);
-            hypothesis.mu.resize(stride_end, model.mu_b[0].clone());
-            hypothesis.sigma.resize(stride_end, model.sigma_b[0].clone());
+            hypothesis.mu.resize(stride_end, State4::from_column_slice(model.mu_b[0].as_slice()));
+            hypothesis.sigma.resize(stride_end, Cov4x4::from_column_slice(model.sigma_b[0].as_slice()));
         }
 
         hypothesis.birth_location[global_idx] = *birth_loc;
         hypothesis.birth_time[global_idx] = t;
         hypothesis.r[global_idx] = model.r_b_lmbm[idx];
-        hypothesis.mu[global_idx] = model.mu_b[idx].clone();
-        hypothesis.sigma[global_idx] = model.sigma_b[idx].clone();
+        hypothesis.mu[global_idx] = State4::from_column_slice(model.mu_b[idx].as_slice());
+        hypothesis.sigma[global_idx] = Cov4x4::from_column_slice(model.sigma_b[idx].as_slice());
     }
 
     hypothesis
@@ -113,12 +120,12 @@ mod tests {
             birth_location: vec![1],
             birth_time: vec![1],
             r: vec![0.8],
-            mu: vec![DVector::from_vec(vec![10.0, 1.0, 20.0, 2.0])],
-            sigma: vec![DMatrix::identity(4, 4)],
+            mu: vec![State4::from_column_slice(&[10.0, 1.0, 20.0, 2.0])],
+            sigma: vec![Cov4x4::identity()],
         };
 
         let initial_r = hypothesis.r[0];
-        let initial_mu = hypothesis.mu[0].clone();
+        let initial_mu = DVector::from_column_slice(hypothesis.mu[0].as_slice());
 
         hypothesis = lmbm_prediction_step(hypothesis, &model, 2);
 
@@ -127,7 +134,8 @@ mod tests {
 
         // Check mean predicted
         let expected_mu = &model.a * &initial_mu + &model.u;
-        let diff = &hypothesis.mu[0] - &expected_mu;
+        let predicted_mu = DVector::from_column_slice(hypothesis.mu[0].as_slice());
+        let diff = &predicted_mu - &expected_mu;
         assert!(diff.norm() < 1e-10);
     }
 }

@@ -620,19 +620,19 @@ fn measurements_to_rust(measurements: &[Vec<f64>]) -> Vec<DVector<f64>> {
 
 /// Convert MATLAB HypothesisData to Rust Hypothesis
 fn hypothesis_data_to_rust(hyp_data: &HypothesisData) -> prak::common::types::Hypothesis {
-    use prak::common::types::Hypothesis;
+    use prak::common::types::{Hypothesis, State4, Cov4x4};
 
-    // Convert mu from Vec<Vec<f64>> to Vec<DVector<f64>>
-    let mu: Vec<DVector<f64>> = hyp_data.mu.iter()
-        .map(|v| DVector::from_vec(v.clone()))
+    // Convert mu from Vec<Vec<f64>> to Vec<State4> (static 4D vectors)
+    let mu: Vec<State4> = hyp_data.mu.iter()
+        .map(|v| State4::from_column_slice(v))
         .collect();
 
-    // Convert sigma from Vec<Vec<Vec<f64>>> to Vec<DMatrix<f64>>
-    let sigma: Vec<DMatrix<f64>> = hyp_data.sigma.iter()
+    // Convert sigma from Vec<Vec<Vec<f64>>> to Vec<Cov4x4> (static 4x4 matrices)
+    let sigma: Vec<Cov4x4> = hyp_data.sigma.iter()
         .map(|mat| {
-            let n = mat.len();
-            let m = mat[0].len();
-            DMatrix::from_row_slice(n, m, &mat.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>())
+            // Flatten row-major to column-major for nalgebra
+            let flat: Vec<f64> = (0..4).flat_map(|col| (0..4).map(move |row| mat[row][col])).collect();
+            Cov4x4::from_column_slice(&flat)
         })
         .collect();
 
@@ -1390,10 +1390,10 @@ fn validate_lmbm_prediction(fixture: &LmbmFixture) {
             .map(|i| expected_hypothesis.r[i])
             .collect();
         model.mu_b = (prior_count..expected_hypothesis.r.len())
-            .map(|i| expected_hypothesis.mu[i].clone())
+            .map(|i| DVector::from_column_slice(expected_hypothesis.mu[i].as_slice()))
             .collect();
         model.sigma_b = (prior_count..expected_hypothesis.r.len())
-            .map(|i| expected_hypothesis.sigma[i].clone())
+            .map(|i| DMatrix::from_column_slice(4, 4, expected_hypothesis.sigma[i].as_slice()))
             .collect();
     }
 
@@ -1848,10 +1848,10 @@ fn validate_multisensor_lmbm_prediction(fixture: &MultisensorLmbmFixture) {
             .map(|i| expected_hypothesis.r[i])
             .collect();
         model.mu_b = (prior_count..expected_hypothesis.r.len())
-            .map(|i| expected_hypothesis.mu[i].clone())
+            .map(|i| DVector::from_column_slice(expected_hypothesis.mu[i].as_slice()))
             .collect();
         model.sigma_b = (prior_count..expected_hypothesis.r.len())
-            .map(|i| expected_hypothesis.sigma[i].clone())
+            .map(|i| DMatrix::from_column_slice(4, 4, expected_hypothesis.sigma[i].as_slice()))
             .collect();
     }
 

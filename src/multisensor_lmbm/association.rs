@@ -141,8 +141,8 @@ fn determine_log_likelihood_ratio(
             return (
                 -1e10, // Log-likelihood so low it will be ignored by Gibbs
                 0.0,   // Existence prob (won't be used)
-                hypothesis.mu[i].clone(),    // Placeholder
-                hypothesis.sigma[i].clone(), // Placeholder
+                DVector::from_column_slice(hypothesis.mu[i].as_slice()),    // Placeholder
+                DMatrix::from_column_slice(4, 4, hypothesis.sigma[i].as_slice()), // Placeholder
             );
         }
 
@@ -187,13 +187,15 @@ fn determine_log_likelihood_ratio(
 
         // Likelihood computation
         let nu = &z - &c * &hypothesis.mu[i];
-        let z_matrix = &c * &hypothesis.sigma[i] * c.transpose() + &q;
+        // Convert static sigma to dynamic for matrix operations
+        let sigma_i: DMatrix<f64> = DMatrix::from_column_slice(4, 4, hypothesis.sigma[i].as_slice());
+        let z_matrix = &c * &sigma_i * c.transpose() + &q;
 
         // Use combined inverse + log-det (avoids computing Cholesky twice)
         let (z_inv, eta) = robust_inverse_with_log_det(z_matrix, z_dim_total)
             .expect("z_matrix should be invertible");
 
-        let k = &hypothesis.sigma[i] * c.transpose() * &z_inv;
+        let k = &sigma_i * c.transpose() * &z_inv;
 
         // Detection probabilities using accessor
         let mut pd_log = 0.0;
@@ -218,9 +220,11 @@ fn determine_log_likelihood_ratio(
 
         // Posterior parameters
         let r = 1.0;
-        let mu = &hypothesis.mu[i] + &k * &nu;
-        let sigma = (DMatrix::identity(model.x_dimension, model.x_dimension) - &k * &c)
-            * &hypothesis.sigma[i];
+        // Compute mu_updated = mu + K * nu, then convert to DVector
+        let mu_static = &hypothesis.mu[i] + &k * &nu;
+        let mu = DVector::from_column_slice(mu_static.as_slice());
+        // Compute sigma_updated = (I - K*C) * sigma - reuse sigma_i already converted above
+        let sigma = (DMatrix::identity(model.x_dimension, model.x_dimension) - &k * &c) * &sigma_i;
 
         (l, r, mu, sigma)
     } else {
@@ -235,8 +239,8 @@ fn determine_log_likelihood_ratio(
 
         let l = denominator.ln();
         let r = numerator / denominator;
-        let mu = hypothesis.mu[i].clone();
-        let sigma = hypothesis.sigma[i].clone();
+        let mu = DVector::from_column_slice(hypothesis.mu[i].as_slice());
+        let sigma = DMatrix::from_column_slice(4, 4, hypothesis.sigma[i].as_slice());
 
         (l, r, mu, sigma)
     }

@@ -482,18 +482,53 @@ cargo run --release --features rayon,mimalloc --example multi_sensor -- --filter
 
 ---
 
+## 2025-12-01: Phase G1 - Static Types for Hypothesis
+
+**Files**:
+- `src/common/types.rs` (new type aliases, updated Hypothesis struct)
+- `src/multisensor_lmbm/association.rs` (static → dynamic conversions)
+- `src/multisensor_lmbm/hypothesis.rs` (dynamic → static conversions)
+- `src/multisensor_lmbm/filter.rs` (static → dynamic for output)
+- `src/lmbm/association.rs` (conversions)
+- `src/lmbm/hypothesis.rs` (conversions)
+- `src/lmbm/prediction.rs` (conversions)
+- Test files updated for new types
+
+**Changes**:
+- Added `State4 = SVector<f64, 4>` and `Cov4x4 = SMatrix<f64, 4, 4>` type aliases
+- Changed `Hypothesis.mu: Vec<DVector<f64>>` → `Vec<State4>` (stack-allocated 4D vectors)
+- Changed `Hypothesis.sigma: Vec<DMatrix<f64>>` → `Vec<Cov4x4>` (stack-allocated 4x4 matrices)
+- Added conversions at boundaries where dynamic types are needed (posterior params, output structs)
+- Kept `MultisensorLmbmPosteriorParameters` using dynamic types (less frequently accessed)
+
+**Impact**:
+- **Benchmark**: 0.65s → 0.59s (**~9% improvement**)
+- Eliminates inner heap allocations for Hypothesis mu/sigma
+- Better cache locality (contiguous [f64; 4] and [f64; 16] instead of heap pointers)
+- All tests pass (without rayon; with rayon, parallel Gibbs produces more samples as expected)
+
+**Rationale**: The Hypothesis struct is accessed 10.7M times in the hot path. Using static types for the 4D state vectors and 4x4 covariance matrices eliminates heap allocations and improves cache locality. The x_dimension is always 4 in this codebase, making static types safe.
+
+---
+
 ## Summary: Final Optimization State
 
 **Current best configuration**: `--features rayon,mimalloc`
 
-| Optimization | Time | vs Baseline |
-|--------------|------|-------------|
-| Baseline | 13.90s | - |
-| +lto+cache+logdet+stack | 12.20s | -12.2% |
-| +mimalloc | 9.58s | -31.1% |
-| +rayon | 2.79s | -79.9% |
-| **+clone elimination** | **2.77s** | **-80.1%** |
+| Phase | Optimization | Time | vs Previous | Total Speedup |
+|-------|-------------|------|-------------|---------------|
+| Baseline | None | 13.90s | - | 1.0x |
+| Early | +lto+cache+logdet+stack | 12.20s | -12.2% | 1.1x |
+| Early | +mimalloc | 9.58s | -21.4% | 1.5x |
+| Early | +rayon (parallel likelihood) | 2.79s | -70.9% | 5.0x |
+| A | Clone elimination | 2.77s | -0.7% | 5.0x |
+| B | Measurement gating | 1.48s | -46.6% | 9.4x |
+| C | Deferred posterior params | 1.38s | -6.8% | 10.1x |
+| F | Parallel Gibbs chains | 0.65s | -52.9% | 21.4x |
+| **G1** | **Static types (State4/Cov4x4)** | **0.59s** | **-9.2%** | **23.6x** |
 
-**Total speedup: 5x**
+**Total speedup: 23.6x** (13.90s → 0.59s)
+
+**Target**: <0.5s (~1.2x more improvement needed)
 
 See `docs/03_optimisations/benchmarks.md` for full methodology and raw data.

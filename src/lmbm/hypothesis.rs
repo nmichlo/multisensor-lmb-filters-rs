@@ -3,7 +3,7 @@
 //! Implements hypothesis parameter determination, normalization, gating, and state extraction for LMBM filter.
 //! Matches MATLAB determinePosteriorHypothesisParameters.m, lmbmNormalisationAndGating.m, and lmbmStateExtraction.m exactly.
 
-use crate::common::types::{Hypothesis, Model};
+use crate::common::types::{Cov4x4, Hypothesis, Model, State4};
 use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::lmbm::association::LmbmPosteriorParameters;
 use nalgebra::DMatrix;
@@ -69,20 +69,25 @@ pub fn determine_posterior_hypothesis_parameters(
         }
 
         // Means - select based on association event
-        let mut mu = Vec::with_capacity(number_of_objects);
+        // Convert from DVector to State4 for Hypothesis
+        let mut mu: Vec<State4> = Vec::with_capacity(number_of_objects);
         for obj_idx in 0..number_of_objects {
             let meas_idx = v_row[obj_idx];
-            mu.push(posterior_parameters.mu[obj_idx][meas_idx].clone());
+            mu.push(State4::from_column_slice(posterior_parameters.mu[obj_idx][meas_idx].as_slice()));
         }
 
         // Covariances - updated for detected objects
-        let mut sigma = posterior_parameters.sigma.clone();
+        // Convert from DMatrix to Cov4x4 for Hypothesis
+        let mut sigma: Vec<Cov4x4> = posterior_parameters.sigma
+            .iter()
+            .map(|s| Cov4x4::from_column_slice(s.as_slice()))
+            .collect();
         for obj_idx in 0..number_of_objects {
             if v_row[obj_idx] > 0 {
-                // Keep the updated covariance
+                // Keep the updated covariance (already converted above)
             } else {
                 // Use prior covariance for missed detections
-                sigma[obj_idx] = prior_hypothesis.sigma[obj_idx].clone();
+                sigma[obj_idx] = prior_hypothesis.sigma[obj_idx];
             }
         }
 

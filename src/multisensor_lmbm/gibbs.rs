@@ -4,10 +4,11 @@
 //! Matches MATLAB multisensorLmbmGibbsSampling.m and generateMultisensorAssociationEvent.m exactly.
 
 use super::determine_linear_index;
-use crate::common::rng::SimpleRng;
 use nalgebra::DMatrix;
 use std::collections::HashSet;
 
+#[cfg(feature = "rayon")]
+use crate::common::rng::SimpleRng;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 

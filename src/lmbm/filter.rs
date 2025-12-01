@@ -170,8 +170,8 @@ pub fn run_lmbm_filter(
                 if j < hypotheses[0].birth_time.len() {
                     labels_t[(0, i)] = hypotheses[0].birth_time[j];
                     labels_t[(1, i)] = hypotheses[0].birth_location[j];
-                    mu_t.push(hypotheses[0].mu[j].clone());
-                    sigma_t.push(hypotheses[0].sigma[j].clone());
+                    mu_t.push(DVector::from_column_slice(hypotheses[0].mu[j].as_slice()));
+                    sigma_t.push(DMatrix::from_column_slice(4, 4, hypotheses[0].sigma[j].as_slice()));
                 }
             }
         }

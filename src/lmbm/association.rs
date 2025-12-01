@@ -89,16 +89,24 @@ pub fn generate_lmbm_association_matrices(
     let mut posterior_mu = vec![vec![DVector::zeros(0); number_of_measurements + 1]; number_of_objects];
 
     // Posterior Sigma: same as prior (updated only once per object)
-    let mut posterior_sigma = hypothesis.sigma.clone();
+    // Convert from static Cov4x4 to dynamic DMatrix for posterior storage
+    let mut posterior_sigma: Vec<DMatrix<f64>> = hypothesis.sigma
+        .iter()
+        .map(|s| DMatrix::from_column_slice(4, 4, s.as_slice()))
+        .collect();
 
     // Populate association matrices and compute posterior components
     for i in 0..number_of_objects {
+        // Convert static types to dynamic for helper function calls
+        let mu_i = DVector::from_column_slice(hypothesis.mu[i].as_slice());
+        let sigma_i = DMatrix::from_column_slice(4, 4, hypothesis.sigma[i].as_slice());
+
         // Missed detection event
-        posterior_mu[i][0] = hypothesis.mu[i].clone();
+        posterior_mu[i][0] = mu_i.clone();
 
         // Determine posterior parameters for each object's spatial distribution
         let (mu_z, z_cov) =
-            compute_innovation_params(&hypothesis.mu[i], &hypothesis.sigma[i], &model.c, &model.q);
+            compute_innovation_params(&mu_i, &sigma_i, &model.c, &model.q);
 
         // Compute log Gaussian normalizing constant
         let log_gaussian_norm = log_gaussian_normalizing_constant(&z_cov, model.z_dimension);
@@ -109,7 +117,7 @@ pub fn generate_lmbm_association_matrices(
 
         // Compute Z inverse and Kalman gain
         let (k, sigma_updated, z_inv) =
-            match compute_kalman_gain(&hypothesis.sigma[i], &model.c, &z_cov, model.x_dimension) {
+            match compute_kalman_gain(&sigma_i, &model.c, &z_cov, model.x_dimension) {
                 Some(result) => result,
                 None => {
                     // Singular covariance, skip this object (shouldn't happen in normal operation)
@@ -127,7 +135,7 @@ pub fn generate_lmbm_association_matrices(
 
             // Determine posterior mean for each measurement
             posterior_mu[i][j + 1] =
-                compute_kalman_updated_mean(&hypothesis.mu[i], &k, &measurements[j], &mu_z);
+                compute_kalman_updated_mean(&mu_i, &k, &measurements[j], &mu_z);
         }
     }
 

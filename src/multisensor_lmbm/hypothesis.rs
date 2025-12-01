@@ -4,7 +4,7 @@
 //! Matches MATLAB determineMultisensorPosteriorHypothesisParameters.m exactly.
 
 use super::determine_linear_index;
-use crate::common::types::{Hypothesis, Model};
+use crate::common::types::{Cov4x4, Hypothesis, Model, State4};
 use crate::multisensor_lmbm::association::{
     compute_posterior_params_for_indices, MultisensorLmbmPosteriorParameters,
 };
@@ -83,14 +83,15 @@ pub fn determine_multisensor_posterior_hypothesis_parameters(
         let hypothesis_weight = prior_hypothesis.w.ln() + log_weight_sum;
 
         // Extract posterior parameters using linear indices
+        // Convert from DVector/DMatrix to State4/Cov4x4 for Hypothesis struct
         let r: Vec<f64> = ell_indices.iter().map(|&idx| posterior_parameters.r[idx]).collect();
-        let mu: Vec<DVector<f64>> = ell_indices
+        let mu: Vec<State4> = ell_indices
             .iter()
-            .map(|&idx| posterior_parameters.mu[idx].clone())
+            .map(|&idx| State4::from_column_slice(posterior_parameters.mu[idx].as_slice()))
             .collect();
-        let sigma: Vec<DMatrix<f64>> = ell_indices
+        let sigma: Vec<Cov4x4> = ell_indices
             .iter()
-            .map(|&idx| posterior_parameters.sigma[idx].clone())
+            .map(|&idx| Cov4x4::from_column_slice(posterior_parameters.sigma[idx].as_slice()))
             .collect();
 
         // Create posterior hypothesis
@@ -181,26 +182,27 @@ pub fn determine_multisensor_posterior_hypothesis_parameters_deferred(
         let hypothesis_weight = prior_hypothesis.w.ln() + log_weight_sum;
 
         // Extract posterior parameters using sparse params
+        // Extract posterior parameters and convert to static types for Hypothesis
         let r: Vec<f64> = ell_indices
             .iter()
             .map(|&ell| sparse_params.get(&ell).map(|(r, _, _)| *r).unwrap_or(0.0))
             .collect();
-        let mu: Vec<DVector<f64>> = ell_indices
+        let mu: Vec<State4> = ell_indices
             .iter()
             .map(|&ell| {
                 sparse_params
                     .get(&ell)
-                    .map(|(_, mu, _)| mu.clone())
-                    .unwrap_or_else(|| prior_hypothesis.mu[0].clone())
+                    .map(|(_, mu, _)| State4::from_column_slice(mu.as_slice()))
+                    .unwrap_or_else(|| prior_hypothesis.mu[0])
             })
             .collect();
-        let sigma: Vec<DMatrix<f64>> = ell_indices
+        let sigma: Vec<Cov4x4> = ell_indices
             .iter()
             .map(|&ell| {
                 sparse_params
                     .get(&ell)
-                    .map(|(_, _, sigma)| sigma.clone())
-                    .unwrap_or_else(|| prior_hypothesis.sigma[0].clone())
+                    .map(|(_, _, sigma)| Cov4x4::from_column_slice(sigma.as_slice()))
+                    .unwrap_or_else(|| prior_hypothesis.sigma[0])
             })
             .collect();
 
@@ -231,29 +233,29 @@ mod tests {
 
         // Create association matrix: 1 event, 2 objects * 2 sensors = 4 entries
         // Event: all misses (0-indexed)
-        let mut a = DMatrix::zeros(1, 4);
+        let a = DMatrix::zeros(1, 4);
 
         // Create simple likelihood matrix
         let l = vec![0.0; total_size];
 
-        // Create simple posterior parameters
+        // Create simple posterior parameters (uses dynamic types DVector/DMatrix)
         let posterior_parameters = MultisensorLmbmPosteriorParameters {
             r: vec![0.5; total_size],
-            mu: vec![DVector::from_vec(vec![0.0, 0.0]); total_size],
-            sigma: vec![DMatrix::identity(2, 2); total_size],
+            mu: vec![DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]); total_size],
+            sigma: vec![DMatrix::identity(4, 4); total_size],
         };
 
-        // Create prior hypothesis
+        // Create prior hypothesis (uses static types State4/Cov4x4)
         let prior_hypothesis = Hypothesis {
             birth_location: vec![0, 1],
             birth_time: vec![1, 1],
             w: 1.0,
             r: vec![0.5, 0.5],
             mu: vec![
-                DVector::from_vec(vec![0.0, 0.0]),
-                DVector::from_vec(vec![1.0, 1.0]),
+                State4::from_column_slice(&[0.0, 0.0, 0.0, 0.0]),
+                State4::from_column_slice(&[1.0, 1.0, 0.0, 0.0]),
             ],
-            sigma: vec![DMatrix::identity(2, 2), DMatrix::identity(2, 2)],
+            sigma: vec![Cov4x4::identity(), Cov4x4::identity()],
         };
 
         let posterior = determine_multisensor_posterior_hypothesis_parameters(

@@ -3,10 +3,18 @@
 //! This module defines the fundamental data structures used throughout
 //! the tracking library, matching the MATLAB implementation exactly.
 
-use nalgebra::{DMatrix, DVector};
+use nalgebra::{DMatrix, DVector, SMatrix, SVector};
 
 // Re-export ParallelUpdateMode for use in Model
 pub use crate::multisensor_lmb::parallel_update::ParallelUpdateMode;
+
+/// State vector (4D: [x, vx, y, vy])
+/// Stack-allocated for better cache locality in hot paths.
+pub type State4 = SVector<f64, 4>;
+
+/// State covariance matrix (4x4)
+/// Stack-allocated for better cache locality in hot paths.
+pub type Cov4x4 = SMatrix<f64, 4, 4>;
 
 /// Data association method
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +111,9 @@ impl Object {
 
 /// LMBM hypothesis
 ///
-/// Represents a single hypothesis in the LMBM filter
+/// Represents a single hypothesis in the LMBM filter.
+/// Uses stack-allocated State4/Cov4x4 for mu/sigma to eliminate
+/// inner heap allocations and improve cache locality.
 #[derive(Debug, Clone)]
 pub struct Hypothesis {
     /// Array of birth locations for objects in this hypothesis
@@ -114,10 +124,10 @@ pub struct Hypothesis {
     pub w: f64,
     /// Array of existence probabilities
     pub r: Vec<f64>,
-    /// Array of means (one per object)
-    pub mu: Vec<DVector<f64>>,
-    /// Array of covariances (one per object)
-    pub sigma: Vec<DMatrix<f64>>,
+    /// Array of means (one per object) - stack-allocated 4D vectors
+    pub mu: Vec<State4>,
+    /// Array of covariances (one per object) - stack-allocated 4x4 matrices
+    pub sigma: Vec<Cov4x4>,
 }
 
 impl Hypothesis {

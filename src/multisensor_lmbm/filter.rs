@@ -213,8 +213,8 @@ pub fn run_multisensor_lmbm_filter(
                 // For now, use placeholder values
                 labels_t[(0, i)] = t + 1; // Birth time
                 labels_t[(1, i)] = j; // Birth location
-                mu_t.push(normalized_hypotheses[0].mu[j].clone());
-                sigma_t.push(normalized_hypotheses[0].sigma[j].clone());
+                mu_t.push(DVector::from_column_slice(normalized_hypotheses[0].mu[j].as_slice()));
+                sigma_t.push(DMatrix::from_column_slice(4, 4, normalized_hypotheses[0].sigma[j].as_slice()));
             }
         }
 
