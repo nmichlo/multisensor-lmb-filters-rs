@@ -322,3 +322,34 @@ This document tracks code quality and performance improvements to the codebase.
 - MATLAB equivalence maintained
 
 **Rationale**: An audit revealed that helper functions from Phase 10 (Model accessors) and Phase 11 (canonical form helpers) were defined but not fully adopted. By updating `ground_truth.rs` and `merging.rs` to use these helpers, we ensure consistent behavior and demonstrate the value of the extracted utilities.
+
+---
+
+## 2025-12-01: Phase 16 - Performance Optimization (LMBM)
+
+**Files**:
+- `Cargo.toml` (release profile)
+- `src/common/linalg.rs` (new function)
+- `src/multisensor_lmbm/association.rs` (optimizations)
+
+**Changes**:
+- Added release profile to `Cargo.toml`: `lto = "thin"`, `codegen-units = 1`, `opt-level = 3`
+- Added `robust_inverse_with_log_det()` to `linalg.rs` - computes inverse and log-det in single Cholesky
+- Pre-cached Q and C matrices per sensor in `generate_multisensor_lmbm_association_matrices()`
+- Added `#[inline]` annotations to `convert_from_linear_to_cartesian()` and `determine_log_likelihood_ratio()`
+- Updated `determine_log_likelihood_ratio()` to use cached matrices and combined inverse+log-det
+
+**Impact**:
+- Benchmark: **23.14s → 20.20s** (12.7% improvement)
+- Allocations: **34.8 GB → 29.7 GB** (15% reduction in cumulative allocations)
+- Eliminated 10.7M Q/C matrix clones per run
+- Eliminated redundant Cholesky decomposition in likelihood computation
+- Eliminated 21.4M Vec heap allocations via stack-allocated index arrays
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Rationale**: Profiling showed `determine_log_likelihood_ratio()` was called 10.7 million times with 34.8 GB cumulative allocations. The main inefficiencies were:
+1. Cloning Q and C matrices on every call instead of caching them once per timestep
+2. Computing Cholesky decomposition twice: once for `robust_inverse()` and once for `log_gaussian_normalizing_constant()`
+3. Allocating Vec<usize> for index conversion on every iteration (21.4M allocations)
+By caching matrices, combining the inverse+log-det computation, and using stack-allocated arrays, we reduce both time and memory pressure.

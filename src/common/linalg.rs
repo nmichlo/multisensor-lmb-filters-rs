@@ -212,6 +212,59 @@ pub fn robust_inverse(matrix: &DMatrix<f64>) -> Option<DMatrix<f64>> {
     svd.pseudo_inverse(SVD_TOLERANCE).ok()
 }
 
+/// Robustly invert matrix and compute log-determinant in single decomposition
+///
+/// This is more efficient than calling robust_inverse() + log_gaussian_normalizing_constant()
+/// separately, as it avoids computing Cholesky twice for positive definite matrices.
+///
+/// Attempts multiple methods:
+/// 1. Cholesky decomposition (fastest for positive definite matrices)
+/// 2. LU decomposition
+/// 3. SVD-based pseudo-inverse (last resort)
+///
+/// # Arguments
+/// * `matrix` - Matrix to invert (must be square)
+/// * `dimension` - Dimension of the matrix (for log normalizing constant computation)
+///
+/// # Returns
+/// Some((inverse, log_normalizing_constant)) if any method succeeds, None if all fail
+/// The log_normalizing_constant is -0.5 * (n*ln(2π) + ln|det(matrix)|)
+#[inline]
+pub fn robust_inverse_with_log_det(matrix: &DMatrix<f64>, dimension: usize) -> Option<(DMatrix<f64>, f64)> {
+    let n = dimension as f64;
+    let log_2pi = (2.0 * PI).ln();
+
+    // Try Cholesky first (fastest for positive definite)
+    if let Some(chol) = matrix.clone().cholesky() {
+        let inv = chol.inverse();
+        // log(det(Z)) = 2 * sum(log(diag(L))) where Z = L*L'
+        let log_det = 2.0 * chol.l().diagonal().iter().map(|x| x.ln()).sum::<f64>();
+        let eta = -0.5 * (n * log_2pi + log_det);
+        return Some((inv, eta));
+    }
+
+    // Fall back to LU decomposition
+    if let Some(inv) = matrix.clone().try_inverse() {
+        let log_det = matrix.determinant().ln();
+        let eta = -0.5 * (n * log_2pi + log_det);
+        return Some((inv, eta));
+    }
+
+    // Last resort: SVD pseudo-inverse
+    let svd = matrix.clone().svd(true, true);
+    // Compute log-det from singular values before consuming svd
+    let log_det = svd.singular_values.iter()
+        .filter(|&&s| s > SVD_TOLERANCE)
+        .map(|s| s.ln())
+        .sum::<f64>();
+    if let Ok(inv) = svd.pseudo_inverse(SVD_TOLERANCE) {
+        let eta = -0.5 * (n * log_2pi + log_det);
+        return Some((inv, eta));
+    }
+
+    None
+}
+
 /// Robustly solve linear system A*x = b with fallbacks
 ///
 /// Attempts multiple methods to solve the system:

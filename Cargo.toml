@@ -44,3 +44,8 @@ hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 [[bench]]
 name = "lmb_performance"
 harness = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3

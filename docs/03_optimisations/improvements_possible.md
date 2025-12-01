@@ -1,404 +1,437 @@
-# Possible Optimizations
+# LMBM Performance Optimization - Comprehensive Analysis
 
-Based on ideas from [CRDTs Go Brrr](https://josephg.com/blog/crdts-go-brrr/) and analysis of this codebase.
+**Target Algorithm**: Multisensor LMBM (33.97s, 283x slower than PU/GA)
+**Profiling Data**: 88% time in association matrices, 10.7M function calls, 32.8 GB allocations
+
+---
+
+## Executive Summary
+
+The LMBM algorithm suffers from **fundamental combinatorial explosion**: likelihood matrix dimensions = `∏(mᵢ + 1) × n`. With 3 sensors, 10 measurements each, 100 objects = **133,100 entries**, each calling `determine_log_likelihood_ratio()` which performs expensive matrix operations with multiple clones.
+
+---
 
 ## Current Performance Baseline
 
-From `BENCHMARK_BASELINE.md`:
-- LBP 50x50: **439 µs** (main bottleneck)
-- Association matrix 50x50: **90 µs**
-- ESF n=100: **4.4 µs** (O(n²) scaling)
-- Full filter t=50: **2.35 ms**
-- Multi-sensor LMBM 100 timesteps: **~13.6s**
+From profiling with `hotpath-alloc`:
 
-### Profiling Notes
-
-Profile captured with samply (14,981 samples, 14.98s runtime). Saved to `profile.json`.
-To view: `samply load profile.json`
-
-For symbolized profiles, rebuild with debug info:
-```bash
-cargo build --release
-# Or add to Cargo.toml:
-# [profile.release]
-# debug = true
-```
-
-## Codebase Statistics
-
-| Pattern | Count | Impact |
-|---------|-------|--------|
-| `.clone()` calls | 207 | High - memory allocation + copy |
-| Matrix ops (cholesky/inverse/det) | 41 | High - O(n³) operations |
-| Nested `Vec<Vec<...>>` | 30+ | Medium - cache unfriendly |
-| Explicit `for` loops | 200+ | Medium - potential SIMD opportunities |
+| Algorithm | Time | Total Alloc | Bottleneck Function | Bottleneck % |
+|-----------|------|-------------|---------------------|--------------|
+| **LMBM** | **33.97s** | **954 MB** | `generate_multisensor_lmbm_association_matrices` | **88%** |
+| IC | 0.12s | 230 MB | `compute_posterior_lmb_spatial_distributions_multisensor` | 16% |
+| PU | 0.03s | 118 MB | `loopy_belief_propagation` | 5% |
+| GA | 0.03s | 95 MB | `loopy_belief_propagation` | 10% |
+| AA | 0.30s | 756 MB | `compute_posterior_lmb_spatial_distributions_multisensor` | 12% |
 
 ---
 
-## Category 1: Memory Layout Optimizations
+## Complete Inefficiency Map
 
-### 1.1 Flatten Nested Vectors (Est. 2-5x speedup for affected code)
+### Critical Path Analysis (88% of runtime)
 
-**Current (cache-unfriendly):**
+| Location | Issue | Calls | Impact |
+|----------|-------|-------|--------|
+| `association.rs:210-213` | Pre-allocate 5B+ entries | 991 | 32.8 GB |
+| `association.rs:226` | Call likelihood function | 10.7M | 88% time |
+| `association.rs:95` | `Q.clone()` per sensor | 10.7M×S | 540 MB+ |
+| `linalg.rs:199-211` | `robust_inverse` 3 clones | 10.7M | 1.5 TB temp! |
+| `linalg.rs:326` | Redundant Cholesky | 10.7M | Wasteful |
+| `association.rs:33-46` | `Vec` alloc per conversion | 10.7M | 5B allocs |
+| `gibbs.rs:126` | `vec![0; S+1]` in inner loop | 300/sample | 1GB total |
+| `hypothesis.rs:86,90` | Clone mu/sigma per object | U×n | 16 GB |
+
+### Secondary Inefficiencies
+
+| Location | Issue | Frequency |
+|----------|-------|-----------|
+| `filter.rs:111` | Clone hypothesis for prediction | H×T |
+| `hypothesis.rs:158,170` | Clone during gating | 2×H per step |
+| `prediction.rs:49-50` | Vec::resize with clones | B×H×T |
+| `gibbs.rs:149` | Serial RNG calls | 3M+ |
+
+---
+
+## ALL OPTIMIZATION STRATEGIES - RANKED BY IMPACT
+
+### TIER 1: CRITICAL (10-100x potential improvement)
+
+#### 1. Sparse/Lazy Likelihood Computation (Expected: 50-100x)
+**Rank: #1 - HIGHEST IMPACT**
+
+Instead of computing ALL `∏(mᵢ+1)×n` likelihoods upfront, compute on-demand during Gibbs sampling.
+
 ```rust
-pub struct Object {
-    pub w: Vec<f64>,           // Pointer → heap allocation
-    pub mu: Vec<DVector<f64>>, // Pointer → Vec of pointers → heap allocations
-    pub sigma: Vec<DMatrix<f64>>, // Even worse
+// Current: Pre-compute everything
+let mut l = vec![0.0; number_of_entries];  // 133,100 entries
+for ell in 0..number_of_entries {
+    l[ell] = determine_log_likelihood_ratio(...);  // 10.7M calls
+}
+
+// Proposed: Compute on-demand with memoization
+struct LazyLikelihood {
+    cache: HashMap<usize, f64>,
+}
+impl LazyLikelihood {
+    fn get(&mut self, ell: usize, ...) -> f64 {
+        *self.cache.entry(ell).or_insert_with(|| {
+            determine_log_likelihood_ratio(...)
+        })
+    }
 }
 ```
 
-**Proposed (cache-friendly):**
+**Why it works**: Gibbs sampling only visits ~1000-10000 unique indices, not all 133,100+.
+
+---
+
+#### 2. Workspace Buffer Reuse (Expected: 5-10x allocation reduction)
+**Rank: #2**
+
 ```rust
-pub struct Object {
-    pub birth_location: usize,
-    pub birth_time: usize,
-    pub r: f64,
-    pub number_of_gm_components: usize,
-    // Inline small arrays for common case (1-4 GM components)
-    pub w: SmallVec<[f64; 4]>,
-    pub mu: SmallVec<[DVector<f64>; 4]>,
-    pub sigma: SmallVec<[DMatrix<f64>; 4]>,
-}
-```
-
-**Why it helps:** Most objects have 1-3 GM components. SmallVec stores up to N elements inline, avoiding heap allocation for the common case.
-
-### 1.2 Struct-of-Arrays for Batch Operations (Est. 3-10x for vectorizable ops)
-
-**Current (Array-of-Structs):**
-```rust
-let objects: Vec<Object> = ...;
-for obj in &objects {
-    // Each access follows pointer, cache miss likely
-    process(obj.r, &obj.mu, &obj.sigma);
-}
-```
-
-**Proposed (Struct-of-Arrays):**
-```rust
-pub struct ObjectBatch {
-    pub birth_locations: Vec<usize>,
-    pub birth_times: Vec<usize>,
-    pub rs: Vec<f64>,  // Contiguous in memory!
-    pub mus: Vec<DVector<f64>>,
-    pub sigmas: Vec<DMatrix<f64>>,
-    // Index mapping for GM components
-    pub gm_offsets: Vec<usize>,
-}
-```
-
-**Why it helps:** When iterating over existence probabilities `r` for all objects, data is contiguous → CPU prefetcher works, SIMD possible.
-
-### 1.3 Pre-allocated Workspace Buffers (Est. 1.5-3x)
-
-**Current:**
-```rust
-fn lbp_iteration(...) {
-    let mut mu_obj_to_meas = DMatrix::zeros(n_obj, n_meas);  // Alloc every call
-    let mut mu_meas_to_obj = DMatrix::zeros(n_obj, n_meas);  // Alloc every call
-    // ... 5-20 iterations, allocating each time
-}
-```
-
-**Proposed:**
-```rust
-struct LbpWorkspace {
-    mu_obj_to_meas: DMatrix<f64>,
-    mu_meas_to_obj: DMatrix<f64>,
-    // Pre-sized for max expected dimensions
-}
-
-fn lbp_iteration(workspace: &mut LbpWorkspace, ...) {
-    workspace.mu_obj_to_meas.fill(0.0);  // Reuse, don't reallocate
+pub struct LmbmAssociationWorkspace {
+    z: DVector<f64>,
+    c: DMatrix<f64>,
+    q: DMatrix<f64>,
+    q_sensor_cache: Vec<DMatrix<f64>>,
+    c_sensor_cache: Vec<DMatrix<f64>>,
+    nu: DVector<f64>,
+    z_matrix: DMatrix<f64>,
+    z_inv: DMatrix<f64>,
+    kalman_gain: DMatrix<f64>,
 }
 ```
 
 ---
 
-## Category 2: Clone Reduction
+#### 3. Eliminate robust_inverse Triple Clone (Expected: 3x in that function)
+**Rank: #3**
 
-### 2.1 Audit 207 Clone Calls (Est. 1.2-2x overall)
-
-Current codebase has 207 `.clone()` calls. Many are unnecessary:
-
-**Pattern 1: Clone in loop (wasteful)**
 ```rust
-for obj in objects.clone().iter() {  // Clones entire Vec
-    // ...
+// Current (3 potential clones)
+pub fn robust_inverse(matrix: &DMatrix<f64>) -> Option<DMatrix<f64>> {
+    if let Some(chol) = matrix.clone().cholesky() { ... }
+    if let Some(inv) = matrix.clone().try_inverse() { ... }
+    let svd = matrix.clone().svd(true, true);
 }
-```
-**Fix:** Use `&objects` or `objects.iter()`
 
-**Pattern 2: Clone for ownership transfer**
-```rust
-let result = some_fn(data.clone());  // Clone to pass ownership
-```
-**Fix:** Take `&data` if possible, or use `Cow<T>`
-
-**Pattern 3: Clone in prediction step**
-```rust
-pub fn lmb_prediction_step(mut objects: Vec<Object>, ...) -> Vec<Object>
-```
-**Fix:** Consider in-place mutation or arena allocation
-
-### 2.2 Use Copy-on-Write (Cow) for Large Structures
-
-```rust
-use std::borrow::Cow;
-
-fn update_object(obj: Cow<'_, Object>) -> Object {
-    match obj {
-        Cow::Borrowed(o) if needs_modification(o) => {
-            let mut owned = o.clone();
-            modify(&mut owned);
-            owned
-        }
-        Cow::Owned(mut o) => {
-            modify(&mut o);
-            o
-        }
-        Cow::Borrowed(o) => o.clone(), // Only clone if needed
-    }
-}
+// Proposed: In-place with workspace
+pub fn robust_inverse_inplace(
+    matrix: &DMatrix<f64>,
+    workspace: &mut InverseWorkspace,
+    result: &mut DMatrix<f64>,
+) -> bool
 ```
 
 ---
 
-## Category 3: Algorithm-Level Optimizations
-
-### 3.1 LBP Early Termination with Tolerance Tracking (Est. 1.3-2x)
-
-**Current:** Fixed iteration count or simple convergence check
-**Proposed:** Track per-element convergence, skip converged elements
+#### 4. Cache Cholesky Factor for log_gaussian_normalizing_constant (Expected: 2x)
+**Rank: #4**
 
 ```rust
-fn lbp_with_early_exit(matrices: &AssociationMatrices) -> (DVector<f64>, DMatrix<f64>) {
-    let mut converged = vec![false; n_obj];
-    let mut prev_values = ...;
+// Current: Compute Cholesky, then recompute for log-det
+let z_inv = robust_inverse(&z_matrix)?;
+let eta = log_gaussian_normalizing_constant(&z_matrix, z_dim);  // Cholesky again!
 
-    for iter in 0..max_iter {
-        let mut all_converged = true;
-        for i in 0..n_obj {
-            if converged[i] { continue; }  // Skip converged rows
-
-            let new_val = compute_update(i, ...);
-            if (new_val - prev_values[i]).abs() < tolerance {
-                converged[i] = true;
-            } else {
-                all_converged = false;
-            }
-        }
-        if all_converged { break; }
-    }
-}
+// Proposed: Return Cholesky factor from inverse, use for log-det
+let (z_inv, log_det) = robust_inverse_with_log_det(&z_matrix)?;
+let eta = -0.5 * (z_dim as f64 * LOG_2PI + log_det);
 ```
-
-### 3.2 Cholesky/Inverse Caching (Est. 2-5x for matrix ops)
-
-41 calls to `.cholesky()`, `.try_inverse()`, `.determinant()`. Many are redundant:
-
-```rust
-// Cache expensive decompositions
-struct CachedMatrix {
-    matrix: DMatrix<f64>,
-    cholesky: OnceCell<Option<Cholesky<f64>>>,
-    inverse: OnceCell<Option<DMatrix<f64>>>,
-    determinant: OnceCell<f64>,
-}
-
-impl CachedMatrix {
-    fn cholesky(&self) -> Option<&Cholesky<f64>> {
-        self.cholesky.get_or_init(|| self.matrix.clone().cholesky()).as_ref()
-    }
-
-    fn inverse(&self) -> Option<&DMatrix<f64>> {
-        self.inverse.get_or_init(|| self.matrix.clone().try_inverse()).as_ref()
-    }
-}
-```
-
-### 3.3 Elementary Symmetric Function (ESF) Optimization
-
-Current: O(n²) with n=100 taking 4.4µs
-
-**Options:**
-1. **Parallel prefix computation** - O(n) depth with O(n) processors
-2. **Newton's identities** - Alternative formulation that may be faster for specific cases
-3. **Logarithmic space** - Compute in log domain to avoid underflow, use FFT for polynomial multiplication
 
 ---
 
-## Category 4: Parallelization with Rayon
+### TIER 2: HIGH IMPACT (2-5x improvement)
 
-### 4.1 Association Matrix Generation (Est. 3-8x on multi-core)
+#### 5. Q Matrix Cache (Expected: 2-3x clone reduction)
+**Rank: #5**
 
-**Current:**
 ```rust
-for (i, obj) in objects.iter().enumerate() {
-    for (j, z) in measurements.iter().enumerate() {
-        psi[(i, j)] = compute_likelihood(obj, z);
-    }
-}
+// Current: Clone Q matrix 10.7M×S times
+q_blocks.push(model.get_measurement_noise(Some(s)).clone());
+
+// Proposed: Clone once per timestep
+let q_cache: Vec<DMatrix<f64>> = (0..number_of_sensors)
+    .map(|s| model.get_measurement_noise(Some(s)).clone())
+    .collect();
 ```
 
-**Proposed:**
+---
+
+#### 6. Rayon Parallelization (Expected: 3-8x on multi-core)
+**Rank: #6**
+
 ```rust
 use rayon::prelude::*;
 
-let psi_data: Vec<f64> = (0..n_obj)
+let results: Vec<_> = (0..number_of_entries)
     .into_par_iter()
-    .flat_map(|i| {
-        let obj = &objects[i];
-        (0..n_meas).map(move |j| compute_likelihood(obj, &measurements[j]))
+    .map_with(workspace.clone(), |ws, ell| {
+        determine_log_likelihood_ratio(ell, ws)
     })
     .collect();
 ```
 
-### 4.2 LBP Row Updates (Est. 2-4x)
+---
 
-Row updates in LBP are independent within an iteration:
-
-```rust
-// Parallel row updates
-mu_obj_to_meas.par_row_iter_mut()
-    .enumerate()
-    .for_each(|(i, mut row)| {
-        for j in 0..n_meas {
-            row[j] = compute_message(i, j, ...);
-        }
-    });
-```
-
-### 4.3 Multi-Sensor Parallel Processing
-
-Each sensor's update is largely independent:
+#### 7. In-Place Matrix Operations (Expected: 1.5-2x)
+**Rank: #7**
 
 ```rust
-let sensor_updates: Vec<_> = (0..num_sensors)
-    .into_par_iter()
-    .map(|s| process_sensor(s, &objects, &measurements[s]))
-    .collect();
+// Current (creates temporaries)
+let nu = &z - &c * &hypothesis.mu[i];
+
+// Proposed (in-place)
+workspace.nu.copy_from(&workspace.z);
+workspace.nu.gemv(-1.0, &workspace.c, &hypothesis.mu[i], 1.0);
 ```
 
 ---
 
-## Category 5: SIMD Vectorization
+#### 8. SmallVec for Cartesian Indices (Expected: 1.5-2x for index ops)
+**Rank: #8**
 
-### 5.1 Nalgebra SIMD Features
+```rust
+// Current: Heap allocation every call
+fn convert_from_linear_to_cartesian(...) -> Vec<usize> {
+    let mut u = vec![0; m];
 
-Enable in `Cargo.toml`:
+// Proposed: Stack allocation
+fn convert_from_linear_to_cartesian<const N: usize>(...) -> [usize; N]
+```
+
+---
+
+### TIER 3: MEDIUM IMPACT (1.2-2x improvement)
+
+#### 9. Vectorized Posterior Parameter Extraction (Expected: 1.5x)
+**Rank: #9**
+
+```rust
+// Current: 3 separate iterations
+let r: Vec<f64> = ell_indices.iter().map(...).collect();
+let mu: Vec<DVector<f64>> = ell_indices.iter().map(...).collect();
+let sigma: Vec<DMatrix<f64>> = ell_indices.iter().map(...).collect();
+
+// Proposed: Single iteration
+for &idx in &ell_indices {
+    r.push(posterior_parameters.r[idx]);
+    mu.push(posterior_parameters.mu[idx].clone());
+    sigma.push(posterior_parameters.sigma[idx].clone());
+}
+```
+
+---
+
+#### 10. Batched RNG (Expected: 1.3-1.5x in Gibbs)
+**Rank: #10**
+
+---
+
+#### 11. Pre-computed Page Size Multipliers (Expected: 1.2x)
+**Rank: #11**
+
+```rust
+let page_sizes: Vec<usize> = precompute_page_sizes(&dimensions);
+fn determine_linear_index_fast(u: &[usize], page_sizes: &[usize]) -> usize
+```
+
+---
+
+#### 12. LTO and Codegen Optimizations (Expected: 1.1-1.3x)
+**Rank: #12**
+
+```toml
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+```
+
+---
+
+### TIER 4: LOW IMPACT BUT EASY (1.05-1.2x)
+
+#### 13. #[inline] on Hot Functions
+**Rank: #13**
+
+```rust
+#[inline(always)]
+fn determine_linear_index(...) -> usize
+```
+
+---
+
+#### 14. Cow<T> for Conditional Cloning
+**Rank: #14**
+
+---
+
+## ADDITIONAL 10 APPROACHES
+
+### A1. Custom Allocator (jemalloc/mimalloc) - Expected: 1.2-1.5x
+**Rank: #15**
+
 ```toml
 [dependencies]
-nalgebra = { version = "0.33", features = ["simd-stable"] }
-```
-
-### 5.2 Manual SIMD for Hot Loops
-
-For Gaussian likelihood computation (computed thousands of times):
-
-```rust
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
-
-// SIMD-optimized Mahalanobis distance for 4D state vectors
-unsafe fn mahalanobis_distance_simd(
-    diff: &[f64; 4],
-    inv_cov: &[[f64; 4]; 4],
-) -> f64 {
-    // Use AVX2 for 4 doubles at once
-    let diff_vec = _mm256_loadu_pd(diff.as_ptr());
-    // ... vectorized computation
-}
-```
-
-### 5.3 Batch Likelihood Computation
-
-Compute likelihoods for multiple measurements at once:
-
-```rust
-fn batch_gaussian_likelihood(
-    z_batch: &[DVector<f64>],  // Multiple measurements
-    mu: &DVector<f64>,
-    sigma_inv: &DMatrix<f64>,
-    det_factor: f64,
-) -> Vec<f64> {
-    // SIMD-friendly batch computation
-}
+mimalloc = { version = "0.1", default-features = false }
 ```
 
 ---
 
-## Category 6: Memory Allocation Reduction
-
-### 6.1 Arena Allocation for Per-Timestep Data
+### A2. Arena Allocation (bumpalo) - Expected: 2-3x for temporaries
+**Rank: #16**
 
 ```rust
 use bumpalo::Bump;
 
-fn process_timestep(arena: &Bump, objects: &[Object], measurements: &[DVector<f64>]) {
-    // All temporary allocations in arena
-    let temp_matrix = arena.alloc(DMatrix::zeros(n, m));
-    // Arena freed at end of timestep, no individual frees
-}
-```
-
-### 6.2 Object Pool for Gaussian Components
-
-```rust
-struct GaussianPool {
-    available_4d_vectors: Vec<DVector<f64>>,
-    available_4x4_matrices: Vec<DMatrix<f64>>,
-}
-
-impl GaussianPool {
-    fn get_vector(&mut self) -> DVector<f64> {
-        self.available_4d_vectors.pop()
-            .unwrap_or_else(|| DVector::zeros(4))
-    }
-
-    fn return_vector(&mut self, v: DVector<f64>) {
-        self.available_4d_vectors.push(v);
-    }
+fn process_timestep(arena: &Bump, ...) {
+    let temp = arena.alloc(DMatrix::zeros(n, m));
 }
 ```
 
 ---
 
-## Estimated Impact Summary
+### A3. Struct-of-Arrays (SoA) for Hypothesis - Expected: 1.5-2x cache efficiency
+**Rank: #17**
 
-| Optimization | Effort | Speedup | Priority |
-|-------------|--------|---------|----------|
-| Rayon parallelization | Medium | 2-8x | **HIGH** |
-| Clone reduction audit | Low | 1.2-2x | **HIGH** |
-| Pre-allocated workspaces | Low | 1.5-3x | **HIGH** |
-| SmallVec for GM components | Low | 1.5-3x | Medium |
-| Cholesky/inverse caching | Medium | 2-5x | Medium |
-| Struct-of-Arrays refactor | High | 3-10x | Medium |
-| SIMD for likelihoods | High | 2-4x | Low |
-| Arena allocation | Medium | 1.3-2x | Low |
-
-## Quick Wins (< 1 day of work)
-
-1. **Add `#[inline]` to hot functions** - Free performance
-2. **Enable LTO in release profile** - Add to Cargo.toml
-3. **Audit and remove unnecessary clones** - grep for `.clone()` patterns
-4. **Pre-allocate LBP workspace** - Biggest single-function impact
-
-```toml
-# Cargo.toml additions
-[profile.release]
-lto = "thin"
-codegen-units = 1
+```rust
+struct HypothesisBatch {
+    rs: Vec<f64>,              // Contiguous
+    mu_data: Vec<f64>,         // Flattened
+    sigma_data: Vec<f64>,      // Flattened
+    mu_offsets: Vec<usize>,
+    sigma_offsets: Vec<usize>,
+}
 ```
+
+---
+
+### A4. Flat Arrays vs Nested Vecs - Expected: 1.3-1.5x
+**Rank: #18**
+
+---
+
+### A5. SIMD for Likelihood Computation - Expected: 2-4x for math
+**Rank: #19**
+
+Enable nalgebra SIMD: `nalgebra = { features = ["simd-stable"] }`
+
+---
+
+### A6. Memoization of Association Patterns - Expected: 1.5-2x
+**Rank: #20**
+
+---
+
+### A7. Compile-Time Dimension Specialization - Expected: 1.2-1.5x
+**Rank: #21**
+
+---
+
+### A8. Object Pooling for DVector/DMatrix - Expected: 1.5-2x
+**Rank: #22**
+
+---
+
+### A9. Lazy Hypothesis Cloning (Copy-on-Write) - Expected: 1.3x
+**Rank: #23**
+
+---
+
+### A10. Measurement Gating Before Full Computation - Expected: 2-5x
+**Rank: #24**
+
+```rust
+let quick_distance = mahalanobis_quick(&z, &predicted_z, &sigma_diag);
+if quick_distance > gate_threshold {
+    return VERY_LOW_LIKELIHOOD;
+}
+```
+
+---
+
+## 5 OUTSIDE-THE-BOX STRATEGIES
+
+### OOB1. GPU Acceleration (CUDA/OpenCL) - Expected: 10-100x
+**Rank: #25**
+
+---
+
+### OOB2. Probabilistic Data Structure (Bloom Filter for Gating) - Expected: 2-3x
+**Rank: #26**
+
+---
+
+### OOB3. Algorithmic Approximation (Variational Inference) - Expected: 10-50x
+**Rank: #27**
+
+---
+
+### OOB4. JIT Compilation for Hot Loops (Cranelift) - Expected: 1.5-2x
+**Rank: #28**
+
+---
+
+### OOB5. Streaming/Incremental Algorithm - Expected: 5-20x
+**Rank: #29**
+
+---
+
+## COMPLETE RANKING TABLE
+
+| Rank | Strategy | Expected Speedup | Effort | Risk |
+|------|----------|------------------|--------|------|
+| **1** | Sparse/Lazy Likelihood | 50-100x | High | Medium |
+| **2** | Workspace Buffer Reuse | 5-10x alloc | Medium | Low |
+| **3** | robust_inverse In-Place | 3x in function | Low | Low |
+| **4** | Cache Cholesky Factor | 2x | Low | Low |
+| **5** | Q Matrix Cache | 2-3x clones | Low | Low |
+| **6** | Rayon Parallelization | 3-8x | Medium | Medium |
+| **7** | In-Place Matrix Ops | 1.5-2x | Medium | Medium |
+| **8** | SmallVec for Indices | 1.5-2x | Low | Low |
+| **9** | Vectorized Extraction | 1.5x | Low | Low |
+| **10** | Batched RNG | 1.3-1.5x | Low | Low |
+| 11 | Pre-computed Page Sizes | 1.2x | Low | Low |
+| 12 | LTO/Codegen | 1.1-1.3x | Trivial | None |
+| 13 | #[inline] | 1.05-1.1x | Trivial | None |
+| 14 | Cow<T> | 1.1x | Low | Low |
+| 15 | Custom Allocator | 1.2-1.5x | Trivial | Low |
+| 16 | Arena Allocation | 2-3x temps | Medium | Low |
+| 17 | SoA Layout | 1.5-2x cache | High | Medium |
+| 18 | Flat Arrays | 1.3-1.5x | Medium | Medium |
+| 19 | SIMD | 2-4x math | High | Medium |
+| 20 | Memoization | 1.5-2x | Medium | Low |
+| 21 | Const Generics | 1.2-1.5x | Medium | Low |
+| 22 | Object Pooling | 1.5-2x | Medium | Low |
+| 23 | Lazy Hypothesis | 1.3x | Medium | Medium |
+| 24 | Measurement Gating | 2-5x | Medium | Medium |
+| **25** | **GPU (OOB)** | **10-100x** | Very High | High |
+| 26 | Bloom Filter (OOB) | 2-3x | Medium | Medium |
+| **27** | **Variational (OOB)** | **10-50x** | Very High | High |
+| 28 | JIT Compilation (OOB) | 1.5-2x | Very High | High |
+| 29 | Streaming (OOB) | 5-20x | Very High | High |
+
+---
+
+## Critical Files
+
+| File | Lines | Priority |
+|------|-------|----------|
+| `src/multisensor_lmbm/association.rs` | 60-238 | **CRITICAL** |
+| `src/common/linalg.rs` | 199-334 | HIGH |
+| `src/multisensor_lmbm/gibbs.rs` | 104-165 | HIGH |
+| `src/multisensor_lmbm/hypothesis.rs` | 34-105 | MEDIUM |
+| `src/multisensor_lmbm/filter.rs` | 77-223 | MEDIUM |
+
+---
 
 ## Validation Strategy
 
-1. Run benchmarks before any change: `cargo bench -- --save-baseline before`
-2. Make optimization
-3. Run benchmarks after: `cargo bench -- --baseline before`
-4. Verify correctness with existing tests: `cargo test --release`
-5. Document speedup in commit message
+1. **Baseline**: `cargo bench` + `hotpath-alloc` profiling
+2. **After each change**:
+   - `cargo test --release` (all tests pass)
+   - Re-profile to measure improvement
+   - Verify MATLAB numerical equivalence
+3. **Memory**: Use `hotpath-alloc` feature for allocation tracking
 
 ---
 

@@ -67,3 +67,4 @@ Only after checking all these should you resort to execution tracing.
   - docs/03_optimisations/profiling_results.md gives profiling results over the various algorithms --> this should be updated over time as we make improvements, with a history of improvements kept in `docs/03_optimisations/changelog.md` this changelog should include any future changes we make.
   
 - if you come across code and notice any code that can be de-duplicated or should be turned into traits make not of it in ./docs/03_optimisations/todos.md
+- use hotpath when running benchmarks with the flag --features='hotpath,hotpath-alloc'

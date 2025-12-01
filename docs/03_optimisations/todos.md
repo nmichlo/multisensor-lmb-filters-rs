@@ -434,6 +434,60 @@ _(Items move here as they are completed)_
 
 ---
 
+---
+
+## Performance Optimization (Phase 16+)
+
+**Goal**: Optimize LMBM algorithm performance while maintaining MATLAB numerical equivalence.
+
+### Benchmark Results
+
+| Optimization | Time | Change | Cumulative Alloc | Notes |
+|--------------|------|--------|------------------|-------|
+| **Baseline** | 23.14s | - | 34.8 GB | 10.7M likelihood calls |
+| + LTO/Codegen | 23.17s | ~0% | 34.8 GB | Expected - bottleneck is algorithmic |
+| + Q Matrix Cache + #[inline] | 22.15s | -4.3% | 32.7 GB | Avoids 10.7M Q/C matrix clones |
+| + robust_inverse_with_log_det | 20.91s | -9.6% | 28.8 GB | Single Cholesky for inverse + log-det |
+| + Stack-allocated indices | **20.20s** | **-12.7%** | 29.7 GB | Avoids 21.4M Vec allocations |
+
+### Completed Optimizations
+
+- [x] **LTO/Codegen** (Cargo.toml): `lto = "thin"`, `codegen-units = 1`, `opt-level = 3`
+- [x] **Q Matrix Cache**: Pre-cache Q and C matrices per sensor at top of `generate_multisensor_lmbm_association_matrices()` (avoids 10.7M clones)
+- [x] **#[inline] annotations**: Added to `convert_from_linear_to_cartesian_inplace()` and `determine_log_likelihood_ratio()`
+- [x] **robust_inverse_with_log_det()**: Combined inverse + log-det computation in single Cholesky decomposition
+- [x] **Stack-allocated indices**: Replaced Vec allocations with `[usize; MAX_SENSORS]` in index conversion loop (avoids 21.4M heap allocations)
+
+### Pending Optimizations (Quick Wins)
+
+_(All quick wins completed)_
+
+### Future Optimizations (Higher Effort)
+
+- [ ] **Workspace buffer reuse** (Expected: 5-10x allocation reduction)
+  - Reuse allocated buffers across likelihood computations
+
+- [ ] **In-place matrix operations** (Expected: 1.5-2x)
+  - Replace temporaries with in-place GEMV operations
+
+- [ ] **Sparse/Lazy Likelihood** (Expected: 50-100x - major algorithmic change)
+  - Compute likelihoods on-demand during Gibbs sampling instead of upfront
+
+- [ ] **Rayon Parallelization** (Expected: 3-8x on multi-core)
+  - Parallelize likelihood computation across entries
+
+### Files Modified
+
+- `Cargo.toml`: Added release profile optimizations
+- `src/common/linalg.rs`: Added `robust_inverse_with_log_det()`
+- `src/multisensor_lmbm/association.rs`:
+  - Q/C matrix caching
+  - Combined inverse+log-det via `robust_inverse_with_log_det()`
+  - Stack-allocated index arrays (`MAX_SENSORS` constant, `convert_from_linear_to_cartesian_inplace()`)
+  - `#[inline]` annotations on hot functions
+
+---
+
 ## Validation Checklist
 
 After each phase:
