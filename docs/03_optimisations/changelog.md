@@ -412,3 +412,36 @@ cargo run --release --features rayon,mimalloc --example multi_sensor -- --filter
 ```
 
 **Rationale**: The likelihood computation loop iterates 10.7M times with no shared mutable state - each iteration computes values for a unique index. This is trivially parallelizable with rayon's `into_par_iter()`. The parallel version collects results and then unpacks them, avoiding any contention.
+
+---
+
+## 2025-12-01: Phase 19 - Workspace Buffer Reuse
+
+**Files**:
+- `src/multisensor_lmbm/workspace.rs` (NEW)
+- `src/multisensor_lmbm/mod.rs` (export)
+- `src/multisensor_lmbm/association.rs` (workspace integration)
+
+**Changes**:
+- Added `LmbmLikelihoodWorkspace` struct with pre-allocated buffers for likelihood computation
+- Created `determine_log_likelihood_ratio_with_workspace()` variant that reuses workspace buffers
+- Updated parallel `par_iter` to use `map_init()` for thread-local workspaces
+- Updated serial loop to also use workspace for consistency
+- Removed old non-workspace `determine_log_likelihood_ratio()` function
+
+**Impact**:
+- **Benchmark**: ~2.75s average (modest ~2% improvement from 2.81s)
+- Reduces per-call allocations for z, c, q, nu buffers
+- Thread-local workspaces via `map_init()` for parallel execution
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Workspace Buffers**:
+- `assignments: Vec<bool>` - sensor detection flags
+- `z: DVector<f64>` - stacked measurement vector
+- `c: DMatrix<f64>` - stacked observation matrix
+- `q: DMatrix<f64>` - block diagonal noise covariance
+- `nu: DVector<f64>` - innovation vector
+- `identity: DMatrix<f64>` - for Kalman update
+
+**Rationale**: Each likelihood computation allocated several vectors/matrices internally. By pre-allocating workspace buffers and reusing them across iterations, we reduce allocator pressure. The improvement is modest because the main allocation overhead is in matrix operation temporaries (nalgebra operator overloads), not the explicit buffer allocations. Further improvement would require in-place BLAS operations.
