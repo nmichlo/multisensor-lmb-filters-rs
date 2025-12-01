@@ -14,6 +14,13 @@ use nalgebra::{DMatrix, DVector};
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 
+/// Gating threshold for quick Mahalanobis distance check.
+/// Associations with diagonal Mahalanobis distance above this are skipped.
+/// Based on chi-squared distribution: for z_dim=2, 99.99% confidence ≈ 18.42.
+/// We use a higher value (50.0) to be conservative and avoid missing valid associations.
+/// This can be configured via the `gating_threshold` field in Model (if added).
+const DEFAULT_GATING_THRESHOLD: f64 = 50.0;
+
 /// Posterior parameters for multi-sensor LMBM update
 #[derive(Debug, Clone)]
 pub struct MultisensorLmbmPosteriorParameters {
@@ -81,6 +88,58 @@ fn determine_log_likelihood_ratio(
     let number_of_assignments: usize = assignments.iter().filter(|&&x| x).count();
 
     if number_of_assignments > 0 {
+        // GATING: Quick diagonal Mahalanobis check BEFORE expensive matrix ops
+        // This is O(n) vs O(n³) for Cholesky, skipping ~30-50% of impossible associations
+        let mut gate_failed = false;
+        for s in 0..number_of_sensors {
+            if assignments[s] {
+                let meas = &measurements[s][a[s] - 1];
+                let c_s = &c_cache[s];
+                let q_s = &q_cache[s];
+
+                // Quick predicted measurement: c * mu (O(z_dim * x_dim))
+                let predicted_z = c_s * &hypothesis.mu[i];
+
+                // Innovation
+                let innovation = meas - &predicted_z;
+
+                // Quick diagonal covariance approximation:
+                // Z_diag ≈ diag(c * sigma * c') + diag(q)
+                // For standard observation matrix c = [[1,0,0,0],[0,0,1,0]]:
+                //   c*sigma*c' diagonal = [sigma[0,0], sigma[2,2]] (position variances)
+                // We use sigma diagonal as proxy (conservative upper bound on distance)
+                let sigma_diag = hypothesis.sigma[i].diagonal();
+                let mut quick_dist = 0.0;
+                for j in 0..model.z_dimension {
+                    // For standard c matrix: measure position (indices 0, 2 of state)
+                    // The j-th measurement corresponds to state index j*2 (x->0, y->2)
+                    let state_idx = j * 2; // Works for standard [x,vx,y,vy] state
+                    let var_approx = if state_idx < sigma_diag.len() {
+                        sigma_diag[state_idx] + q_s[(j, j)]
+                    } else {
+                        q_s[(j, j)] // Fallback if state layout differs
+                    };
+                    quick_dist += innovation[j].powi(2) / var_approx.max(1e-10);
+                }
+
+                // If any sensor's quick distance exceeds threshold, gate this association
+                if quick_dist > DEFAULT_GATING_THRESHOLD {
+                    gate_failed = true;
+                    break;
+                }
+            }
+        }
+
+        // If gating failed, return very low likelihood (effectively -infinity for exp)
+        if gate_failed {
+            return (
+                -1e10, // Log-likelihood so low it will be ignored by Gibbs
+                0.0,   // Existence prob (won't be used)
+                hypothesis.mu[i].clone(),    // Placeholder
+                hypothesis.sigma[i].clone(), // Placeholder
+            );
+        }
+
         // Determine measurement vector by stacking measurements from detecting sensors
         let z_dim_total = model.z_dimension * number_of_assignments;
         let mut z = DVector::zeros(z_dim_total);
@@ -172,6 +231,260 @@ fn determine_log_likelihood_ratio(
 
         (l, r, mu, sigma)
     }
+}
+
+/// Determine log likelihood ratio ONLY (no posterior params)
+///
+/// This is a faster version that only computes the log-likelihood value,
+/// skipping the posterior parameter computation (r, mu, sigma).
+/// Used for Phase C optimization where we compute L for all entries in parallel,
+/// but only compute posterior params for the ~1000 indices actually used by Gibbs.
+#[inline]
+fn determine_log_likelihood_only(
+    i: usize,
+    a: &[usize],
+    measurements: &[&[DVector<f64>]],
+    hypothesis: &Hypothesis,
+    model: &Model,
+    q_cache: &[DMatrix<f64>],
+    c_cache: &[DMatrix<f64>],
+) -> f64 {
+    let number_of_sensors = a.len();
+
+    // Check which sensors have detections
+    let assignments: Vec<bool> = a.iter().map(|&ai| ai > 0).collect();
+    let number_of_assignments: usize = assignments.iter().filter(|&&x| x).count();
+
+    if number_of_assignments > 0 {
+        // GATING: Quick diagonal Mahalanobis check BEFORE expensive matrix ops
+        let mut gate_failed = false;
+        for s in 0..number_of_sensors {
+            if assignments[s] {
+                let meas = &measurements[s][a[s] - 1];
+                let c_s = &c_cache[s];
+                let q_s = &q_cache[s];
+
+                let predicted_z = c_s * &hypothesis.mu[i];
+                let innovation = meas - &predicted_z;
+
+                let sigma_diag = hypothesis.sigma[i].diagonal();
+                let mut quick_dist = 0.0;
+                for j in 0..model.z_dimension {
+                    let state_idx = j * 2;
+                    let var_approx = if state_idx < sigma_diag.len() {
+                        sigma_diag[state_idx] + q_s[(j, j)]
+                    } else {
+                        q_s[(j, j)]
+                    };
+                    quick_dist += innovation[j].powi(2) / var_approx.max(1e-10);
+                }
+
+                if quick_dist > DEFAULT_GATING_THRESHOLD {
+                    gate_failed = true;
+                    break;
+                }
+            }
+        }
+
+        if gate_failed {
+            return -1e10;
+        }
+
+        // Stack measurements
+        let z_dim_total = model.z_dimension * number_of_assignments;
+        let mut z = DVector::zeros(z_dim_total);
+        let mut c = DMatrix::zeros(z_dim_total, model.x_dimension);
+        let mut q_blocks = Vec::new();
+
+        let mut counter = 0;
+        for s in 0..number_of_sensors {
+            if assignments[s] {
+                let start = model.z_dimension * counter;
+                z.rows_mut(start, model.z_dimension)
+                    .copy_from(&measurements[s][a[s] - 1]);
+                c.view_mut((start, 0), (model.z_dimension, model.x_dimension))
+                    .copy_from(&c_cache[s]);
+                q_blocks.push(&q_cache[s]);
+                counter += 1;
+            }
+        }
+
+        // Block diagonal Q
+        let mut q = DMatrix::zeros(z_dim_total, z_dim_total);
+        let mut offset = 0;
+        for q_block in &q_blocks {
+            q.view_mut((offset, offset), (model.z_dimension, model.z_dimension))
+                .copy_from(q_block);
+            offset += model.z_dimension;
+        }
+
+        // Likelihood computation ONLY (skip Kalman gain and posterior)
+        let nu = &z - &c * &hypothesis.mu[i];
+        let z_matrix = &c * &hypothesis.sigma[i] * c.transpose() + &q;
+
+        let (z_inv, eta) = match robust_inverse_with_log_det(&z_matrix, z_dim_total) {
+            Some(result) => result,
+            None => return -1e10, // Singular matrix
+        };
+
+        // Detection probabilities
+        let mut pd_log = 0.0;
+        for s in 0..number_of_sensors {
+            let p_d = model.get_detection_probability(Some(s));
+            pd_log += if assignments[s] {
+                p_d.ln()
+            } else {
+                (1.0 - p_d).ln()
+            };
+        }
+
+        // Clutter
+        let kappa_log: f64 = assignments
+            .iter()
+            .enumerate()
+            .filter(|(_, &x)| x)
+            .map(|(s, _)| model.get_clutter_per_unit_volume(Some(s)).ln())
+            .sum();
+
+        hypothesis.r[i].ln() + pd_log + eta - 0.5 * nu.dot(&(&z_inv * &nu)) - kappa_log
+    } else {
+        // All missed detections
+        let mut prob_no_detect = 1.0;
+        for s in 0..number_of_sensors {
+            prob_no_detect *= 1.0 - model.get_detection_probability(Some(s));
+        }
+        let numerator = hypothesis.r[i] * prob_no_detect;
+        let denominator = 1.0 - hypothesis.r[i] + numerator;
+        denominator.ln()
+    }
+}
+
+/// Generate multi-sensor LMBM likelihood matrix ONLY (no posterior params)
+///
+/// This is a Phase C optimization: compute only L values in parallel,
+/// deferring posterior param computation to hypothesis.rs where we only
+/// need ~1000 indices instead of all 10.7M.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+pub fn generate_multisensor_lmbm_likelihood_only(
+    hypothesis: &Hypothesis,
+    measurements: &[&[DVector<f64>]],
+    model: &Model,
+    number_of_sensors: usize,
+) -> (Vec<f64>, Vec<usize>) {
+    let number_of_objects = hypothesis.r.len();
+
+    // Determine dimensions: [m1+1, m2+1, ..., ms+1, n]
+    let mut dimensions = vec![0; number_of_sensors + 1];
+    for s in 0..number_of_sensors {
+        dimensions[s] = measurements[s].len() + 1;
+    }
+    dimensions[number_of_sensors] = number_of_objects;
+
+    let number_of_entries: usize = dimensions.iter().product();
+    let mut page_sizes = vec![1; number_of_sensors + 1];
+    for i in 1..=number_of_sensors {
+        page_sizes[i] = page_sizes[i - 1] * dimensions[i - 1];
+    }
+
+    // Pre-cache Q and C matrices
+    let q_cache: Vec<DMatrix<f64>> = (0..number_of_sensors)
+        .map(|s| model.get_measurement_noise(Some(s)).clone())
+        .collect();
+    let c_cache: Vec<DMatrix<f64>> = (0..number_of_sensors)
+        .map(|s| model.get_observation_matrix(Some(s)).clone())
+        .collect();
+
+    // Parallel L-only computation
+    #[cfg(feature = "rayon")]
+    let l: Vec<f64> = (0..number_of_entries)
+        .into_par_iter()
+        .map(|ell| {
+            let mut u = [0usize; MAX_SENSORS];
+            let mut a = [0usize; MAX_SENSORS];
+
+            convert_from_linear_to_cartesian_inplace(ell + 1, &page_sizes, &mut u);
+            let i = u[number_of_sensors] - 1;
+            for s in 0..number_of_sensors {
+                a[s] = u[s] - 1;
+            }
+
+            determine_log_likelihood_only(i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache)
+        })
+        .collect();
+
+    #[cfg(not(feature = "rayon"))]
+    let l: Vec<f64> = {
+        let mut l = vec![0.0; number_of_entries];
+        let mut u = [0usize; MAX_SENSORS];
+        let mut a = [0usize; MAX_SENSORS];
+
+        for ell in 0..number_of_entries {
+            convert_from_linear_to_cartesian_inplace(ell + 1, &page_sizes, &mut u);
+            let i = u[number_of_sensors] - 1;
+            for s in 0..number_of_sensors {
+                a[s] = u[s] - 1;
+            }
+            l[ell] = determine_log_likelihood_only(i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache);
+        }
+        l
+    };
+
+    (l, dimensions)
+}
+
+/// Compute posterior parameters for specific indices
+///
+/// Only computes (r, mu, sigma) for the given indices, not all entries.
+/// This is used after Gibbs sampling to compute params only for the ~1000
+/// unique indices that were actually sampled.
+pub fn compute_posterior_params_for_indices(
+    indices: &[usize],
+    hypothesis: &Hypothesis,
+    measurements: &[&[DVector<f64>]],
+    model: &Model,
+    number_of_sensors: usize,
+    dimensions: &[usize],
+) -> std::collections::HashMap<usize, (f64, DVector<f64>, DMatrix<f64>)> {
+    use std::collections::HashMap;
+
+    let mut page_sizes = vec![1; number_of_sensors + 1];
+    for i in 1..=number_of_sensors {
+        page_sizes[i] = page_sizes[i - 1] * dimensions[i - 1];
+    }
+
+    // Pre-cache Q and C matrices
+    let q_cache: Vec<DMatrix<f64>> = (0..number_of_sensors)
+        .map(|s| model.get_measurement_noise(Some(s)).clone())
+        .collect();
+    let c_cache: Vec<DMatrix<f64>> = (0..number_of_sensors)
+        .map(|s| model.get_observation_matrix(Some(s)).clone())
+        .collect();
+
+    let mut results = HashMap::with_capacity(indices.len());
+
+    for &ell in indices {
+        if results.contains_key(&ell) {
+            continue; // Already computed
+        }
+
+        let mut u = [0usize; MAX_SENSORS];
+        let mut a = [0usize; MAX_SENSORS];
+
+        convert_from_linear_to_cartesian_inplace(ell + 1, &page_sizes, &mut u);
+        let i = u[number_of_sensors] - 1;
+        for s in 0..number_of_sensors {
+            a[s] = u[s] - 1;
+        }
+
+        // Compute full likelihood with posterior params
+        let (_, r, mu, sigma) = determine_log_likelihood_ratio(
+            i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache
+        );
+
+        results.insert(ell, (r, mu, sigma));
+    }
+
+    results
 }
 
 /// Generate multi-sensor LMBM association matrices

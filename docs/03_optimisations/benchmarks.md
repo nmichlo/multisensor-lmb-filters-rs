@@ -32,14 +32,17 @@ cargo run --release --example multi_sensor -- --seed 42 --filter-type LMBM --num
 | `4b1306f` | +lazy (REVERTED) | default | 4.99s | 4.92s | 4.91s | **4.92s** | -64.6% |
 | `4769c6b` | -buffer (lazy only, REVERTED) | default | 4.93s | 5.01s | 4.94s | **4.94s** | -64.5% |
 | (uncommitted) | +clone elimination | rayon,mimalloc | 2.77s | 2.73s | 2.77s | **2.77s** | -80.1% |
+| (uncommitted) | +Phase B: gating | rayon,mimalloc | 1.50s | 1.48s | 1.48s | **1.48s** | -89.4% |
+| (uncommitted) | +Phase C: deferred params | rayon,mimalloc | 1.37s | 1.39s | 1.38s | **1.38s** | -90.1% |
 
 ---
 
 ## Summary
 
-### Current Best: rayon+mimalloc+clone_elimination
-- **Time**: 2.77s
-- **Speedup**: 5x vs baseline
+### Current Best: rayon+mimalloc+Phase B+C
+- **Time**: 1.38s
+- **Speedup**: 10.1x vs baseline (13.90s)
+- **Speedup**: 2.0x vs rayon+mimalloc (2.77s)
 - **Command**: `cargo run --release --features rayon,mimalloc --example multi_sensor ...`
 
 ### Failed Optimizations
@@ -66,10 +69,25 @@ Baseline:           13.90s  █████████████████�
 +lto+cache+logdet:  12.20s  ███████████████████████████████████
 +mimalloc:           9.58s  ███████████████████████████
 +rayon:              2.79s  ████████
-+clone_elimination:  2.77s  ████████  <- CURRENT BEST
++clone_elimination:  2.77s  ████████
++Phase B (gating):   1.48s  ████
++Phase C (deferred): 1.38s  ████  <- CURRENT BEST
 +buffer:             2.76s  ████████  (reverted - negligible gain)
 +lazy:               4.94s  ██████████████  (reverted - slower than rayon)
 ```
+
+### Successful Optimizations (Phase B+C)
+
+#### 1. Measurement Gating (Phase B)
+- **Result**: 2.77s → 1.48s (1.87x improvement)
+- **How it works**: Quick diagonal Mahalanobis distance check before expensive Cholesky decomposition
+- **Threshold**: 50.0 (chi-squared, conservative to preserve equivalence)
+- **Lesson**: O(n) gating check before O(n³) Cholesky saves enormous compute
+
+#### 2. Deferred Posterior Params (Phase C)
+- **Result**: 1.48s → 1.38s (1.07x improvement)
+- **How it works**: Compute L for all 10.7M entries in parallel, but only compute (r, mu, sigma) for ~1000 unique indices actually used by Gibbs sampling
+- **Lesson**: Most savings came from gating; deferred params provide incremental benefit
 
 ---
 
