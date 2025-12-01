@@ -385,3 +385,30 @@ By caching matrices, combining the inverse+log-det computation, and using stack-
 2. **Access pattern tracing**: Before implementing lazy likelihood (a significant architectural change), instrumentation confirms the hypothesis that Gibbs sampling only accesses a small fraction of the precomputed likelihood matrix, validating the potential 10-100x improvement from on-demand computation.
 
 **Key Finding**: The 10.7M likelihood computations done upfront could potentially be reduced to ~500K-1.8M on-demand computations (5-17% of total), making lazy likelihood the highest-impact optimization remaining.
+
+---
+
+## 2025-12-01: Phase 18 - Rayon Parallelization
+
+**Files**:
+- `Cargo.toml` (new feature)
+- `src/multisensor_lmbm/association.rs` (parallel loop)
+
+**Changes**:
+- Added `rayon` feature with feature-gated parallel implementation
+- Parallelized the 10.7M iteration likelihood computation loop using `into_par_iter()`
+- Each iteration is independent (writes to unique index) - embarrassingly parallel
+
+**Impact**:
+- **Benchmark with rayon + mimalloc**: 9.32s → 2.81s (**3.3x faster**)
+- **Total improvement from baseline**: 23.14s → 2.81s (**8.2x faster**)
+- All tests pass with unchanged tolerances
+- MATLAB equivalence maintained
+
+**Usage**:
+```bash
+# Use all optimizations for best performance
+cargo run --release --features rayon,mimalloc --example multi_sensor -- --filter-type LMBM
+```
+
+**Rationale**: The likelihood computation loop iterates 10.7M times with no shared mutable state - each iteration computes values for a unique index. This is trivially parallelizable with rayon's `into_par_iter()`. The parallel version collects results and then unpacks them, avoiding any contention.

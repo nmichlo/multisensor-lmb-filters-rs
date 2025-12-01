@@ -449,7 +449,10 @@ _(Items move here as they are completed)_
 | + Q Matrix Cache + #[inline] | 22.15s | -4.3% | Avoids 10.7M Q/C matrix clones |
 | + robust_inverse_with_log_det | 20.91s | -9.6% | Single Cholesky for inverse + log-det |
 | + Stack-allocated indices | 20.20s | -12.7% | Avoids 21.4M Vec allocations |
-| **+ mimalloc allocator** | 11.88s → **9.32s** | **-21.5%** | Feature-gated custom allocator |
+| + mimalloc allocator | 11.88s → 9.32s | -21.5% | Feature-gated custom allocator |
+| **+ rayon parallelization** | 9.32s → **2.81s** | **3.3x faster** | Feature-gated parallel loop |
+
+**Total improvement: 23.14s → 2.81s (8.2x faster)**
 
 ### Access Pattern Analysis (gibbs-trace feature)
 
@@ -469,6 +472,7 @@ This validates that the 10.7M upfront likelihood computations could be reduced t
 - [x] **Stack-allocated indices**: Replaced Vec allocations with `[usize; MAX_SENSORS]` in index conversion loop (avoids 21.4M heap allocations)
 - [x] **mimalloc allocator**: Feature-gated custom allocator (21.5% speedup)
 - [x] **gibbs-trace instrumentation**: Access pattern tracing to validate lazy likelihood (5-17% access ratio confirmed)
+- [x] **rayon parallelization**: Feature-gated parallel loop (3.3x speedup)
 
 ### Pending Optimizations (Quick Wins)
 
@@ -495,7 +499,7 @@ _(All quick wins completed)_
 
 ### Files Modified
 
-- `Cargo.toml`: Added release profile optimizations, `mimalloc` and `gibbs-trace` features
+- `Cargo.toml`: Added release profile optimizations, `mimalloc`, `gibbs-trace`, and `rayon` features
 - `src/lib.rs`: Added feature-gated mimalloc global allocator
 - `src/common/linalg.rs`: Added `robust_inverse_with_log_det()`
 - `src/multisensor_lmbm/association.rs`:
@@ -503,6 +507,7 @@ _(All quick wins completed)_
   - Combined inverse+log-det via `robust_inverse_with_log_det()`
   - Stack-allocated index arrays (`MAX_SENSORS` constant, `convert_from_linear_to_cartesian_inplace()`)
   - `#[inline]` annotations on hot functions
+  - **Rayon parallel loop** (`into_par_iter()` with cfg feature gate)
 - `src/multisensor_lmbm/gibbs.rs`: Added access pattern tracing (gibbs-trace feature)
 - `src/multisensor_lmbm/filter.rs`: Integrated tracing hooks around Gibbs sampling
 - `src/multisensor_lmbm/mod.rs`: Exported tracing functions

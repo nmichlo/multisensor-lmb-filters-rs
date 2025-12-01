@@ -32,6 +32,9 @@ clap = { version = "4.5", features = ["derive"] }
 # Profiling (optional)
 hotpath = { version = "0.7", optional = true }
 
+# Parallelization (optional, for performance)
+rayon = { version = "1.10", optional = true }
+
 # Custom allocator (optional, for performance)
 mimalloc = { version = "0.1", default-features = false, optional = true }
 
@@ -44,6 +47,7 @@ criterion = "0.5"   # Benchmarking
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 mimalloc = ["dep:mimalloc"]
+rayon = ["dep:rayon"]
 gibbs-trace = []  # Enable Gibbs sampling access pattern tracing
 
 [[bench]]

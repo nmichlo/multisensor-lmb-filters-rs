@@ -11,6 +11,9 @@ use crate::common::linalg::robust_inverse_with_log_det;
 use crate::common::types::{Hypothesis, Model};
 use nalgebra::{DMatrix, DVector};
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
 /// Posterior parameters for multi-sensor LMBM update
 #[derive(Debug, Clone)]
 pub struct MultisensorLmbmPosteriorParameters {
@@ -220,35 +223,76 @@ pub fn generate_multisensor_lmbm_association_matrices(
         .map(|s| model.get_observation_matrix(Some(s)).clone())
         .collect();
 
-    // Preallocate flattened arrays
-    let mut l = vec![0.0; number_of_entries];
-    let mut r = vec![0.0; number_of_entries];
-    let mut mu = vec![DVector::zeros(0); number_of_entries];
-    let mut sigma = vec![DMatrix::zeros(0, 0); number_of_entries];
-
-    // Stack-allocated arrays for index conversion (avoid 10.7M heap allocations)
-    let mut u = [0usize; MAX_SENSORS];
-    let mut a = [0usize; MAX_SENSORS];
-
     // Populate likelihood matrix
-    for ell in 0..number_of_entries {
-        // Get association vector (convert expects 1-indexed input like MATLAB, so add 1)
-        convert_from_linear_to_cartesian_inplace(ell + 1, &page_sizes, &mut u);
-        // Convert to 0-indexed like MATLAB: a = u(1:end-1) - 1, i = u(end) - 1
-        let i = u[number_of_sensors] - 1; // Object index (0-indexed)
-        for s in 0..number_of_sensors {
-            a[s] = u[s] - 1; // Convert from 1-indexed to 0-indexed: 0=miss, 1=meas[0], 2=meas[1]
+    // Parallel version using rayon when feature is enabled
+    #[cfg(feature = "rayon")]
+    let (l, r, mu, sigma) = {
+        let results: Vec<_> = (0..number_of_entries)
+            .into_par_iter()
+            .map(|ell| {
+                // Stack-allocated arrays for index conversion (thread-local)
+                let mut u = [0usize; MAX_SENSORS];
+                let mut a = [0usize; MAX_SENSORS];
+
+                // Get association vector (convert expects 1-indexed input like MATLAB, so add 1)
+                convert_from_linear_to_cartesian_inplace(ell + 1, &page_sizes, &mut u);
+                // Convert to 0-indexed like MATLAB: a = u(1:end-1) - 1, i = u(end) - 1
+                let i = u[number_of_sensors] - 1; // Object index (0-indexed)
+                for s in 0..number_of_sensors {
+                    a[s] = u[s] - 1; // Convert from 1-indexed to 0-indexed: 0=miss, 1=meas[0], 2=meas[1]
+                }
+
+                // Determine log likelihood and posterior (uses cached matrices)
+                determine_log_likelihood_ratio(i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache)
+            })
+            .collect();
+
+        // Unpack results into separate vectors
+        let mut l = Vec::with_capacity(number_of_entries);
+        let mut r = Vec::with_capacity(number_of_entries);
+        let mut mu = Vec::with_capacity(number_of_entries);
+        let mut sigma = Vec::with_capacity(number_of_entries);
+        for (l_val, r_val, mu_val, sigma_val) in results {
+            l.push(l_val);
+            r.push(r_val);
+            mu.push(mu_val);
+            sigma.push(sigma_val);
         }
+        (l, r, mu, sigma)
+    };
 
-        // Determine log likelihood and posterior (uses cached matrices)
-        let (l_val, r_val, mu_val, sigma_val) =
-            determine_log_likelihood_ratio(i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache);
+    // Serial version when rayon is not enabled
+    #[cfg(not(feature = "rayon"))]
+    let (l, r, mu, sigma) = {
+        let mut l = vec![0.0; number_of_entries];
+        let mut r = vec![0.0; number_of_entries];
+        let mut mu = vec![DVector::zeros(0); number_of_entries];
+        let mut sigma = vec![DMatrix::zeros(0, 0); number_of_entries];
 
-        l[ell] = l_val;
-        r[ell] = r_val;
-        mu[ell] = mu_val;
-        sigma[ell] = sigma_val;
-    }
+        // Stack-allocated arrays for index conversion (avoid 10.7M heap allocations)
+        let mut u = [0usize; MAX_SENSORS];
+        let mut a = [0usize; MAX_SENSORS];
+
+        for ell in 0..number_of_entries {
+            // Get association vector (convert expects 1-indexed input like MATLAB, so add 1)
+            convert_from_linear_to_cartesian_inplace(ell + 1, &page_sizes, &mut u);
+            // Convert to 0-indexed like MATLAB: a = u(1:end-1) - 1, i = u(end) - 1
+            let i = u[number_of_sensors] - 1; // Object index (0-indexed)
+            for s in 0..number_of_sensors {
+                a[s] = u[s] - 1; // Convert from 1-indexed to 0-indexed: 0=miss, 1=meas[0], 2=meas[1]
+            }
+
+            // Determine log likelihood and posterior (uses cached matrices)
+            let (l_val, r_val, mu_val, sigma_val) =
+                determine_log_likelihood_ratio(i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache);
+
+            l[ell] = l_val;
+            r[ell] = r_val;
+            mu[ell] = mu_val;
+            sigma[ell] = sigma_val;
+        }
+        (l, r, mu, sigma)
+    };
 
     let posterior_parameters = MultisensorLmbmPosteriorParameters { r, mu, sigma };
 
