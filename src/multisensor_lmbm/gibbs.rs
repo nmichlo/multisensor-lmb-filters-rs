@@ -4,6 +4,7 @@
 //! Matches MATLAB multisensorLmbmGibbsSampling.m and generateMultisensorAssociationEvent.m exactly.
 
 use super::determine_linear_index;
+use super::lazy::LazyLikelihood;
 use nalgebra::DMatrix;
 use std::collections::HashSet;
 
@@ -53,8 +54,7 @@ fn record_access(idx: usize) {
 /// using Gibbs sampling on the high-dimensional likelihood matrix.
 ///
 /// # Arguments
-/// * `l` - Flattened likelihood matrix (see association.rs for structure)
-/// * `dimensions` - Dimensions [m1+1, m2+1, ..., ms+1, n]
+/// * `lazy` - Lazy likelihood computer (computes values on-demand)
 /// * `number_of_samples` - Number of Gibbs samples to generate
 ///
 /// # Returns
@@ -68,12 +68,12 @@ fn record_access(idx: usize) {
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn multisensor_lmbm_gibbs_sampling(
     rng: &mut impl crate::common::rng::Rng,
-    l: &[f64],
-    dimensions: &[usize],
+    lazy: &LazyLikelihood,
     number_of_samples: usize,
 ) -> DMatrix<usize> {
-    let number_of_sensors = dimensions.len() - 1;
-    let number_of_objects = dimensions[number_of_sensors];
+    let dimensions = lazy.dimensions();
+    let number_of_sensors = lazy.number_of_sensors();
+    let number_of_objects = lazy.number_of_objects();
 
     // m = dimensions[0..S] - 1
     let m: Vec<usize> = dimensions[0..number_of_sensors]
@@ -92,7 +92,7 @@ pub fn multisensor_lmbm_gibbs_sampling(
     // Gibbs sampling
     for _sample_idx in 0..number_of_samples {
         // Generate new Gibbs sample
-        generate_multisensor_association_event(rng, l, dimensions, &m, &mut v, &mut w);
+        generate_multisensor_association_event(rng, lazy, dimensions, &m, &mut v, &mut w);
 
         // Store sample (flatten V column-major to match MATLAB's reshape behavior)
         // MATLAB: reshape(V, 1, n * numberOfSensors) flattens column-major
@@ -127,7 +127,7 @@ pub fn multisensor_lmbm_gibbs_sampling(
 /// for each sensor sequentially.
 ///
 /// # Arguments
-/// * `l` - Flattened likelihood matrix
+/// * `lazy` - Lazy likelihood computer
 /// * `dimensions` - Dimensions [m1+1, m2+1, ..., ms+1, n]
 /// * `m` - Number of measurements per sensor [m1, m2, ..., ms]
 /// * `v` - Object-to-measurement association matrix (n x S), modified in-place
@@ -143,7 +143,7 @@ pub fn multisensor_lmbm_gibbs_sampling(
 ///          - Sample: if rand() < P, associate object i to measurement j
 fn generate_multisensor_association_event(
     rng: &mut impl crate::common::rng::Rng,
-    l: &[f64],
+    lazy: &LazyLikelihood,
     dimensions: &[usize],
     m: &[usize],
     v: &mut DMatrix<usize>,
@@ -190,7 +190,10 @@ fn generate_multisensor_association_event(
                     }
 
                     // P = 1 / (exp(L_miss - L_detect) + 1)
-                    let p = 1.0 / ((l[r_idx] - l[q_idx]).exp() + 1.0);
+                    // Use lazy likelihood - only computes values that are actually accessed
+                    let l_miss = lazy.get_l(r_idx);
+                    let l_detect = lazy.get_l(q_idx);
+                    let p = 1.0 / ((l_miss - l_detect).exp() + 1.0);
 
                     // Sample
                     let rand_val = rng.rand();
@@ -214,21 +217,57 @@ fn generate_multisensor_association_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::model::generate_model;
+    use crate::common::types::{DataAssociationMethod, Hypothesis, ScenarioType};
+    use nalgebra::DVector;
 
     #[test]
     fn test_multisensor_lmbm_gibbs_sampling() {
         use crate::common::rng::SimpleRng;
 
-        // Simple test with 2 sensors, 2 objects
-        // Dimensions: [2+1, 2+1, 2] = [3, 3, 2]
-        let dimensions = vec![3, 3, 2];
-        let total_size = 3 * 3 * 2;
+        let mut rng = SimpleRng::new(42);
+        let model = generate_model(
+            &mut rng,
+            10.0,
+            0.9,
+            DataAssociationMethod::Gibbs,
+            ScenarioType::Fixed,
+            None,
+        );
 
-        // Create simple likelihood matrix (all ones for simplicity)
-        let l = vec![0.0; total_size];
+        // Create a hypothesis with 2 objects
+        let hypothesis = Hypothesis {
+            birth_location: vec![0, 0],
+            birth_time: vec![0, 0],
+            w: 1.0,
+            r: vec![0.8, 0.7],
+            mu: vec![
+                DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
+                DVector::from_vec(vec![10.0, 10.0, 0.0, 0.0]),
+            ],
+            sigma: vec![
+                nalgebra::DMatrix::identity(4, 4) * 10.0,
+                nalgebra::DMatrix::identity(4, 4) * 10.0,
+            ],
+        };
+
+        // 2 sensors, 2 measurements each
+        let measurements = vec![
+            vec![
+                DVector::from_vec(vec![0.0, 0.0]),
+                DVector::from_vec(vec![1.0, 1.0]),
+            ],
+            vec![
+                DVector::from_vec(vec![2.0, 2.0]),
+                DVector::from_vec(vec![3.0, 3.0]),
+            ],
+        ];
+
+        // Create lazy likelihood
+        let lazy = LazyLikelihood::new(&hypothesis, &measurements, &model, 2);
 
         let mut rng = SimpleRng::new(42);
-        let samples = multisensor_lmbm_gibbs_sampling(&mut rng, &l, &dimensions, 10);
+        let samples = multisensor_lmbm_gibbs_sampling(&mut rng, &lazy, 10);
 
         // Should have at least 1 sample, at most 10
         assert!(samples.nrows() >= 1 && samples.nrows() <= 10);

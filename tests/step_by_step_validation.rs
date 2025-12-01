@@ -25,9 +25,10 @@ use prak::lmb::update::compute_posterior_lmb_spatial_distributions;
 use prak::lmbm::association::generate_lmbm_association_matrices;
 use prak::lmbm::hypothesis::{determine_posterior_hypothesis_parameters, lmbm_normalisation_and_gating, lmbm_state_extraction};
 use prak::lmbm::prediction::lmbm_prediction_step;
-use prak::multisensor_lmbm::association::{generate_multisensor_lmbm_association_matrices, MultisensorLmbmPosteriorParameters};
+use prak::multisensor_lmbm::association::generate_multisensor_lmbm_association_matrices;
 use prak::multisensor_lmbm::gibbs::multisensor_lmbm_gibbs_sampling;
 use prak::multisensor_lmbm::hypothesis::determine_multisensor_posterior_hypothesis_parameters;
+use prak::multisensor_lmbm::lazy::LazyLikelihood;
 
 use nalgebra::{DMatrix, DVector};
 
@@ -1892,30 +1893,20 @@ fn validate_multisensor_lmbm_association(fixture: &MultisensorLmbmFixture) {
 }
 
 fn validate_multisensor_lmbm_gibbs(fixture: &MultisensorLmbmFixture) {
-    // Use the L matrix from the fixture (don't regenerate it)
-    // Fixture L is stored as [m1+1][m2+1][n] in column-major order
-    // Flatten to 1D: for i in 0..m1+1: for j in 0..m2+1: for k in 0..n
-    let l_3d = &fixture.step3_gibbs.input.l;
-    let mut l_vector = Vec::new();
-    let dim1 = l_3d.len();  // m1+1
-    let dim2 = if dim1 > 0 { l_3d[0].len() } else { 0 };  // m2+1
-    let dim3 = if dim2 > 0 && dim1 > 0 { l_3d[0][0].len() } else { 0 };  // n
+    // Use LazyLikelihood to compute L values on-demand
+    let predicted_hypothesis = hypothesis_data_to_rust(&fixture.step1_prediction.output.predicted_hypothesis);
+    let model = multisensor_model_data_to_rust(&fixture.model, 0);
+    let measurements: Vec<Vec<DVector<f64>>> = fixture.measurements.iter()
+        .map(|sensor_meas| measurements_to_rust(sensor_meas))
+        .collect();
 
-    // Flatten in column-major order (MATLAB style)
-    for k in 0..dim3 {
-        for j in 0..dim2 {
-            for i in 0..dim1 {
-                l_vector.push(l_3d[i][j][k]);
-            }
-        }
-    }
-
-    let dimensions = vec![dim1, dim2, dim3];
+    // Create lazy likelihood computer
+    let lazy = LazyLikelihood::new(&predicted_hypothesis, &measurements, &model, fixture.number_of_sensors);
 
     let mut rng = SimpleRng::new(fixture.step3_gibbs.input.rng_seed);
     let num_samples = fixture.step3_gibbs.input.number_of_samples;
 
-    let actual_a = multisensor_lmbm_gibbs_sampling(&mut rng, &l_vector, &dimensions, num_samples);
+    let actual_a = multisensor_lmbm_gibbs_sampling(&mut rng, &lazy, num_samples);
 
     // Convert both actual and expected to Vec<Vec<f64>> for comparison
     let actual_a_vec: Vec<Vec<f64>> = (0..actual_a.nrows())
@@ -1937,33 +1928,8 @@ fn validate_multisensor_lmbm_hypothesis_parameters(fixture: &MultisensorLmbmFixt
         .map(|sensor_meas| measurements_to_rust(sensor_meas))
         .collect();
 
-    // Use the L matrix from the fixture (don't regenerate it)
-    // Fixture L is stored as [m1+1][m2+1][n] in column-major order
-    let l_3d = &fixture.step4_hypothesis.input.l;
-    let mut l_vector = Vec::new();
-    let dim1 = l_3d.len();  // m1+1
-    let dim2 = if dim1 > 0 { l_3d[0].len() } else { 0 };  // m2+1
-    let dim3 = if dim2 > 0 && dim1 > 0 { l_3d[0][0].len() } else { 0 };  // n
-
-    // Flatten in column-major order (MATLAB style)
-    for k in 0..dim3 {
-        for j in 0..dim2 {
-            for i in 0..dim1 {
-                l_vector.push(l_3d[i][j][k]);
-            }
-        }
-    }
-
-    let dimensions = vec![dim1, dim2, dim3];
-
-    // Regenerate association matrices to get posterior parameters
-    // (fixture doesn't save posteriorParameters for this step)
-    let (_, posterior_params, _) = generate_multisensor_lmbm_association_matrices(
-        &predicted_hypothesis,
-        &measurements,
-        &model,
-        fixture.number_of_sensors
-    );
+    // Create lazy likelihood computer (computes values on-demand)
+    let lazy = LazyLikelihood::new(&predicted_hypothesis, &measurements, &model, fixture.number_of_sensors);
 
     // Convert association events from Vec<Vec<usize>> to DMatrix<usize>
     let association_events = &fixture.step4_hypothesis.input.a;
@@ -1972,9 +1938,7 @@ fn validate_multisensor_lmbm_hypothesis_parameters(fixture: &MultisensorLmbmFixt
 
     let posterior_hypotheses = determine_multisensor_posterior_hypothesis_parameters(
         &a_matrix,
-        &l_vector,
-        &dimensions,
-        &posterior_params,
+        &lazy,
         &predicted_hypothesis
     );
 

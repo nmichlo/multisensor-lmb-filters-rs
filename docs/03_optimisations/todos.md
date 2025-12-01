@@ -449,10 +449,12 @@ _(Items move here as they are completed)_
 | + Q Matrix Cache + #[inline] | 22.15s | -4.3% | Avoids 10.7M Q/C matrix clones |
 | + robust_inverse_with_log_det | 20.91s | -9.6% | Single Cholesky for inverse + log-det |
 | + Stack-allocated indices | 20.20s | -12.7% | Avoids 21.4M Vec allocations |
-| + mimalloc allocator | 11.88s → 9.32s | -21.5% | Feature-gated custom allocator |
-| **+ rayon parallelization** | 9.32s → **2.81s** | **3.3x faster** | Feature-gated parallel loop |
+| **+ Lazy Likelihood** | 20.20s → **4.90s** | **4.1x faster** | On-demand computation, 96% reduction in calls |
+| + mimalloc allocator | 4.90s → **4.75s** | ~3% | Modest benefit with lazy (allocation reduced) |
 
-**Total improvement: 23.14s → 2.81s (8.2x faster)**
+**Total improvement: 23.14s → 4.75s (4.9x faster)**
+
+_Note: rayon parallelization (previously 2.81s) no longer applicable - lazy computation removes the precomputation loop._
 
 ### Access Pattern Analysis (gibbs-trace feature)
 
@@ -470,9 +472,10 @@ This validates that the 10.7M upfront likelihood computations could be reduced t
 - [x] **#[inline] annotations**: Added to `convert_from_linear_to_cartesian_inplace()` and `determine_log_likelihood_ratio()`
 - [x] **robust_inverse_with_log_det()**: Combined inverse + log-det computation in single Cholesky decomposition
 - [x] **Stack-allocated indices**: Replaced Vec allocations with `[usize; MAX_SENSORS]` in index conversion loop (avoids 21.4M heap allocations)
-- [x] **mimalloc allocator**: Feature-gated custom allocator (21.5% speedup)
+- [x] **mimalloc allocator**: Feature-gated custom allocator (modest benefit with lazy)
 - [x] **gibbs-trace instrumentation**: Access pattern tracing to validate lazy likelihood (5-17% access ratio confirmed)
-- [x] **rayon parallelization**: Feature-gated parallel loop (3.3x speedup)
+- [x] **rayon parallelization**: Feature-gated parallel loop (superseded by lazy likelihood)
+- [x] **Lazy Likelihood** (Phase 20): On-demand computation with memoization (**4.1x speedup**, 96% reduction in computations)
 
 ### Pending Optimizations (Quick Wins)
 
@@ -480,22 +483,21 @@ _(All quick wins completed)_
 
 ### Future Optimizations (Higher Effort)
 
-- [ ] **Lazy Likelihood** (Expected: 5-20x based on access analysis - **HIGHEST PRIORITY**)
-  - Compute likelihoods on-demand during Gibbs sampling instead of upfront
-  - Access pattern analysis shows only 5-17% of entries accessed
-  - Would reduce 10.7M computations to ~500K-1.8M
-  - Requires architectural change: closure-based or HashMap-cached approach
+- [x] **Lazy Likelihood** ✅ COMPLETE (Phase 20)
+  - Achieved **4.1x speedup** (20.20s → 4.90s)
+  - Reduced computations from 10.7M to 445K (96% reduction)
+  - Cache hit rate: 99.8%
 
-- [ ] **Rayon Parallelization** (Expected: 3-8x on multi-core)
-  - Parallelize likelihood computation across entries
-  - Can combine with lazy likelihood for maximum benefit
+- [x] **Rayon Parallelization** (superseded by lazy likelihood)
+  - Previously provided 3.3x speedup on eager computation
+  - No longer applicable - lazy removes the parallelizable loop
 
-- [ ] **Workspace buffer reuse** (Expected: modest improvement)
-  - Reuse allocated buffers across likelihood computations
-  - Less impactful now that mimalloc handles allocation overhead
+- [x] **Workspace buffer reuse** (Phase 19, modest benefit)
+  - Implemented but overshadowed by lazy likelihood gains
 
 - [ ] **In-place matrix operations** (Expected: 1.5-2x)
   - Replace temporaries with in-place GEMV operations
+  - Lower priority now that main bottleneck addressed
 
 ### Files Modified
 

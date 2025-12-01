@@ -8,48 +8,49 @@ Generated using hotpath with allocation tracking (`--features hotpath,hotpath-al
 
 | Algorithm | Time | Total Alloc | Bottleneck Function | Bottleneck % |
 |-----------|------|-------------|---------------------|--------------|
-| **LMBM** | **33.97s** | **954 MB** | `generate_multisensor_lmbm_association_matrices` | **88%** |
+| **LMBM** | **4.90s** | **954 MB** | `lazy::ensure_computed` (on-demand) | N/A |
 | IC | 0.12s | 230 MB | `compute_posterior_lmb_spatial_distributions_multisensor` | 16% |
 | PU | 0.03s | 118 MB | `loopy_belief_propagation` | 5% |
 | GA | 0.03s | 95 MB | `loopy_belief_propagation` | 10% |
 | AA | 0.30s | 756 MB | `compute_posterior_lmb_spatial_distributions_multisensor` | 12% |
 
-### Key Findings
+### Key Findings (After Phase 20 - Lazy Likelihood)
 
-1. **LMBM is 283x slower than PU/GA** - clearly the problematic algorithm
-2. **Memory allocation is massive** - LMBM allocates 954 MB total, with 32.8 GB cumulative in one function
-3. **Association matrix generation dominates** - `determine_log_likelihood_ratio` called **10.7 MILLION times** in LMBM
-4. **IC, PU, GA are all fast** - sub-second performance
+1. **LMBM now 4.9x faster** - 23.14s baseline → 4.90s with lazy likelihood
+2. **Likelihood computations reduced 96%** - 10.7M → 445K actual computations
+3. **Cache hit rate 99.8%** - 205M lookups, only 445K computed
+4. **IC, PU, GA remain fast** - sub-second performance
 
 ---
 
-## 1. LMBM (Multi-Sensor LMBM) - **WORST PERFORMER**
+## 1. LMBM (Multi-Sensor LMBM) - **OPTIMIZED (Phase 20)**
 
-**Execution time: 33.97s**
+**Execution time: 4.90s** (was 33.97s baseline, **4.9x faster**)
 **Total allocations: 954 MB**
 
-### Timing Breakdown
+### Timing Breakdown (After Lazy Likelihood)
 
-| Function | Calls | Avg | P95 | Total | % Total |
-|----------|-------|-----|-----|-------|---------|
-| `generate_multisensor_lmbm_association_matrices` | 991 | 12.33 ms | 33.65 ms | 12.22 s | **88.40%** |
-| `multisensor_lmbm_gibbs_sampling` | 991 | 1.28 ms | 1.87 ms | 1.27 s | **9.15%** |
-| `determine_multisensor_posterior_hypothesis_parameters` | 991 | 51.10 µs | 149.12 µs | 50.64 ms | **0.36%** |
-| `lmbm_prediction_step` | 991 | 1.75 µs | 3.46 µs | 1.74 ms | **0.01%** |
+| Function | Calls | Avg | Total | Notes |
+|----------|-------|-----|-------|-------|
+| `lazy::ensure_computed` | 205,295,746 | - | - | Cache lookups (99.8% hit rate) |
+| `lazy::compute_likelihood` | 445,370 | - | - | **96% reduction** from 10.7M |
+| `gibbs::multisensor_lmbm_gibbs_sampling` | 991 | ~2 MB | 1.9 GB | On-demand computation |
+| `hypothesis::determine_multisensor_posterior_hypothesis_parameters` | 991 | 235 KB | 227 MB | Reuses cached values |
 
-### Allocation Breakdown
+### Allocation Breakdown (After Lazy Likelihood)
 
 | Function | Calls | Avg | Total | % Total |
 |----------|-------|-----|-------|---------|
-| `generate_multisensor_lmbm_association_matrices` | 991 | 33.9 MB | **32.8 GB** | **3518%** ⚠️ |
-| `determine_log_likelihood_ratio` | **10,691,594** | 3.1 KB | **31.3 GB** | **3364%** ⚠️ |
-| `multisensor_lmbm_gibbs_sampling` | 991 | 1.1 MB | 1.1 GB | 116% |
-| `determine_multisensor_posterior_hypothesis_parameters` | 991 | 235 KB | 227 MB | 24% |
+| `lazy::ensure_computed` | 205,295,746 | 2.0 KB | 390.6 GB | Cumulative (cache lookups) |
+| `gibbs::multisensor_lmbm_gibbs_sampling` | 991 | 2.0 MB | 1.9 GB | 207% |
+| `lazy::compute_likelihood` | 445,370 | 1.7 KB | 733.7 MB | 77% |
+| `hypothesis::determine_multisensor_posterior_hypothesis_parameters` | 991 | 235 KB | 227.5 MB | 24% |
 
-**Critical Issues:**
-- ⚠️ **10.7 MILLION calls** to `determine_log_likelihood_ratio`
-- ⚠️ **32.8 GB cumulative allocations** in association matrix generation (3518% of total!)
-- ⚠️ Nested loops creating massive temporary allocations
+**Improvements from Phase 20 (Lazy Likelihood):**
+- ✅ **4.1x faster** (20.20s → 4.90s with default features)
+- ✅ **96% reduction** in likelihood computations (10.7M → 445K)
+- ✅ **99.8% cache hit rate** (205M lookups, 445K computed)
+- ✅ Removed 10.7M iteration precomputation loop
 
 ---
 
@@ -157,6 +158,6 @@ Generated using hotpath with allocation tracking (`--features hotpath,hotpath-al
 - **Platform**: darwin (macOS)
 - **Compiler**: rustc with `--release` optimizations
 - **Features**: `hotpath`, `hotpath-alloc`
-- **Date**: 2025-11-30
+- **Date**: 2025-12-01 (updated after Phase 20 - Lazy Likelihood)
 - **Model**: Multi-sensor with LBP data association
 - **Test scenario**: 3 sensors, 100 timesteps, 10 objects, seed 42

@@ -445,3 +445,54 @@ cargo run --release --features rayon,mimalloc --example multi_sensor -- --filter
 - `identity: DMatrix<f64>` - for Kalman update
 
 **Rationale**: Each likelihood computation allocated several vectors/matrices internally. By pre-allocating workspace buffers and reusing them across iterations, we reduce allocator pressure. The improvement is modest because the main allocation overhead is in matrix operation temporaries (nalgebra operator overloads), not the explicit buffer allocations. Further improvement would require in-place BLAS operations.
+
+---
+
+## 2025-12-01: Phase 20 - Lazy Likelihood Computation
+
+**Files**:
+- `src/multisensor_lmbm/lazy.rs` (NEW)
+- `src/multisensor_lmbm/gibbs.rs` (API change)
+- `src/multisensor_lmbm/hypothesis.rs` (API change)
+- `src/multisensor_lmbm/filter.rs` (integration)
+- `src/multisensor_lmbm/mod.rs` (exports)
+
+**Changes**:
+- Created `LazyLikelihood` struct with on-demand likelihood computation and HashMap-based memoization
+- Changed `multisensor_lmbm_gibbs_sampling()` to take `&LazyLikelihood` instead of precomputed `&[f64]`
+- Changed `determine_multisensor_posterior_hypothesis_parameters()` to take `&LazyLikelihood` instead of separate `l`, `dimensions`, `posterior_params`
+- Filter now creates `LazyLikelihood` instance and passes to both Gibbs sampling and hypothesis determination
+- Removed precomputation loop from filter (was 10.7M iterations)
+- `LazyLikelihood` caches computed values, so Gibbs and hypothesis phases share the cache
+
+**Impact**:
+- **Benchmark**: 20.20s → **4.90s** (**4.1x faster** with default features)
+- **Benchmark with mimalloc**: **4.75s** (**4.2x faster**)
+- Likelihood computations: 10.7M → **445K** (**96% reduction**)
+- Cache hit rate: **99.8%** (205M lookups, 445K actual computations)
+- rayon parallelization no longer applicable (no precomputation loop)
+- All 109 library tests pass
+- All step-by-step validation tests pass
+- MATLAB equivalence maintained
+
+**Key Metrics (3 sensors, 100 timesteps, seed 42)**:
+| Metric | Before (eager) | After (lazy) | Change |
+|--------|---------------|--------------|--------|
+| Time | 20.20s | 4.90s | **4.1x faster** |
+| Likelihood calls | 10.7M | 445K | **96% reduction** |
+| Cache hit rate | N/A | 99.8% | - |
+
+**API Changes**:
+```rust
+// Before (eager precomputation)
+let (l, posterior_params, dimensions) = generate_multisensor_lmbm_association_matrices(...);
+let a = multisensor_lmbm_gibbs_sampling(rng, &l, &dimensions, ...);
+let hypotheses = determine_multisensor_posterior_hypothesis_parameters(&a, &l, &dimensions, &posterior_params, ...);
+
+// After (lazy on-demand)
+let lazy = LazyLikelihood::new(&hypothesis, &measurements, &model, num_sensors);
+let a = multisensor_lmbm_gibbs_sampling(rng, &lazy, num_samples);
+let hypotheses = determine_multisensor_posterior_hypothesis_parameters(&a, &lazy, &prior);
+```
+
+**Rationale**: Access pattern analysis (Phase 17) showed Gibbs sampling only accesses 5-17% of likelihood entries. By computing values on-demand with memoization, we avoid 83-95% of computations. The `LazyLikelihood` struct uses `RefCell<HashMap>` for interior mutability, computing and caching values as they're accessed. Both Gibbs sampling and hypothesis determination share the same cache, maximizing reuse.

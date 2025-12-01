@@ -9,9 +9,9 @@
 use crate::common::types::{Model, Trajectory};
 use crate::lmbm::hypothesis::{lmbm_normalisation_and_gating, lmbm_state_extraction};
 use crate::lmbm::prediction::lmbm_prediction_step;
-use crate::multisensor_lmbm::association::generate_multisensor_lmbm_association_matrices;
 use crate::multisensor_lmbm::gibbs::multisensor_lmbm_gibbs_sampling;
 use crate::multisensor_lmbm::hypothesis::determine_multisensor_posterior_hypothesis_parameters;
+use crate::multisensor_lmbm::lazy::LazyLikelihood;
 use nalgebra::{DMatrix, DVector};
 
 /// State estimates output from multi-sensor LMBM filter
@@ -112,32 +112,31 @@ pub fn run_multisensor_lmbm_filter(
 
             // Measurement update
             if measurements_are_available {
-                // Generate association matrices and posterior parameters
-                let (l, posterior_parameters, dimensions) =
-                    generate_multisensor_lmbm_association_matrices(
-                        &prior_hypothesis,
-                        &measurements_t,
-                        model,
-                        number_of_sensors,
-                    );
+                // Create lazy likelihood computer (computes values on-demand)
+                let lazy = LazyLikelihood::new(
+                    &prior_hypothesis,
+                    &measurements_t,
+                    model,
+                    number_of_sensors,
+                );
 
                 // Reset access tracing before Gibbs sampling
                 #[cfg(feature = "gibbs-trace")]
-                super::reset_access_trace(l.len());
+                super::reset_access_trace(lazy.number_of_entries());
 
                 // Generate posterior hypotheses using Gibbs sampling
-                let a = multisensor_lmbm_gibbs_sampling(rng, &l, &dimensions, model.number_of_samples);
+                // Lazy likelihood only computes the entries that are actually accessed
+                let a = multisensor_lmbm_gibbs_sampling(rng, &lazy, model.number_of_samples);
 
                 // Report access patterns after Gibbs sampling
                 #[cfg(feature = "gibbs-trace")]
                 super::print_access_report();
 
                 // Determine each posterior hypothesis' parameters
+                // Shares the same lazy cache as Gibbs sampling, so most values are cached
                 let new_hypotheses = determine_multisensor_posterior_hypothesis_parameters(
                     &a,
-                    &l,
-                    &dimensions,
-                    &posterior_parameters,
+                    &lazy,
                     &prior_hypothesis,
                 );
 
