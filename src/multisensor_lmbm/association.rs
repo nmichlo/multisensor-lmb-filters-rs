@@ -83,9 +83,15 @@ fn determine_log_likelihood_ratio(
 ) -> (f64, f64, DVector<f64>, DMatrix<f64>) {
     let number_of_sensors = a.len();
 
-    // Check which sensors have detections
-    let assignments: Vec<bool> = a.iter().map(|&ai| ai > 0).collect();
-    let number_of_assignments: usize = assignments.iter().filter(|&&x| x).count();
+    // Check which sensors have detections (stack-allocated)
+    let mut assignments = [false; MAX_SENSORS];
+    let mut number_of_assignments = 0usize;
+    for s in 0..number_of_sensors {
+        if a[s] > 0 {
+            assignments[s] = true;
+            number_of_assignments += 1;
+        }
+    }
 
     if number_of_assignments > 0 {
         // GATING: Quick diagonal Mahalanobis check BEFORE expensive matrix ops
@@ -144,7 +150,8 @@ fn determine_log_likelihood_ratio(
         let z_dim_total = model.z_dimension * number_of_assignments;
         let mut z = DVector::zeros(z_dim_total);
         let mut c = DMatrix::zeros(z_dim_total, model.x_dimension);
-        let mut q_blocks = Vec::new();
+        let mut q_block_indices = [0usize; MAX_SENSORS];
+        let mut num_q_blocks = 0usize;
 
         // Stack measurements from detecting sensors using cached matrices
         let mut counter = 0;
@@ -160,8 +167,9 @@ fn determine_log_likelihood_ratio(
                 c.view_mut((start, 0), (model.z_dimension, model.x_dimension))
                     .copy_from(&c_cache[s]);
 
-                // Use Q matrix from cache (avoids clone per call)
-                q_blocks.push(&q_cache[s]);
+                // Store index for Q matrix (stack-allocated)
+                q_block_indices[num_q_blocks] = s;
+                num_q_blocks += 1;
 
                 counter += 1;
             }
@@ -170,9 +178,10 @@ fn determine_log_likelihood_ratio(
         // Block diagonal Q
         let mut q = DMatrix::zeros(z_dim_total, z_dim_total);
         let mut offset = 0;
-        for q_block in &q_blocks {
+        for idx in 0..num_q_blocks {
+            let s = q_block_indices[idx];
             q.view_mut((offset, offset), (model.z_dimension, model.z_dimension))
-                .copy_from(q_block);
+                .copy_from(&q_cache[s]);
             offset += model.z_dimension;
         }
 
@@ -181,7 +190,7 @@ fn determine_log_likelihood_ratio(
         let z_matrix = &c * &hypothesis.sigma[i] * c.transpose() + &q;
 
         // Use combined inverse + log-det (avoids computing Cholesky twice)
-        let (z_inv, eta) = robust_inverse_with_log_det(&z_matrix, z_dim_total)
+        let (z_inv, eta) = robust_inverse_with_log_det(z_matrix, z_dim_total)
             .expect("z_matrix should be invertible");
 
         let k = &hypothesis.sigma[i] * c.transpose() * &z_inv;
@@ -197,13 +206,13 @@ fn determine_log_likelihood_ratio(
             };
         }
 
-        // Clutter per unit volume using accessor
-        let kappa_log: f64 = assignments
-            .iter()
-            .enumerate()
-            .filter(|(_, &x)| x)
-            .map(|(s, _)| model.get_clutter_per_unit_volume(Some(s)).ln())
-            .sum();
+        // Clutter per unit volume using accessor (only iterate valid sensors)
+        let mut kappa_log = 0.0;
+        for s in 0..number_of_sensors {
+            if assignments[s] {
+                kappa_log += model.get_clutter_per_unit_volume(Some(s)).ln();
+            }
+        }
 
         let l = hypothesis.r[i].ln() + pd_log + eta - 0.5 * nu.dot(&(&z_inv * &nu)) - kappa_log;
 
@@ -251,9 +260,15 @@ fn determine_log_likelihood_only(
 ) -> f64 {
     let number_of_sensors = a.len();
 
-    // Check which sensors have detections
-    let assignments: Vec<bool> = a.iter().map(|&ai| ai > 0).collect();
-    let number_of_assignments: usize = assignments.iter().filter(|&&x| x).count();
+    // Check which sensors have detections (stack-allocated)
+    let mut assignments = [false; MAX_SENSORS];
+    let mut number_of_assignments = 0usize;
+    for s in 0..number_of_sensors {
+        if a[s] > 0 {
+            assignments[s] = true;
+            number_of_assignments += 1;
+        }
+    }
 
     if number_of_assignments > 0 {
         // GATING: Quick diagonal Mahalanobis check BEFORE expensive matrix ops
@@ -290,11 +305,12 @@ fn determine_log_likelihood_only(
             return -1e10;
         }
 
-        // Stack measurements
+        // Stack measurements (q_block_indices is stack-allocated)
         let z_dim_total = model.z_dimension * number_of_assignments;
         let mut z = DVector::zeros(z_dim_total);
         let mut c = DMatrix::zeros(z_dim_total, model.x_dimension);
-        let mut q_blocks = Vec::new();
+        let mut q_block_indices = [0usize; MAX_SENSORS];
+        let mut num_q_blocks = 0usize;
 
         let mut counter = 0;
         for s in 0..number_of_sensors {
@@ -304,7 +320,8 @@ fn determine_log_likelihood_only(
                     .copy_from(&measurements[s][a[s] - 1]);
                 c.view_mut((start, 0), (model.z_dimension, model.x_dimension))
                     .copy_from(&c_cache[s]);
-                q_blocks.push(&q_cache[s]);
+                q_block_indices[num_q_blocks] = s;
+                num_q_blocks += 1;
                 counter += 1;
             }
         }
@@ -312,9 +329,10 @@ fn determine_log_likelihood_only(
         // Block diagonal Q
         let mut q = DMatrix::zeros(z_dim_total, z_dim_total);
         let mut offset = 0;
-        for q_block in &q_blocks {
+        for idx in 0..num_q_blocks {
+            let s = q_block_indices[idx];
             q.view_mut((offset, offset), (model.z_dimension, model.z_dimension))
-                .copy_from(q_block);
+                .copy_from(&q_cache[s]);
             offset += model.z_dimension;
         }
 
@@ -322,7 +340,7 @@ fn determine_log_likelihood_only(
         let nu = &z - &c * &hypothesis.mu[i];
         let z_matrix = &c * &hypothesis.sigma[i] * c.transpose() + &q;
 
-        let (z_inv, eta) = match robust_inverse_with_log_det(&z_matrix, z_dim_total) {
+        let (z_inv, eta) = match robust_inverse_with_log_det(z_matrix, z_dim_total) {
             Some(result) => result,
             None => return -1e10, // Singular matrix
         };
@@ -338,13 +356,13 @@ fn determine_log_likelihood_only(
             };
         }
 
-        // Clutter
-        let kappa_log: f64 = assignments
-            .iter()
-            .enumerate()
-            .filter(|(_, &x)| x)
-            .map(|(s, _)| model.get_clutter_per_unit_volume(Some(s)).ln())
-            .sum();
+        // Clutter (only iterate valid sensors)
+        let mut kappa_log = 0.0;
+        for s in 0..number_of_sensors {
+            if assignments[s] {
+                kappa_log += model.get_clutter_per_unit_volume(Some(s)).ln();
+            }
+        }
 
         hypothesis.r[i].ln() + pd_log + eta - 0.5 * nu.dot(&(&z_inv * &nu)) - kappa_log
     } else {

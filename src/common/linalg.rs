@@ -229,12 +229,15 @@ pub fn robust_inverse(matrix: &DMatrix<f64>) -> Option<DMatrix<f64>> {
 /// # Returns
 /// Some((inverse, log_normalizing_constant)) if any method succeeds, None if all fail
 /// The log_normalizing_constant is -0.5 * (n*ln(2π) + ln|det(matrix)|)
+///
+/// Note: Takes ownership to avoid cloning. Callers should pass the matrix by value.
 #[inline]
-pub fn robust_inverse_with_log_det(matrix: &DMatrix<f64>, dimension: usize) -> Option<(DMatrix<f64>, f64)> {
+pub fn robust_inverse_with_log_det(matrix: DMatrix<f64>, dimension: usize) -> Option<(DMatrix<f64>, f64)> {
     let n = dimension as f64;
     let log_2pi = (2.0 * PI).ln();
 
     // Try Cholesky first (fastest for positive definite)
+    // Clone only needed for fallback paths
     if let Some(chol) = matrix.clone().cholesky() {
         let inv = chol.inverse();
         // log(det(Z)) = 2 * sum(log(diag(L))) where Z = L*L'
@@ -251,7 +254,7 @@ pub fn robust_inverse_with_log_det(matrix: &DMatrix<f64>, dimension: usize) -> O
     }
 
     // Last resort: SVD pseudo-inverse
-    let svd = matrix.clone().svd(true, true);
+    let svd = matrix.svd(true, true);
     // Compute log-det from singular values before consuming svd
     let log_det = svd.singular_values.iter()
         .filter(|&&s| s > SVD_TOLERANCE)
