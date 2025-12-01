@@ -442,28 +442,30 @@ _(Items move here as they are completed)_
 
 ### Benchmark Results (LMBM Filter)
 
+See `docs/03_optimisations/benchmarks.md` for full methodology and raw data.
+
 | Optimization | Time | Change | Notes |
 |--------------|------|--------|-------|
-| **Baseline** | 23.14s | - | 10.7M likelihood calls |
-| + LTO/Codegen | 23.17s | ~0% | Expected - bottleneck is algorithmic |
-| + Q Matrix Cache + #[inline] | 22.15s | -4.3% | Avoids 10.7M Q/C matrix clones |
-| + robust_inverse_with_log_det | 20.91s | -9.6% | Single Cholesky for inverse + log-det |
-| + Stack-allocated indices | 20.20s | -12.7% | Avoids 21.4M Vec allocations |
-| **+ Lazy Likelihood** | 20.20s → **4.90s** | **4.1x faster** | On-demand computation, 96% reduction in calls |
-| + mimalloc allocator | 4.90s → **4.75s** | ~3% | Modest benefit with lazy (allocation reduced) |
+| **Baseline** | 13.90s | - | 10.7M likelihood calls |
+| + LTO/Codegen/Cache/Stack | 12.20s | -12.2% | Various micro-optimizations |
+| + mimalloc allocator | 9.58s | -31.1% | Feature-gated custom allocator |
+| **+ rayon parallelization** | **2.79s** | **-79.9%** | **CURRENT BEST** |
+| + buffer (REVERTED) | 2.76s | -80.1% | Negligible gain, added complexity |
+| + lazy (REVERTED) | 4.94s | -64.5% | Slower than rayon parallel |
 
-**Total improvement: 23.14s → 4.75s (4.9x faster)**
+**Total improvement: 13.90s → 2.79s (5x faster)**
 
-_Note: rayon parallelization (previously 2.81s) no longer applicable - lazy computation removes the precomputation loop._
+### Failed Optimizations (REVERTED)
 
-### Access Pattern Analysis (gibbs-trace feature)
+#### Lazy Likelihood - FAILED
+- **Result**: 4.94s (slower than rayon's 2.79s)
+- **Why**: While it reduced likelihood calls from 10.7M to ~445K (96%), the serial nature couldn't compete with parallel eager computation. HashMap overhead and RefCell borrow checking added latency.
+- **Lesson**: Parallelization beats avoiding computation when work is embarrassingly parallel.
 
-Access pattern instrumentation confirms lazy likelihood viability:
-- **Typical access ratio**: 5-17% of total entries
-- **Larger matrices**: as low as 3-6% access
-- **Potential savings**: 83-95% of likelihood computations
-
-This validates that the 10.7M upfront likelihood computations could be reduced to ~500K-1.8M on-demand computations.
+#### Workspace Buffer Reuse - FAILED
+- **Result**: 2.76s (only 1% improvement)
+- **Why**: mimalloc already handles allocation efficiently. Most overhead is in nalgebra temporaries, not explicit buffers.
+- **Lesson**: Don't optimize allocations that aren't the bottleneck.
 
 ### Completed Optimizations
 
@@ -472,10 +474,9 @@ This validates that the 10.7M upfront likelihood computations could be reduced t
 - [x] **#[inline] annotations**: Added to `convert_from_linear_to_cartesian_inplace()` and `determine_log_likelihood_ratio()`
 - [x] **robust_inverse_with_log_det()**: Combined inverse + log-det computation in single Cholesky decomposition
 - [x] **Stack-allocated indices**: Replaced Vec allocations with `[usize; MAX_SENSORS]` in index conversion loop (avoids 21.4M heap allocations)
-- [x] **mimalloc allocator**: Feature-gated custom allocator (modest benefit with lazy)
+- [x] **mimalloc allocator**: Feature-gated custom allocator (21.5% speedup)
 - [x] **gibbs-trace instrumentation**: Access pattern tracing to validate lazy likelihood (5-17% access ratio confirmed)
-- [x] **rayon parallelization**: Feature-gated parallel loop (superseded by lazy likelihood)
-- [x] **Lazy Likelihood** (Phase 20): On-demand computation with memoization (**4.1x speedup**, 96% reduction in computations)
+- [x] **rayon parallelization**: Feature-gated parallel loop (3.3x speedup)
 
 ### Pending Optimizations (Quick Wins)
 
@@ -483,21 +484,22 @@ _(All quick wins completed)_
 
 ### Future Optimizations (Higher Effort)
 
-- [x] **Lazy Likelihood** ✅ COMPLETE (Phase 20)
-  - Achieved **4.1x speedup** (20.20s → 4.90s)
-  - Reduced computations from 10.7M to 445K (96% reduction)
-  - Cache hit rate: 99.8%
+- [x] **Rayon Parallelization** ✅ IMPLEMENTED
+  - Achieved **5x speedup** (13.90s → 2.79s)
+  - Feature-gated: `--features rayon,mimalloc`
 
-- [x] **Rayon Parallelization** (superseded by lazy likelihood)
-  - Previously provided 3.3x speedup on eager computation
-  - No longer applicable - lazy removes the parallelizable loop
+- [x] ~~**Lazy Likelihood**~~ ❌ FAILED & REVERTED
+  - Achieved 4.94s but **slower than rayon's 2.79s**
+  - Serial computation couldn't compete with parallel eager
+  - HashMap/RefCell overhead added latency
 
-- [x] **Workspace buffer reuse** (Phase 19, modest benefit)
-  - Implemented but overshadowed by lazy likelihood gains
+- [x] ~~**Workspace buffer reuse**~~ ❌ FAILED & REVERTED
+  - Only 1% improvement (2.79s → 2.76s)
+  - Not worth added code complexity
 
-- [ ] **In-place matrix operations** (Expected: 1.5-2x)
+- [ ] **In-place matrix operations** (Expected: 1.5-2x, LOW PRIORITY)
   - Replace temporaries with in-place GEMV operations
-  - Lower priority now that main bottleneck addressed
+  - Would help if rayon isn't available
 
 ### Files Modified
 

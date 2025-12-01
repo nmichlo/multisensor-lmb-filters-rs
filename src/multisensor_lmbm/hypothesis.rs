@@ -4,8 +4,8 @@
 //! Matches MATLAB determineMultisensorPosteriorHypothesisParameters.m exactly.
 
 use super::determine_linear_index;
-use super::lazy::LazyLikelihood;
 use crate::common::types::Hypothesis;
+use crate::multisensor_lmbm::association::MultisensorLmbmPosteriorParameters;
 use nalgebra::{DMatrix, DVector};
 
 /// Determine parameters for a new set of posterior LMBM hypotheses
@@ -15,7 +15,9 @@ use nalgebra::{DMatrix, DVector};
 ///
 /// # Arguments
 /// * `a` - Association events matrix (rows = events, cols = flattened n*S associations)
-/// * `lazy` - Lazy likelihood computer (computes values on-demand)
+/// * `l` - Flattened log likelihood matrix
+/// * `dimensions` - Dimensions [m1+1, m2+1, ..., ms+1, n]
+/// * `posterior_parameters` - Posterior parameters from association step
 /// * `prior_hypothesis` - Prior LMBM hypothesis
 ///
 /// # Returns
@@ -31,12 +33,13 @@ use nalgebra::{DMatrix, DVector};
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn determine_multisensor_posterior_hypothesis_parameters(
     a: &DMatrix<usize>,
-    lazy: &LazyLikelihood,
+    l: &[f64],
+    dimensions: &[usize],
+    posterior_parameters: &MultisensorLmbmPosteriorParameters,
     prior_hypothesis: &Hypothesis,
 ) -> Vec<Hypothesis> {
-    let dimensions = lazy.dimensions();
-    let number_of_sensors = lazy.number_of_sensors();
-    let number_of_objects = lazy.number_of_objects();
+    let number_of_sensors = dimensions.len() - 1;
+    let number_of_objects = dimensions[number_of_sensors];
     let number_of_posterior_hypotheses = a.nrows();
 
     // Initialize output
@@ -73,20 +76,18 @@ pub fn determine_multisensor_posterior_hypothesis_parameters(
         }
 
         // Compute hypothesis weight: log(prior.w) + sum(L(ell))
-        // Use lazy likelihood - only computes values that are actually accessed
-        let log_weight_sum: f64 = ell_indices.iter().map(|&idx| lazy.get_l(idx)).sum();
+        let log_weight_sum: f64 = ell_indices.iter().map(|&idx| l[idx]).sum();
         let hypothesis_weight = prior_hypothesis.w.ln() + log_weight_sum;
 
         // Extract posterior parameters using linear indices
-        // These are also computed lazily and cached
-        let r: Vec<f64> = ell_indices.iter().map(|&idx| lazy.get_r(idx)).collect();
+        let r: Vec<f64> = ell_indices.iter().map(|&idx| posterior_parameters.r[idx]).collect();
         let mu: Vec<DVector<f64>> = ell_indices
             .iter()
-            .map(|&idx| lazy.get_mu(idx))
+            .map(|&idx| posterior_parameters.mu[idx].clone())
             .collect();
         let sigma: Vec<DMatrix<f64>> = ell_indices
             .iter()
-            .map(|&idx| lazy.get_sigma(idx))
+            .map(|&idx| posterior_parameters.sigma[idx].clone())
             .collect();
 
         // Create posterior hypothesis
@@ -106,62 +107,48 @@ pub fn determine_multisensor_posterior_hypothesis_parameters(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::model::generate_model;
-    use crate::common::types::{DataAssociationMethod, Hypothesis, ScenarioType};
+    use crate::common::types::Hypothesis;
 
     #[test]
     fn test_determine_multisensor_posterior_hypothesis_parameters() {
-        use crate::common::rng::SimpleRng;
+        // Simple test with 2 sensors, 2 objects
+        // Dimensions: [2+1, 2+1, 2] = [3, 3, 2]
+        let dimensions = vec![3, 3, 2];
+        let total_size = 3 * 3 * 2;
 
-        let mut rng = SimpleRng::new(42);
-        let model = generate_model(
-            &mut rng,
-            10.0,
-            0.9,
-            DataAssociationMethod::Gibbs,
-            ScenarioType::Fixed,
-            None,
-        );
+        // Create association matrix: 1 event, 2 objects * 2 sensors = 4 entries
+        // Event: all misses (0-indexed)
+        let mut a = DMatrix::zeros(1, 4);
 
-        // Create a hypothesis with 2 objects
-        let hypothesis = Hypothesis {
+        // Create simple likelihood matrix
+        let l = vec![0.0; total_size];
+
+        // Create simple posterior parameters
+        let posterior_parameters = MultisensorLmbmPosteriorParameters {
+            r: vec![0.5; total_size],
+            mu: vec![DVector::from_vec(vec![0.0, 0.0]); total_size],
+            sigma: vec![DMatrix::identity(2, 2); total_size],
+        };
+
+        // Create prior hypothesis
+        let prior_hypothesis = Hypothesis {
             birth_location: vec![0, 1],
             birth_time: vec![1, 1],
             w: 1.0,
             r: vec![0.5, 0.5],
             mu: vec![
-                DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
-                DVector::from_vec(vec![1.0, 1.0, 0.0, 0.0]),
-            ],
-            sigma: vec![
-                DMatrix::identity(4, 4) * 10.0,
-                DMatrix::identity(4, 4) * 10.0,
-            ],
-        };
-
-        // 2 sensors, 2 measurements each
-        let measurements = vec![
-            vec![
                 DVector::from_vec(vec![0.0, 0.0]),
                 DVector::from_vec(vec![1.0, 1.0]),
             ],
-            vec![
-                DVector::from_vec(vec![2.0, 2.0]),
-                DVector::from_vec(vec![3.0, 3.0]),
-            ],
-        ];
-
-        // Create lazy likelihood
-        let lazy = LazyLikelihood::new(&hypothesis, &measurements, &model, 2);
-
-        // Create association matrix: 1 event, 2 objects * 2 sensors = 4 entries
-        // Event: all misses (0-indexed)
-        let a = DMatrix::zeros(1, 4);
+            sigma: vec![DMatrix::identity(2, 2), DMatrix::identity(2, 2)],
+        };
 
         let posterior = determine_multisensor_posterior_hypothesis_parameters(
             &a,
-            &lazy,
-            &hypothesis,
+            &l,
+            &dimensions,
+            &posterior_parameters,
+            &prior_hypothesis,
         );
 
         assert_eq!(posterior.len(), 1);

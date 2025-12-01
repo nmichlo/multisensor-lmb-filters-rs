@@ -415,84 +415,58 @@ cargo run --release --features rayon,mimalloc --example multi_sensor -- --filter
 
 ---
 
-## 2025-12-01: Phase 19 - Workspace Buffer Reuse
+## 2025-12-01: Phase 19 - Workspace Buffer Reuse (REVERTED)
 
-**Files**:
-- `src/multisensor_lmbm/workspace.rs` (NEW)
-- `src/multisensor_lmbm/mod.rs` (export)
-- `src/multisensor_lmbm/association.rs` (workspace integration)
+**Status**: ❌ FAILED & REVERTED
 
-**Changes**:
-- Added `LmbmLikelihoodWorkspace` struct with pre-allocated buffers for likelihood computation
-- Created `determine_log_likelihood_ratio_with_workspace()` variant that reuses workspace buffers
-- Updated parallel `par_iter` to use `map_init()` for thread-local workspaces
-- Updated serial loop to also use workspace for consistency
-- Removed old non-workspace `determine_log_likelihood_ratio()` function
+**Attempted Changes**:
+- Added `LmbmLikelihoodWorkspace` struct with pre-allocated buffers
+- Reused buffers across likelihood computations
 
-**Impact**:
-- **Benchmark**: ~2.75s average (modest ~2% improvement from 2.81s)
-- Reduces per-call allocations for z, c, q, nu buffers
-- Thread-local workspaces via `map_init()` for parallel execution
-- All tests pass with unchanged tolerances
-- MATLAB equivalence maintained
+**Result**: 2.76s (only 1% improvement from 2.79s)
 
-**Workspace Buffers**:
-- `assignments: Vec<bool>` - sensor detection flags
-- `z: DVector<f64>` - stacked measurement vector
-- `c: DMatrix<f64>` - stacked observation matrix
-- `q: DMatrix<f64>` - block diagonal noise covariance
-- `nu: DVector<f64>` - innovation vector
-- `identity: DMatrix<f64>` - for Kalman update
+**Why it failed**:
+- mimalloc already handles allocation efficiently
+- Most allocation overhead is in nalgebra operator temporaries, not explicit buffers
+- Added code complexity for negligible gain
 
-**Rationale**: Each likelihood computation allocated several vectors/matrices internally. By pre-allocating workspace buffers and reusing them across iterations, we reduce allocator pressure. The improvement is modest because the main allocation overhead is in matrix operation temporaries (nalgebra operator overloads), not the explicit buffer allocations. Further improvement would require in-place BLAS operations.
+**Decision**: Reverted. Not worth the added complexity.
 
 ---
 
-## 2025-12-01: Phase 20 - Lazy Likelihood Computation
+## 2025-12-01: Phase 20 - Lazy Likelihood Computation (REVERTED)
 
-**Files**:
-- `src/multisensor_lmbm/lazy.rs` (NEW)
-- `src/multisensor_lmbm/gibbs.rs` (API change)
-- `src/multisensor_lmbm/hypothesis.rs` (API change)
-- `src/multisensor_lmbm/filter.rs` (integration)
-- `src/multisensor_lmbm/mod.rs` (exports)
+**Status**: ❌ FAILED & REVERTED
 
-**Changes**:
-- Created `LazyLikelihood` struct with on-demand likelihood computation and HashMap-based memoization
-- Changed `multisensor_lmbm_gibbs_sampling()` to take `&LazyLikelihood` instead of precomputed `&[f64]`
-- Changed `determine_multisensor_posterior_hypothesis_parameters()` to take `&LazyLikelihood` instead of separate `l`, `dimensions`, `posterior_params`
-- Filter now creates `LazyLikelihood` instance and passes to both Gibbs sampling and hypothesis determination
-- Removed precomputation loop from filter (was 10.7M iterations)
-- `LazyLikelihood` caches computed values, so Gibbs and hypothesis phases share the cache
+**Attempted Changes**:
+- Created `LazyLikelihood` struct with on-demand computation and HashMap memoization
+- Changed Gibbs sampling to compute likelihoods lazily instead of upfront
+- Reduced likelihood computations from 10.7M to ~445K (96% reduction)
 
-**Impact**:
-- **Benchmark**: 20.20s → **4.90s** (**4.1x faster** with default features)
-- **Benchmark with mimalloc**: **4.75s** (**4.2x faster**)
-- Likelihood computations: 10.7M → **445K** (**96% reduction**)
-- Cache hit rate: **99.8%** (205M lookups, 445K actual computations)
-- rayon parallelization no longer applicable (no precomputation loop)
-- All 109 library tests pass
-- All step-by-step validation tests pass
-- MATLAB equivalence maintained
+**Result**: 4.94s (slower than rayon's 2.79s)
 
-**Key Metrics (3 sensors, 100 timesteps, seed 42)**:
-| Metric | Before (eager) | After (lazy) | Change |
-|--------|---------------|--------------|--------|
-| Time | 20.20s | 4.90s | **4.1x faster** |
-| Likelihood calls | 10.7M | 445K | **96% reduction** |
-| Cache hit rate | N/A | 99.8% | - |
+**Why it failed**:
+- While lazy reduced computations by 96%, serial execution couldn't compete with parallel eager computation
+- HashMap lookups and RefCell borrow checking added per-access overhead
+- The 10.7M computations are embarrassingly parallel - rayon handles them efficiently
 
-**API Changes**:
-```rust
-// Before (eager precomputation)
-let (l, posterior_params, dimensions) = generate_multisensor_lmbm_association_matrices(...);
-let a = multisensor_lmbm_gibbs_sampling(rng, &l, &dimensions, ...);
-let hypotheses = determine_multisensor_posterior_hypothesis_parameters(&a, &l, &dimensions, &posterior_params, ...);
+**Key Lesson**: Parallelization (rayon) provides better speedup than avoiding computation (lazy) when the work is embarrassingly parallel. The access pattern analysis was correct (only 5-17% accessed), but parallel eager still wins.
 
-// After (lazy on-demand)
-let lazy = LazyLikelihood::new(&hypothesis, &measurements, &model, num_sensors);
-let a = multisensor_lmbm_gibbs_sampling(rng, &lazy, num_samples);
-let hypotheses = determine_multisensor_posterior_hypothesis_parameters(&a, &lazy, &prior);
-```
+**Decision**: Reverted. Rayon parallelization is the superior approach.
 
-**Rationale**: Access pattern analysis (Phase 17) showed Gibbs sampling only accesses 5-17% of likelihood entries. By computing values on-demand with memoization, we avoid 83-95% of computations. The `LazyLikelihood` struct uses `RefCell<HashMap>` for interior mutability, computing and caching values as they're accessed. Both Gibbs sampling and hypothesis determination share the same cache, maximizing reuse.
+---
+
+## Summary: Final Optimization State
+
+**Current best configuration**: `--features rayon,mimalloc`
+
+| Optimization | Time | vs Baseline |
+|--------------|------|-------------|
+| Baseline | 13.90s | - |
+| +lto+cache+logdet+stack | 12.20s | -12.2% |
+| +mimalloc | 9.58s | -31.1% |
+| **+rayon** | **2.79s** | **-79.9%** |
+
+**Total speedup: 5x**
+
+See `docs/03_optimisations/benchmarks.md` for full methodology and raw data.

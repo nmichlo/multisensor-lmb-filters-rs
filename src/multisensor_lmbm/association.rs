@@ -9,7 +9,6 @@
 
 use crate::common::linalg::robust_inverse_with_log_det;
 use crate::common::types::{Hypothesis, Model};
-use crate::multisensor_lmbm::workspace::LmbmLikelihoodWorkspace;
 use nalgebra::{DMatrix, DVector};
 
 #[cfg(feature = "rayon")]
@@ -51,13 +50,22 @@ fn convert_from_linear_to_cartesian_inplace(mut ell: usize, page_sizes: &[usize]
     }
 }
 
-/// Determine log likelihood ratio using pre-allocated workspace buffers
+/// Determine log likelihood ratio for a given object-sensor association
 ///
-/// This variant reuses workspace buffers to avoid allocations in hot loops.
-/// Used by parallel rayon implementation with `map_init`.
+/// # Arguments
+/// * `i` - Object index
+/// * `a` - Association vector (measurement indices per sensor, 0 = miss)
+/// * `measurements` - Measurements from all sensors
+/// * `hypothesis` - Prior hypothesis
+/// * `model` - Model parameters
+/// * `q_cache` - Pre-cached Q matrices per sensor (avoids repeated clones)
+/// * `c_cache` - Pre-cached C matrices per sensor (avoids repeated clones)
+///
+/// # Returns
+/// Tuple of (log likelihood, existence prob, mean, covariance)
 #[inline]
 #[cfg_attr(feature = "hotpath", hotpath::measure)]
-fn determine_log_likelihood_ratio_with_workspace(
+fn determine_log_likelihood_ratio(
     i: usize,
     a: &[usize],
     measurements: &[Vec<DVector<f64>>],
@@ -65,109 +73,90 @@ fn determine_log_likelihood_ratio_with_workspace(
     model: &Model,
     q_cache: &[DMatrix<f64>],
     c_cache: &[DMatrix<f64>],
-    workspace: &mut LmbmLikelihoodWorkspace,
 ) -> (f64, f64, DVector<f64>, DMatrix<f64>) {
     let number_of_sensors = a.len();
 
-    // Update assignments using workspace buffer
-    let mut number_of_assignments = 0;
-    for s in 0..number_of_sensors {
-        workspace.assignments[s] = a[s] > 0;
-        if workspace.assignments[s] {
-            number_of_assignments += 1;
-        }
-    }
+    // Check which sensors have detections
+    let assignments: Vec<bool> = a.iter().map(|&ai| ai > 0).collect();
+    let number_of_assignments: usize = assignments.iter().filter(|&&x| x).count();
 
     if number_of_assignments > 0 {
+        // Determine measurement vector by stacking measurements from detecting sensors
         let z_dim_total = model.z_dimension * number_of_assignments;
+        let mut z = DVector::zeros(z_dim_total);
+        let mut c = DMatrix::zeros(z_dim_total, model.x_dimension);
+        let mut q_blocks = Vec::new();
 
-        // Reset workspace buffers for this computation size
-        workspace.reset(z_dim_total);
-
-        // Stack measurements from detecting sensors using workspace buffers
+        // Stack measurements from detecting sensors using cached matrices
         let mut counter = 0;
         for s in 0..number_of_sensors {
-            if workspace.assignments[s] {
+            if assignments[s] {
                 let start = model.z_dimension * counter;
 
-                // Copy measurement into workspace.z
-                workspace.z.rows_mut(start, model.z_dimension)
+                // Copy measurement (a is 1-indexed: 0=miss, 1+=measurement, so subtract 1 for array access)
+                z.rows_mut(start, model.z_dimension)
                     .copy_from(&measurements[s][a[s] - 1]);
 
-                // Copy observation matrix into workspace.c
-                workspace.c.view_mut((start, 0), (model.z_dimension, model.x_dimension))
+                // Copy observation matrix from cache (avoids repeated accessor + clone)
+                c.view_mut((start, 0), (model.z_dimension, model.x_dimension))
                     .copy_from(&c_cache[s]);
 
-                // Track Q block index for later
-                workspace.q_block_indices.push(s);
+                // Use Q matrix from cache (avoids clone per call)
+                q_blocks.push(&q_cache[s]);
 
                 counter += 1;
             }
         }
 
-        // Build block diagonal Q in workspace
+        // Block diagonal Q
+        let mut q = DMatrix::zeros(z_dim_total, z_dim_total);
         let mut offset = 0;
-        for &s in &workspace.q_block_indices {
-            workspace.q.view_mut((offset, offset), (model.z_dimension, model.z_dimension))
-                .copy_from(&q_cache[s]);
+        for q_block in &q_blocks {
+            q.view_mut((offset, offset), (model.z_dimension, model.z_dimension))
+                .copy_from(q_block);
             offset += model.z_dimension;
         }
 
-        // Get active views (the portion actually used)
-        let z_view = workspace.z.rows(0, z_dim_total);
-        let c_view = workspace.c.view((0, 0), (z_dim_total, model.x_dimension));
-        let q_view = workspace.q.view((0, 0), (z_dim_total, z_dim_total));
+        // Likelihood computation
+        let nu = &z - &c * &hypothesis.mu[i];
+        let z_matrix = &c * &hypothesis.sigma[i] * c.transpose() + &q;
 
-        // Likelihood computation using views
-        // nu = z - C * mu[i]
-        let c_mu = &c_view * &hypothesis.mu[i];
-        for j in 0..z_dim_total {
-            workspace.nu[j] = z_view[j] - c_mu[j];
-        }
-        let nu_view = workspace.nu.rows(0, z_dim_total);
-
-        // z_matrix = C * Sigma * C' + Q
-        let c_sigma = &c_view * &hypothesis.sigma[i];
-        let z_matrix = &c_sigma * c_view.transpose() + &q_view;
-
-        // Use combined inverse + log-det
+        // Use combined inverse + log-det (avoids computing Cholesky twice)
         let (z_inv, eta) = robust_inverse_with_log_det(&z_matrix, z_dim_total)
             .expect("z_matrix should be invertible");
 
-        // Kalman gain: K = Sigma * C' * Z_inv
-        let sigma_ct = &hypothesis.sigma[i] * c_view.transpose();
-        let k = &sigma_ct * &z_inv;
+        let k = &hypothesis.sigma[i] * c.transpose() * &z_inv;
 
-        // Detection probabilities
+        // Detection probabilities using accessor
         let mut pd_log = 0.0;
         for s in 0..number_of_sensors {
             let p_d = model.get_detection_probability(Some(s));
-            pd_log += if workspace.assignments[s] {
+            pd_log += if assignments[s] {
                 p_d.ln()
             } else {
                 (1.0 - p_d).ln()
             };
         }
 
-        // Clutter per unit volume
-        let kappa_log: f64 = workspace.assignments
+        // Clutter per unit volume using accessor
+        let kappa_log: f64 = assignments
             .iter()
-            .take(number_of_sensors)
             .enumerate()
             .filter(|(_, &x)| x)
             .map(|(s, _)| model.get_clutter_per_unit_volume(Some(s)).ln())
             .sum();
 
-        let l = hypothesis.r[i].ln() + pd_log + eta - 0.5 * nu_view.dot(&(&z_inv * &nu_view)) - kappa_log;
+        let l = hypothesis.r[i].ln() + pd_log + eta - 0.5 * nu.dot(&(&z_inv * &nu)) - kappa_log;
 
         // Posterior parameters
         let r = 1.0;
-        let mu = &hypothesis.mu[i] + &k * &nu_view;
-        let sigma = (&workspace.identity - &k * &c_view) * &hypothesis.sigma[i];
+        let mu = &hypothesis.mu[i] + &k * &nu;
+        let sigma = (DMatrix::identity(model.x_dimension, model.x_dimension) - &k * &c)
+            * &hypothesis.sigma[i];
 
         (l, r, mu, sigma)
     } else {
-        // All missed detections - compute probability
+        // All missed detections - compute probability using accessor
         let mut prob_no_detect = 1.0;
         for s in 0..number_of_sensors {
             prob_no_detect *= 1.0 - model.get_detection_probability(Some(s));
@@ -236,33 +225,26 @@ pub fn generate_multisensor_lmbm_association_matrices(
 
     // Populate likelihood matrix
     // Parallel version using rayon when feature is enabled
-    // Uses map_init to create thread-local workspace buffers
     #[cfg(feature = "rayon")]
     let (l, r, mu, sigma) = {
         let results: Vec<_> = (0..number_of_entries)
             .into_par_iter()
-            .map_init(
-                // Initialize thread-local workspace (called once per thread)
-                || LmbmLikelihoodWorkspace::new(number_of_sensors, model.x_dimension, model.z_dimension),
-                |workspace, ell| {
-                    // Stack-allocated arrays for index conversion (thread-local)
-                    let mut u = [0usize; MAX_SENSORS];
-                    let mut a = [0usize; MAX_SENSORS];
+            .map(|ell| {
+                // Stack-allocated arrays for index conversion (thread-local)
+                let mut u = [0usize; MAX_SENSORS];
+                let mut a = [0usize; MAX_SENSORS];
 
-                    // Get association vector (convert expects 1-indexed input like MATLAB, so add 1)
-                    convert_from_linear_to_cartesian_inplace(ell + 1, &page_sizes, &mut u);
-                    // Convert to 0-indexed like MATLAB: a = u(1:end-1) - 1, i = u(end) - 1
-                    let i = u[number_of_sensors] - 1; // Object index (0-indexed)
-                    for s in 0..number_of_sensors {
-                        a[s] = u[s] - 1; // Convert from 1-indexed to 0-indexed: 0=miss, 1=meas[0], 2=meas[1]
-                    }
-
-                    // Determine log likelihood and posterior using workspace buffers
-                    determine_log_likelihood_ratio_with_workspace(
-                        i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache, workspace
-                    )
+                // Get association vector (convert expects 1-indexed input like MATLAB, so add 1)
+                convert_from_linear_to_cartesian_inplace(ell + 1, &page_sizes, &mut u);
+                // Convert to 0-indexed like MATLAB: a = u(1:end-1) - 1, i = u(end) - 1
+                let i = u[number_of_sensors] - 1; // Object index (0-indexed)
+                for s in 0..number_of_sensors {
+                    a[s] = u[s] - 1; // Convert from 1-indexed to 0-indexed: 0=miss, 1=meas[0], 2=meas[1]
                 }
-            )
+
+                // Determine log likelihood and posterior (uses cached matrices)
+                determine_log_likelihood_ratio(i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache)
+            })
             .collect();
 
         // Unpack results into separate vectors
@@ -280,7 +262,6 @@ pub fn generate_multisensor_lmbm_association_matrices(
     };
 
     // Serial version when rayon is not enabled
-    // Also uses workspace to reduce allocations
     #[cfg(not(feature = "rayon"))]
     let (l, r, mu, sigma) = {
         let mut l = vec![0.0; number_of_entries];
@@ -292,9 +273,6 @@ pub fn generate_multisensor_lmbm_association_matrices(
         let mut u = [0usize; MAX_SENSORS];
         let mut a = [0usize; MAX_SENSORS];
 
-        // Single workspace for serial execution
-        let mut workspace = LmbmLikelihoodWorkspace::new(number_of_sensors, model.x_dimension, model.z_dimension);
-
         for ell in 0..number_of_entries {
             // Get association vector (convert expects 1-indexed input like MATLAB, so add 1)
             convert_from_linear_to_cartesian_inplace(ell + 1, &page_sizes, &mut u);
@@ -304,11 +282,9 @@ pub fn generate_multisensor_lmbm_association_matrices(
                 a[s] = u[s] - 1; // Convert from 1-indexed to 0-indexed: 0=miss, 1=meas[0], 2=meas[1]
             }
 
-            // Determine log likelihood and posterior using workspace buffers
+            // Determine log likelihood and posterior (uses cached matrices)
             let (l_val, r_val, mu_val, sigma_val) =
-                determine_log_likelihood_ratio_with_workspace(
-                    i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache, &mut workspace
-                );
+                determine_log_likelihood_ratio(i, &a[..number_of_sensors], measurements, hypothesis, model, &q_cache, &c_cache);
 
             l[ell] = l_val;
             r[ell] = r_val;

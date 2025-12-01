@@ -20,13 +20,7 @@
       "Bash(octave:*)",
       "Bash(cargo clean:*)",
       "Bash(timeout 60 octave:*)",
-      "Bash(rustc:*)",
-      "WebFetch(domain:crates.io)",
-      "Bash(cargo metadata:*)",
-      "WebFetch(domain:docs.rs)",
-      "Bash(for i in 1 2 3)",
-      "Bash(do echo \"Run $i (mimalloc):\")",
-      "Bash(done)"
+      "Bash(rustc:*)"
     ],
     "deny": [
       "Bash(git:*)"

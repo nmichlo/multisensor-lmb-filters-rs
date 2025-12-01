@@ -8,21 +8,13 @@ pub mod association;
 pub mod filter;
 pub mod gibbs;
 pub mod hypothesis;
-pub mod lazy;
-pub mod workspace;
 
-// Re-export the main public API
+pub use association::{generate_multisensor_lmbm_association_matrices, MultisensorLmbmPosteriorParameters};
 pub use filter::{run_multisensor_lmbm_filter, MultisensorLmbmStateEstimates};
 pub use gibbs::multisensor_lmbm_gibbs_sampling;
 #[cfg(feature = "gibbs-trace")]
 pub use gibbs::{reset_access_trace, get_access_stats, print_access_report};
 pub use hypothesis::determine_multisensor_posterior_hypothesis_parameters;
-pub use lazy::LazyLikelihood;
-pub use workspace::LmbmLikelihoodWorkspace;
-
-// Note: generate_multisensor_lmbm_association_matrices is kept in association.rs
-// for internal testing/equivalence checks but not re-exported as public API.
-// Use LazyLikelihood instead for on-demand computation.
 
 /// Determine linear index from Cartesian coordinates
 ///
