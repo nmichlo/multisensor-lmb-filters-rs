@@ -1,323 +1,206 @@
 # Prak - Multi-Object Tracking Library
 
-A Rust implementation of Labeled Multi-Bernoulli (LMB) and LMB Mixture (LMBM) filters for multi-object tracking. Ported from the MATLAB [multisensor-lmb-filters](https://github.com/example/multisensor-lmb-filters) library with **100% numerical equivalence**.
+A Rust implementation of Labeled Multi-Bernoulli (LMB) and LMB Mixture (LMBM) filters for multi-object tracking. Ported from the MATLAB [multisensor-lmb-filters](https://github.com/example/multisensor-lmb-filters) library.
 
-## What is Multi-Object Tracking?
+## Features
 
-Multi-object tracking (MOT) solves the problem of simultaneously tracking multiple targets from noisy sensor measurements, where:
-- **Objects appear and disappear** at unknown times
-- **Measurements contain clutter** (false detections)
-- **Detections may be missed** (targets not always observed)
-- **Data association is uncertain** (which measurement came from which object?)
-
-This library implements **random finite set (RFS)** based filters that elegantly handle all these challenges in a unified probabilistic framework.
-
-## When to Use This Library
-
-Use **prak** when you need to:
-
-- Track multiple objects with **unknown and time-varying cardinality**
-- Handle **high clutter** environments (many false detections)
-- Deal with **missed detections** (low detection probability)
-- Maintain **track identity** across time (labeled tracking)
-- **Fuse measurements** from multiple sensors
-- Need **100% deterministic, reproducible** results
-
-Common applications include:
-- Radar/sonar target tracking
-- Video surveillance and pedestrian tracking
-- Autonomous vehicle perception
-- Air traffic control
-- Robotics and SLAM
-
-## Available Algorithms
-
-### Single-Sensor Filters
-
-| Filter | Description | Use When |
-|--------|-------------|----------|
-| **LMB** | Labeled Multi-Bernoulli | Standard single-sensor tracking. Fast, good for moderate clutter. |
-| **LMBM** | LMB Mixture | Higher accuracy through hypothesis tracking. Better for high clutter but slower. |
-
-### Multi-Sensor Filters (Sensor Fusion)
-
-| Filter | Description | Use When |
-|--------|-------------|----------|
-| **IC-LMB** | Iterated Corrector | Sequential sensor processing. Exact inference, best accuracy. |
-| **PU-LMB** | Parallel Update | Parallel sensor fusion with decorrelation. Fast, good accuracy. |
-| **GA-LMB** | Geometric Average | Weighted geometric fusion. Robust to outlier sensors. |
-| **AA-LMB** | Arithmetic Average | Simple weighted average fusion. Fast, less robust. |
-| **Multi-LMBM** | Multi-sensor LMBM | Hypothesis-based multi-sensor fusion. Highest accuracy, slowest. |
-
-### Data Association Methods
-
-| Method | Description | Trade-off |
-|--------|-------------|-----------|
-| **LBP** | Loopy Belief Propagation | Fast approximate inference. Default choice. |
-| **Gibbs** | Gibbs Sampling | Stochastic, converges to exact. Good for complex scenarios. |
-| **Murty** | Murty's K-best | Exact K-best assignments. Deterministic, can be slow. |
+- **Single-sensor filters**: LMB and LMBM
+- **Multi-sensor fusion**: IC-LMB, PU-LMB, GA-LMB, AA-LMB, Multi-LMBM
+- **Data association**: LBP, Gibbs sampling, Murty's K-best
+- **Trait-based design**: Easy to extend and customize
+- **MATLAB-equivalent**: Verified numerical equivalence at 1e-12 tolerance
 
 ## Quick Start
-
-### Installation
 
 Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 prak = { git = "https://github.com/yourname/prak" }
+nalgebra = "0.32"
+rand = "0.8"
 ```
 
-### Basic Usage
+### Basic LMB Filter
 
 ```rust
-use prak::common::model::generate_model;
-use prak::common::ground_truth::generate_ground_truth;
-use prak::common::rng::SimpleRng;
-use prak::common::types::{DataAssociationMethod, ScenarioType};
-use prak::lmb::filter::run_lmb_filter;
+use prak::filter::{Filter, LmbFilter};
+use prak::types::{MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
+use nalgebra::{DVector, DMatrix};
 
 fn main() {
-    // Initialize deterministic RNG
-    let mut rng = SimpleRng::new(42);
-
-    // Create tracking model
-    let model = generate_model(
-        &mut rng,
-        10.0,   // expected clutter per timestep
-        0.95,   // detection probability
-        DataAssociationMethod::LBP,
-        ScenarioType::Fixed,
-        None,   // use default birth locations
+    // Define motion model (constant velocity 2D)
+    let motion = MotionModel::constant_velocity_2d(
+        1.0,   // timestep
+        0.1,   // process noise
+        0.99,  // survival probability
     );
 
-    // Generate simulated ground truth and measurements
-    let gt = generate_ground_truth(&mut rng, &model, None);
+    // Define sensor model (position measurements)
+    let sensor = SensorModel::position_sensor_2d(
+        1.0,   // measurement noise std
+        0.9,   // detection probability
+        10.0,  // clutter rate
+        100.0, // observation space volume
+    );
 
-    // Run LMB filter
-    let results = run_lmb_filter(&mut rng, &model, &gt.measurements);
+    // Define birth model
+    let birth_loc = BirthLocation::new(
+        0,
+        DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
+        DMatrix::identity(4, 4) * 100.0,
+    );
+    let birth = BirthModel::new(vec![birth_loc], 0.1, 0.01);
 
-    // Access results
-    for (t, labels) in results.labels.iter().enumerate() {
-        println!("Time {}: {} objects detected", t, labels.len());
+    // Create filter with default LBP association
+    let association = AssociationConfig::default();
+    let mut filter = LmbFilter::new(motion, sensor, birth, association);
+
+    // Process measurements
+    let mut rng = rand::thread_rng();
+    for t in 0..100 {
+        let measurements = get_measurements(t); // Your measurement source
+        let estimate = filter.step(&mut rng, &measurements, t).unwrap();
+
+        println!("Time {}: {} tracks", t, estimate.tracks.len());
+        for track in &estimate.tracks {
+            println!("  Track {}: pos=({:.2}, {:.2})",
+                     track.label, track.state[0], track.state[2]);
+        }
     }
 }
 ```
 
-### Multi-Sensor Tracking
+### Multi-Sensor Fusion
 
 ```rust
-use prak::common::model::generate_multisensor_model;
-use prak::common::ground_truth::generate_multisensor_ground_truth;
-use prak::common::rng::SimpleRng;
-use prak::common::types::{DataAssociationMethod, ScenarioType};
-use prak::multisensor_lmb::parallel_update::{run_parallel_update_lmb_filter, ParallelUpdateMode};
+use prak::filter::{Filter, AaLmbFilter, ArithmeticAverageMerger};
+use prak::types::{MotionModel, SensorModel, MultisensorConfig, BirthModel, AssociationConfig};
 
 fn main() {
-    let mut rng = SimpleRng::new(42);
-    let num_sensors = 3;
+    let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
 
-    // Create multi-sensor model
-    let model = generate_multisensor_model(
-        &mut rng,
-        num_sensors,
-        vec![5.0; num_sensors],           // clutter rates per sensor
-        vec![0.67, 0.70, 0.73],           // detection probabilities
-        vec![4.0, 3.0, 2.0],              // sensor quality (Q values)
-        ParallelUpdateMode::PU,
-        DataAssociationMethod::LBP,
-        ScenarioType::Fixed,
-        None,
+    // Define multiple sensors with different characteristics
+    let sensor1 = SensorModel::position_sensor_2d(1.0, 0.9, 10.0, 100.0);
+    let sensor2 = SensorModel::position_sensor_2d(1.5, 0.85, 8.0, 100.0);
+    let sensors = MultisensorConfig::new(vec![sensor1, sensor2]);
+
+    let birth = BirthModel::new(vec![/* birth locations */], 0.1, 0.01);
+    let association = AssociationConfig::default();
+    let merger = ArithmeticAverageMerger::uniform(2, 100);
+
+    // Create AA-LMB filter (Arithmetic Average fusion)
+    let mut filter: AaLmbFilter = AaLmbFilter::new(
+        motion, sensors, birth, association, merger
     );
 
-    // Generate multi-sensor measurements
-    let gt = generate_multisensor_ground_truth(&mut rng, &model, None);
+    let mut rng = rand::thread_rng();
+    for t in 0..100 {
+        // Measurements from each sensor
+        let measurements = vec![
+            get_sensor1_measurements(t),
+            get_sensor2_measurements(t),
+        ];
 
-    // Run PU-LMB filter
-    let results = run_parallel_update_lmb_filter(
-        &mut rng,
-        &model,
-        &gt.measurements,
-        num_sensors,
-        ParallelUpdateMode::PU,
-    );
+        let estimate = filter.step(&mut rng, &measurements, t).unwrap();
+        println!("Time {}: {} tracks", t, estimate.tracks.len());
+    }
 }
 ```
+
+## Available Filters
+
+### Single-Sensor
+
+| Type | Description |
+|------|-------------|
+| `LmbFilter` | Standard LMB filter with marginal reweighting |
+| `LmbmFilter` | LMBM filter with hypothesis tracking |
+
+### Multi-Sensor
+
+| Type | Description |
+|------|-------------|
+| `AaLmbFilter` | Arithmetic Average fusion |
+| `GaLmbFilter` | Geometric Average fusion |
+| `PuLmbFilter` | Parallel Update fusion |
+| `IcLmbFilter` | Iterated Corrector (sequential) |
+| `MultisensorLmbmFilter` | Multi-sensor LMBM with Gibbs sampling |
+
+### Data Association Methods
+
+| Method | Description |
+|--------|-------------|
+| `Lbp` | Loopy Belief Propagation (default, fast) |
+| `Gibbs` | Gibbs sampling (stochastic, accurate) |
+| `Murty` | Murty's K-best (deterministic) |
 
 ## Architecture
 
 ```
-prak/
-├── src/
-│   ├── lib.rs                    # Library root, re-exports
-│   ├── common/                   # Shared utilities
-│   │   ├── types.rs              # Core data structures (Model, Object, Measurement)
-│   │   ├── model.rs              # Model generation
-│   │   ├── ground_truth.rs       # Simulation and measurement generation
-│   │   ├── rng.rs                # Deterministic RNG (SimpleRng/Xorshift64)
-│   │   ├── linalg.rs             # Linear algebra (Kalman, Gaussian PDF)
-│   │   ├── metrics.rs            # OSPA, Hellinger, KL divergence
-│   │   ├── utils.rs              # ESF, factorial, binomial
-│   │   └── association/          # Data association algorithms
-│   │       ├── hungarian.rs      # Hungarian algorithm
-│   │       ├── lbp.rs            # Loopy Belief Propagation
-│   │       ├── gibbs.rs          # Gibbs sampling
-│   │       └── murtys.rs         # Murty's K-best algorithm
-│   ├── lmb/                      # Single-sensor LMB filter
-│   │   ├── filter.rs             # Main filter loop
-│   │   ├── prediction.rs         # Prediction step
-│   │   ├── association.rs        # Association matrix generation
-│   │   ├── data_association.rs   # LBP/Gibbs/Murty wrappers
-│   │   ├── update.rs             # Measurement update
-│   │   └── cardinality.rs        # MAP cardinality estimation
-│   ├── lmbm/                     # Single-sensor LMBM filter
-│   │   ├── filter.rs             # Main filter loop
-│   │   ├── prediction.rs         # Prediction step
-│   │   ├── association.rs        # Association matrices + Gibbs
-│   │   └── hypothesis.rs         # Hypothesis management
-│   ├── multisensor_lmb/          # Multi-sensor LMB filters
-│   │   ├── parallel_update.rs    # PU/GA/AA-LMB filters
-│   │   ├── iterated_corrector.rs # IC-LMB filter
-│   │   ├── merging.rs            # Track merging (PU/GA/AA)
-│   │   └── association.rs        # Per-sensor association
-│   └── multisensor_lmbm/         # Multi-sensor LMBM filter
-│       ├── filter.rs             # Main filter loop
-│       ├── association.rs        # Multi-sensor association
-│       ├── hypothesis.rs         # Hypothesis management
-│       └── gibbs.rs              # Multi-sensor Gibbs sampling
-├── examples/
-│   ├── single_sensor.rs          # Single-sensor CLI example
-│   └── multi_sensor.rs           # Multi-sensor CLI example
-└── tests/                        # Integration tests (8000+ lines)
+src/
+├── types/              # Core data types
+│   ├── track.rs        # Track, GaussianComponent, TrackLabel
+│   ├── config.rs       # MotionModel, SensorModel, BirthModel
+│   └── output.rs       # StateEstimate, FilterOutput
+├── components/         # Shared algorithms
+│   ├── prediction.rs   # Kalman prediction
+│   └── update.rs       # Existence probability updates
+├── association/        # Data association
+│   ├── likelihood.rs   # Likelihood computation
+│   └── builder.rs      # Association matrix construction
+├── filter/             # Filter implementations
+│   ├── traits.rs       # Filter, Associator, Merger traits
+│   ├── lmb.rs          # LmbFilter
+│   ├── lmbm.rs         # LmbmFilter
+│   ├── multisensor_lmb.rs    # Multi-sensor LMB variants
+│   └── multisensor_lmbm.rs   # MultisensorLmbmFilter
+├── common/             # Low-level utilities
+│   ├── association/    # LBP, Gibbs, Murty algorithms
+│   ├── linalg.rs       # Linear algebra helpers
+│   └── rng.rs          # RNG traits
+└── lmb/
+    └── cardinality.rs  # MAP cardinality estimation
 ```
 
-## Running Examples
+## Customization
 
-### Single-Sensor Example
+### Custom Associator
 
-```bash
-# Default LMB filter
-cargo run --release --example single_sensor
+```rust
+use prak::filter::{Associator, AssociationResult};
+use prak::association::AssociationMatrices;
 
-# LMBM filter with Gibbs sampling
-cargo run --release --example single_sensor -- --lmbm -a Gibbs
+struct MyAssociator;
 
-# High clutter scenario
-cargo run --release --example single_sensor -- --clutter-rate 50 -p 0.8
+impl Associator for MyAssociator {
+    fn associate<R: rand::Rng>(
+        &self,
+        matrices: &AssociationMatrices,
+        config: &AssociationConfig,
+        rng: &mut R,
+    ) -> Result<AssociationResult, FilterError> {
+        // Your custom association logic
+    }
+}
 
-# Full options
-cargo run --release --example single_sensor -- --help
+// Use with LmbFilter
+let filter = LmbFilter::with_associator_type::<MyAssociator>(motion, sensor, birth, config);
 ```
 
-### Multi-Sensor Example
+### Custom Merger (Multi-Sensor)
 
-```bash
-# Default PU-LMB with 3 sensors
-cargo run --release --example multi_sensor
+```rust
+use prak::filter::Merger;
 
-# IC-LMB (Iterated Corrector)
-cargo run --release --example multi_sensor -- --filter-type IC
+struct MyMerger;
 
-# GA-LMB (Geometric Average)
-cargo run --release --example multi_sensor -- --filter-type GA
-
-# Multi-sensor LMBM
-cargo run --release --example multi_sensor -- --filter-type LMBM
-
-# Full options
-cargo run --release --example multi_sensor -- --help
+impl Merger for MyMerger {
+    fn merge(&self, sensor_tracks: &[Vec<Track>], sensors: &[&SensorModel]) -> Vec<Track> {
+        // Your custom fusion logic
+    }
+}
 ```
-
-## Algorithm Selection Guide
-
-### Choosing a Filter
-
-```
-                    ┌─────────────────────┐
-                    │ How many sensors?   │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │ 1              │                │ 2+
-              ▼                │                ▼
-    ┌─────────────────┐        │      ┌─────────────────┐
-    │ Need hypothesis │        │      │ Need highest    │
-    │ tracking?       │        │      │ accuracy?       │
-    └────────┬────────┘        │      └────────┬────────┘
-             │                 │               │
-      ┌──────┼──────┐          │        ┌──────┼──────┐
-      │ No   │ Yes  │          │        │ Yes  │ No   │
-      ▼      ▼      │          │        ▼      ▼
-    ┌───┐  ┌────┐   │          │      ┌─────┐ ┌─────┐
-    │LMB│  │LMBM│   │          │      │IC-LMB│ │Speed│
-    └───┘  └────┘   │          │      └─────┘ │prio?│
-                    │          │              └──┬──┘
-                    │          │          ┌─────┼─────┐
-                    │          │          │ Yes │ No  │
-                    │          │          ▼     ▼
-                    │          │        ┌────┐ ┌─────┐
-                    │          │        │PU  │ │GA or│
-                    │          │        │LMB │ │AA   │
-                    │          │        └────┘ └─────┘
-```
-
-### Choosing Data Association
-
-| Scenario | Recommended Method |
-|----------|-------------------|
-| General purpose, fast | **LBP** |
-| Complex associations, need accuracy | **Gibbs** (10K samples) |
-| Need deterministic results | **Murty** (K=1000) |
-| Very high clutter (50+) | **LBP** or **Gibbs** |
-
-## Key Concepts
-
-### The LMB Filter
-
-The LMB filter represents the multi-object state as a set of labeled Bernoulli components:
-
-```
-LMB = { (r¹, p¹, ℓ¹), (r², p², ℓ²), ..., (rⁿ, pⁿ, ℓⁿ) }
-```
-
-Where for each component:
-- `r` = existence probability (0 to 1)
-- `p` = spatial density (Gaussian mixture)
-- `ℓ` = unique label (track identity)
-
-The filter performs:
-1. **Prediction**: Propagate state estimates forward in time
-2. **Update**: Incorporate measurements via data association
-3. **Extraction**: Output state estimates for existing objects
-
-### Multi-Sensor Fusion
-
-Multi-sensor filters combine information from multiple sensors:
-
-- **IC-LMB**: Process sensors sequentially, exact but order-dependent
-- **PU-LMB**: Parallel information fusion, decorrelates common prior
-- **GA-LMB**: Geometric average of posteriors, robust to outliers
-- **AA-LMB**: Arithmetic average, simple but less robust
-
-### Deterministic RNG
-
-All randomness uses `SimpleRng` (Xorshift64), enabling:
-- **100% reproducible** results across runs
-- **Cross-language equivalence** with MATLAB
-- **Deterministic testing** without statistical validation
-
-## Performance
-
-Benchmarks on M1 MacBook Pro (100 timesteps, 3 sensors):
-
-| Filter | Time | Notes |
-|--------|------|-------|
-| LMB-LBP | ~50ms | Fastest single-sensor |
-| LMBM | ~200ms | 10 timesteps |
-| IC-LMB | ~150ms | Sequential sensors |
-| PU-LMB | ~100ms | Parallel fusion |
-| GA-LMB | ~100ms | Information form |
-| Multi-LMBM | ~500ms | 10 timesteps |
 
 ## Testing
 
@@ -325,14 +208,22 @@ Benchmarks on M1 MacBook Pro (100 timesteps, 3 sensors):
 # Run all tests
 cargo test --release
 
-# Run specific test suite
-cargo test --release --test numerical_equivalence_multi_sensor
+# Run specific test
+cargo test --release test_new_api_lbp_marginals_equivalence
 
 # Run with output
 cargo test --release -- --nocapture
 ```
 
-**Test coverage**: 150+ tests, 8000+ lines, verifying 100% numerical equivalence with MATLAB.
+## Performance
+
+Typical performance on modern hardware (100 timesteps):
+
+| Filter | Time |
+|--------|------|
+| LMB (LBP) | ~50ms |
+| LMBM | ~200ms |
+| Multi-sensor LMB | ~100-150ms |
 
 ## References
 
@@ -343,10 +234,3 @@ cargo test --release -- --nocapture
 ## License
 
 MIT OR Apache-2.0
-
-## Contributing
-
-Contributions welcome! Please ensure:
-- All tests pass (`cargo test --release`)
-- Code follows existing style
-- New features include tests

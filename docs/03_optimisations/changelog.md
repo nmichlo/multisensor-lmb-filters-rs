@@ -4,6 +4,48 @@ This document tracks code quality and performance improvements to the codebase.
 
 ---
 
+## 2025-12-02: New API & Legacy Cleanup
+
+**Major Refactoring**: Replaced legacy function-based API with new trait-based API.
+
+### New API Structure
+
+```
+src/
+├── types/              # Core data types (Track, MotionModel, SensorModel)
+├── components/         # Shared algorithms (prediction, update)
+├── association/        # Data association (likelihood, builder)
+├── filter/             # Filter implementations (LmbFilter, LmbmFilter, etc.)
+├── common/             # Low-level utilities (kept: association/, linalg, rng)
+└── lmb/cardinality.rs  # MAP cardinality estimation
+```
+
+### Deleted Legacy Modules
+
+- `src/lmbm/` - entire module (replaced by `filter/lmbm.rs`)
+- `src/multisensor_lmb/` - entire module (replaced by `filter/multisensor_lmb.rs`)
+- `src/multisensor_lmbm/` - entire module (replaced by `filter/multisensor_lmbm.rs`)
+- `src/lmb/filter.rs`, `prediction.rs`, `update.rs`, `association.rs`, `data_association.rs`
+- `src/common/model.rs`, `types.rs`, `ground_truth.rs`, `metrics.rs`
+
+### Deleted Tests & Examples
+
+- 24 test files that depended on legacy modules
+- 8 example files that used legacy API
+
+### Impact
+
+- Test count: 265+ → 145 tests (removed legacy-specific tests)
+- All remaining tests pass
+- MATLAB equivalence maintained at 1e-12 tolerance
+- Clean trait-based API: `Filter`, `Associator`, `Merger`
+
+### Notes
+
+The optimization phases documented below (Phases 1-15) refer to the OLD legacy code that has now been deleted. They are kept here for historical reference only.
+
+---
+
 ## 2025-11-30: Phase 1 - LBP Refactoring
 
 **File**: `src/common/association/lbp.rs`

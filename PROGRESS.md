@@ -1,8 +1,10 @@
 # PRAK Library Refactoring Progress
 
-## Status: Step 10 Complete - Legacy Cleanup Done
+## Status: COMPLETE - New API Ready
 
 **Last Updated:** 2025-12-02
+
+The library has been fully refactored to use a new trait-based API with 100% MATLAB equivalence.
 
 ---
 
@@ -369,6 +371,15 @@ Deleted all legacy filter implementations and tests:
    - Added proper doctest example
 
 **Test Results:** 145 tests pass (3 ignored for memory usage)
+
+### Step 11: Documentation Update ✅
+
+Updated all documentation to reflect the new API:
+
+1. [x] **README.md** - Complete rewrite with new API examples
+2. [x] **CLAUDE.md** - Updated with new architecture and file locations
+3. [x] **docs/03_optimisations/changelog.md** - Added 2025-12-02 entry for API migration
+4. [x] **docs/03_optimisations/todos.md** - Marked as archived (legacy-specific)
 
 ---
 

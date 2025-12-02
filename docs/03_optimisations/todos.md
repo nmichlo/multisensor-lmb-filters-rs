@@ -1,12 +1,14 @@
 # Code Quality Refactoring TODOs
 
-This document tracks the progress of code deduplication and quality improvements.
+> **ARCHIVED**: This document describes refactoring work done on the LEGACY API which has since been replaced by a new trait-based API. The legacy modules described here have been deleted. See `changelog.md` for the 2025-12-02 entry documenting the cleanup.
+
+This document tracks the progress of code deduplication and quality improvements that were done on the legacy codebase.
 
 **Goal**: Deduplicate code, introduce traits and common functions across all algorithms while maintaining 100% MATLAB equivalence.
 
 ---
 
-## Current Status
+## Current Status (LEGACY - ARCHIVED)
 
 | Phase | Description | Status | Notes |
 |-------|-------------|--------|-------|
