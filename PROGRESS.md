@@ -1,6 +1,6 @@
 # PRAK Library Refactoring Progress
 
-## Status: Step 9 Complete - Exact Numerical Equivalence Verified
+## Status: Step 9c Complete - Full MATLAB Equivalence Achieved (All Bugs Fixed)
 
 **Last Updated:** 2025-12-02
 
@@ -293,6 +293,47 @@ Created `tests/exact_equivalence_tests.rs` with comprehensive verification that 
    - `test_near_singular_covariance_handling` - Ill-conditioned matrices
 
 **Test Results:** 12 passed, 0 failed (all at tolerance 1e-12)
+
+### Step 9b: MATLAB Fixture Equivalence Tests ✅
+
+Created `tests/new_api_matlab_equivalence.rs` with tests that verify new API components against MATLAB-generated JSON fixtures:
+
+1. [x] **Prediction tests against MATLAB**
+   - `test_new_api_prediction_component_equivalence` - Single component prediction matches MATLAB
+   - `test_new_api_prediction_track_equivalence` - Full track prediction matches MATLAB
+   - `test_new_api_prediction_all_tracks_equivalence` - All tracks match MATLAB fixture
+
+2. [x] **Association tests against MATLAB**
+   - `test_new_api_association_matrices_eta_equivalence` - eta vector matches MATLAB exactly
+   - `test_new_api_association_matrices_cost_equivalence` - cost matrix matches MATLAB exactly
+
+3. [x] **LBP tests against MATLAB**
+   - `test_new_api_lbp_runs_on_matlab_fixture` - LBP runs correctly on MATLAB data
+   - `test_new_api_lbp_marginals_equivalence` - LBP marginal weights match MATLAB W matrix exactly
+   - `test_new_api_psi_phi_eta_vs_matlab` - Intermediate values (psi, phi, eta) match MATLAB
+
+4. [x] **Filter integration tests**
+   - `test_new_api_lmb_filter_step` - Full filter step verified
+
+**Test Results:** 10 passed, 0 failed
+
+### Step 9c: Bug Fixes for Full MATLAB Equivalence ✅
+
+Fixed bugs in `AssociationBuilder::build()` to achieve exact numerical equivalence:
+
+1. [x] **L matrix multi-component fix**
+   - Bug: Only used first GM component for likelihood computation
+   - Fix: Sum weighted likelihoods over ALL GM components: `L[i,j] = sum_k( r * p_D * w[k] / lambda * gaussian[k] )`
+
+2. [x] **Psi formula fix**
+   - Bug: Had extra `r` multiplier in psi computation (r was already included in L)
+   - Fix: Changed `psi = r * L / eta` to `psi = L / eta`
+
+3. [x] **Phi formula fix**
+   - Bug: Incorrectly divided by eta: `phi = r * (1-p_d) / eta`
+   - Fix: Changed to match legacy: `phi = (1-p_d) * r` (LBP phi does NOT divide by eta)
+
+**Result:** All new API components now produce **IDENTICAL** numerical results to MATLAB/legacy (tolerance 1e-12)
 
 ---
 

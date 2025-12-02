@@ -151,47 +151,97 @@ impl<'a> AssociationBuilder<'a> {
     /// This is the main computation that evaluates all (track, measurement) pairs,
     /// computing likelihoods and Kalman posteriors. The results are structured
     /// for use by any association algorithm.
+    ///
+    /// For multi-component GM tracks, the likelihood is computed as a weighted sum
+    /// over all components, matching MATLAB's generateLmbAssociationMatrices.m.
     pub fn build(&mut self, measurements: &[DVector<f64>]) -> AssociationMatrices {
         let n = self.tracks.len();
         let m = measurements.len();
 
         // Initialize matrices
-        let mut log_likelihood_ratios = DMatrix::from_element(n, m, f64::NEG_INFINITY);
+        // L matrix accumulates likelihood ratios (sum over GM components)
+        let mut l_matrix = DMatrix::zeros(n, m);
         let mut cost = DMatrix::from_element(n, m, f64::INFINITY);
         let mut posteriors = PosteriorGrid::new(n, m);
 
         let p_d = self.sensor.detection_probability;
+        let clutter_density = self.sensor.clutter_density();
 
         // Compute likelihoods for all (track, measurement) pairs
+        // Matching MATLAB: iterate over ALL GM components and sum weighted likelihoods
         for (i, track) in self.tracks.iter().enumerate() {
+            // For posteriors, we use the primary (highest weight) component
+            // This is a simplification - full MATLAB stores posteriors for ALL components
+            let primary_idx = track.components
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.weight.partial_cmp(&b.weight).unwrap())
+                .map(|(idx, _)| idx)
+                .unwrap_or(0);
+
             let mut track_means = Vec::with_capacity(m);
             let mut track_covs = Vec::with_capacity(m);
             let mut track_gains = Vec::with_capacity(m);
 
-            // Use the primary (first) component for likelihood computation
-            let prior_mean = &track.components[0].mean;
-            let prior_cov = &track.components[0].covariance;
+            // Initialize L values to 0 for accumulation
+            for j in 0..m {
+                l_matrix[(i, j)] = 0.0;
+            }
 
-            for (j, measurement) in measurements.iter().enumerate() {
-                let result = compute_likelihood(
-                    prior_mean,
-                    prior_cov,
-                    measurement,
-                    self.sensor,
-                    &mut self.workspace,
-                );
+            // Iterate over ALL GM components to compute marginal likelihood
+            // Matching MATLAB generateLmbAssociationMatrices.m exactly:
+            // L[i,j] = sum_k( r * p_D * w[k] / lambda * gaussian_likelihood[k] )
+            let r = track.existence;
 
-                log_likelihood_ratios[(i, j)] = result.log_likelihood_ratio;
-                cost[(i, j)] = -result.log_likelihood_ratio;
+            for (comp_idx, component) in track.components.iter().enumerate() {
+                let prior_mean = &component.mean;
+                let prior_cov = &component.covariance;
+                let comp_weight = component.weight;
 
-                track_means.push(result.posterior_mean);
-                track_covs.push(result.posterior_covariance);
-                track_gains.push(result.kalman_gain);
+                for (j, measurement) in measurements.iter().enumerate() {
+                    let result = compute_likelihood(
+                        prior_mean,
+                        prior_cov,
+                        measurement,
+                        self.sensor,
+                        &mut self.workspace,
+                    );
+
+                    // compute_likelihood returns: log(p_D / lambda * gaussian)
+                    // We need: r * p_D * w[k] / lambda * gaussian
+                    // So: r * w[k] * exp(log_likelihood_ratio)
+                    let component_likelihood = r * comp_weight * result.log_likelihood_ratio.exp();
+                    l_matrix[(i, j)] += component_likelihood;
+
+                    // Store posteriors only for primary component
+                    if comp_idx == primary_idx {
+                        track_means.push(result.posterior_mean);
+                        track_covs.push(result.posterior_covariance);
+                        track_gains.push(result.kalman_gain);
+                    }
+                }
+            }
+
+            // Convert L to cost: cost = -log(L)
+            for j in 0..m {
+                if l_matrix[(i, j)] > 0.0 {
+                    cost[(i, j)] = -l_matrix[(i, j)].ln();
+                }
             }
 
             posteriors.means.push(track_means);
             posteriors.covariances.push(track_covs);
             posteriors.kalman_gains.push(track_gains);
+        }
+
+        // Also need log_likelihood_ratios matrix
+        let mut log_likelihood_ratios = DMatrix::from_element(n, m, f64::NEG_INFINITY);
+        for i in 0..n {
+            for j in 0..m {
+                if l_matrix[(i, j)] > 0.0 {
+                    log_likelihood_ratios[(i, j)] = l_matrix[(i, j)].ln();
+                }
+            }
         }
 
         // Compute LBP matrices
@@ -205,18 +255,16 @@ impl<'a> AssociationBuilder<'a> {
             // eta[i] = 1 - p_D × r[i]
             eta[i] = 1.0 - p_d * r;
 
-            // phi[i] = r[i] × (1 - p_D) / eta[i]
-            if eta[i].abs() > 1e-15 {
-                phi[i] = r * (1.0 - p_d) / eta[i];
-            } else {
-                phi[i] = 0.0;
-            }
+            // phi[i] = (1 - p_D) × r[i]
+            // Note: LBP phi does NOT divide by eta (unlike Gibbs R matrix which stores phi/eta)
+            phi[i] = (1.0 - p_d) * r;
 
-            // psi[i,j] = r[i] × L[i,j] / eta[i]
+            // psi[i,j] = L[i,j] / eta[i]
+            // Note: L already includes r (existence) in its computation
             for j in 0..m {
-                let lik_ratio = log_likelihood_ratios[(i, j)].exp();
+                let l_val = log_likelihood_ratios[(i, j)].exp();  // L[i,j] already has r in it
                 if eta[i].abs() > 1e-15 {
-                    psi[(i, j)] = r * lik_ratio / eta[i];
+                    psi[(i, j)] = l_val / eta[i];
                 }
             }
         }
