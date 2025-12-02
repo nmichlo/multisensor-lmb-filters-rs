@@ -1,6 +1,6 @@
 # PRAK Library Refactoring Progress
 
-## Status: Step 4 Complete - LmbFilter Implemented
+## Status: Step 5 Complete - LmbmFilter Implemented
 
 **Last Updated:** 2025-12-02
 
@@ -121,13 +121,49 @@ Created `src/filter/lmb.rs` with full `LmbFilter<A: Associator>` implementation:
    - test_filter_multiple_steps
    - test_filter_reset
 
+### Step 5: Implement LmbmFilter ✅
+
+Created `src/filter/lmbm.rs` with full `LmbmFilter<A: Associator>` implementation:
+
+1. [x] `LmbmFilter<A: Associator>` struct with generic associator
+   - Default type parameter `GibbsAssociator` for sampling-based association
+   - Maintains multiple weighted hypotheses (`Vec<LmbmHypothesis>`)
+   - Each hypothesis has single-component tracks (hard assignments)
+   - Stores motion, sensor, birth models and LMBM-specific config
+
+2. [x] Constructor methods
+   - `LmbmFilter::new()` - Default constructor with Gibbs associator
+   - `LmbmFilter::from_params()` - Create from FilterParams
+   - `LmbmFilter::with_associator_type()` - Custom associator (e.g., Murty)
+
+3. [x] Hypothesis management
+   - `predict_hypotheses()` - Apply motion model to all hypotheses
+   - `generate_posterior_hypotheses()` - Create new hypotheses from association samples
+   - `normalize_and_gate_hypotheses()` - Log-sum-exp normalization, pruning, sorting
+   - `gate_tracks()` - Remove low-existence tracks across hypotheses
+
+4. [x] Core methods
+   - `build_log_likelihood_matrix()` - Compute log-likelihoods for hypothesis weights
+   - `update_existence_no_measurements()` - Missed detection update
+   - `extract_estimates()` - MAP/EAP cardinality estimation from hypothesis mixture
+   - `update_trajectories()` / `init_birth_trajectories()` - Trajectory tracking
+
+5. [x] `Filter` trait implementation
+   - `step()` - Full predict-update-normalize cycle
+   - `state()` - Returns current hypotheses
+   - `reset()` - Clears all hypotheses, reinitializes with empty hypothesis
+
+6. [x] Unit tests pass (6 tests)
+   - test_filter_creation
+   - test_filter_step_no_measurements
+   - test_filter_step_with_measurements
+   - test_filter_multiple_steps
+   - test_filter_reset
+   - test_hypothesis_normalization
+
 ---
 
 ## Next Steps
-
-### Step 5: Implement LmbmFilter
-
-Create `src/filter/lmbm.rs` with `LmbmFilter` implementation.
 
 ### Step 6: Implement MultisensorLmbFilter<M: Merger>
 
@@ -177,7 +213,8 @@ src/
 │   ├── mod.rs          ✅
 │   ├── traits.rs       ✅
 │   ├── errors.rs       ✅
-│   └── lmb.rs          ✅ (Step 4)
+│   ├── lmb.rs          ✅ (Step 4)
+│   └── lmbm.rs         ✅ (Step 5)
 └── lib.rs              ✅ (modified)
 ```
 
