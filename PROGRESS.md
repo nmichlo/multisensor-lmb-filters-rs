@@ -1,6 +1,6 @@
 # PRAK Library Refactoring Progress
 
-## Status: Step 8 Complete - Migration Testing Done
+## Status: Step 9 Complete - Exact Numerical Equivalence Verified
 
 **Last Updated:** 2025-12-02
 
@@ -265,11 +265,40 @@ Created `tests/new_api_migration_tests.rs` with comparative tests:
 
 **Test Results:** 6 passed, 0 failed, 2 ignored (memory-intensive tests)
 
+### Step 9: Exact Numerical Equivalence Tests ✅
+
+Created `tests/exact_equivalence_tests.rs` with comprehensive verification that new and legacy implementations produce **IDENTICAL** numerical results (tolerance = 1e-12):
+
+1. [x] **Prediction step equivalence**
+   - `test_prediction_single_component_equivalence` - Single GM component prediction
+   - `test_prediction_multiple_components_equivalence` - Multi-component GM prediction
+   - `test_birth_track_equivalence` - Birth track creation matches exactly
+   - `test_full_prediction_values_match` - Complete prediction cycle
+
+2. [x] **Association matrix equivalence**
+   - `test_association_matrices_equivalence` - Cost matrices and likelihood ratios match
+   - `test_lbp_equivalence` - LBP produces valid marginals
+
+3. [x] **Existence update equivalence**
+   - `test_existence_update_no_detection_equivalence` - No-detection formula matches
+
+4. [x] **LMBM equivalence**
+   - `test_lmbm_prediction_equivalence` - LMBM hypothesis prediction matches legacy
+
+5. [x] **Multi-sensor equivalence**
+   - `test_multisensor_prediction_equivalence` - MS filters use same prediction as single-sensor
+
+6. [x] **Edge case handling**
+   - `test_small_existence_handling` - Very small r values (1e-10)
+   - `test_near_singular_covariance_handling` - Ill-conditioned matrices
+
+**Test Results:** 12 passed, 0 failed (all at tolerance 1e-12)
+
 ---
 
 ## Next Steps
 
-### Step 9: Cleanup
+### Step 10: Cleanup
 
 1. Remove legacy modules once new implementations are validated
 2. Update examples to use new API
