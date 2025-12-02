@@ -648,18 +648,10 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
                         .update(&mut sensor_tracks, &result, &matrices.posteriors);
 
                     // Update existence from association
-                    for (i, track) in sensor_tracks.iter_mut().enumerate() {
-                        let miss_weight = result.miss_weights[i];
-                        let det_weight: f64 = (0..result.marginal_weights.ncols())
-                            .map(|j| result.marginal_weights[(i, j)])
-                            .sum();
-                        let total = miss_weight + det_weight;
-                        if total > 1e-15 {
-                            let det_ratio = det_weight / total;
-                            track.existence = track.existence * (1.0 - det_ratio * 0.5)
-                                + det_ratio * 0.5 * 1.0_f64.min(track.existence * 2.0);
-                        }
-                    }
+                    super::common_ops::update_existence_from_marginals(
+                        &mut sensor_tracks,
+                        &result,
+                    );
                 } else {
                     // No measurements for this sensor - missed detection update
                     let p_d = sensor.detection_probability;

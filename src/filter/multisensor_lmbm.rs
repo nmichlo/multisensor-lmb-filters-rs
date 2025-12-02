@@ -21,7 +21,6 @@ use std::marker::PhantomData;
 use nalgebra::{DMatrix, DVector};
 
 use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
-use crate::components::prediction::predict_tracks;
 use crate::types::{
     AssociationConfig, BirthModel, FilterParams, GaussianComponent, LmbmConfig, LmbmHypothesis,
     MotionModel, MultisensorConfig, StateEstimate, Track, Trajectory,
@@ -162,9 +161,12 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
     /// Predict all hypotheses forward in time.
     fn predict_hypotheses(&mut self, timestep: usize) {
-        for hyp in &mut self.hypotheses {
-            predict_tracks(&mut hyp.tracks, &self.motion, &self.birth, timestep, true);
-        }
+        super::common_ops::predict_all_hypotheses(
+            &mut self.hypotheses,
+            &self.motion,
+            &self.birth,
+            timestep,
+        );
     }
 
     /// Update existence probabilities when there are no measurements from any sensor.

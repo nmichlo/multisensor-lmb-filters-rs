@@ -20,7 +20,6 @@
 use nalgebra::DVector;
 
 use crate::association::AssociationBuilder;
-use crate::components::prediction::predict_tracks;
 use crate::types::{
     AssociationConfig, BirthModel, FilterParams, LmbmConfig, LmbmHypothesis, MotionModel,
     SensorModel, StateEstimate, Trajectory,
@@ -149,13 +148,13 @@ impl<A: Associator> LmbmFilter<A> {
     }
 
     /// Predict all hypotheses forward in time.
-    ///
-    /// This applies the motion model to all tracks in all hypotheses and adds
-    /// birth tracks to each hypothesis.
     fn predict_hypotheses(&mut self, timestep: usize) {
-        for hyp in &mut self.hypotheses {
-            predict_tracks(&mut hyp.tracks, &self.motion, &self.birth, timestep, true);
-        }
+        super::common_ops::predict_all_hypotheses(
+            &mut self.hypotheses,
+            &self.motion,
+            &self.birth,
+            timestep,
+        );
     }
 
     /// Generate posterior hypotheses from association samples.

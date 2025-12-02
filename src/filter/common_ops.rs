@@ -3,10 +3,16 @@
 //! This module contains extracted helper functions that are used by multiple
 //! filter implementations to avoid code duplication.
 
+use crate::components::prediction::predict_tracks;
 use crate::lmb::cardinality::lmb_map_cardinality_estimate;
-use crate::types::{EstimatedTrack, GaussianComponent, LmbmHypothesis, StateEstimate, Track, Trajectory};
+use crate::types::{
+    BirthModel, EstimatedTrack, GaussianComponent, LmbmHypothesis, MotionModel, StateEstimate,
+    Track, Trajectory,
+};
 use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
+
+use super::traits::AssociationResult;
 
 // ============================================================================
 // Gaussian Mixture Component Operations
@@ -247,9 +253,57 @@ pub fn init_birth_trajectories(tracks: &mut [Track], max_length: usize) {
     }
 }
 
+/// Update existence probabilities from association marginal weights.
+///
+/// Uses the miss weights and marginal detection weights from the association
+/// result to update track existence probabilities. If strongly associated with
+/// measurements, existence is boosted; if mostly miss, existence is reduced.
+///
+/// # Arguments
+/// * `tracks` - Mutable reference to track list
+/// * `result` - Association result containing miss_weights and marginal_weights
+pub fn update_existence_from_marginals(tracks: &mut [Track], result: &AssociationResult) {
+    for (i, track) in tracks.iter_mut().enumerate() {
+        let miss_weight = result.miss_weights[i];
+        let detection_weight: f64 = (0..result.marginal_weights.ncols())
+            .map(|j| result.marginal_weights[(i, j)])
+            .sum();
+
+        let total = miss_weight + detection_weight;
+        if total > 1e-15 {
+            // Weighted update: detection increases confidence
+            let detection_ratio = detection_weight / total;
+            // Interpolate between current existence and boosted value based on detection
+            track.existence = track.existence * (1.0 - detection_ratio * 0.5)
+                + detection_ratio * 0.5 * 1.0_f64.min(track.existence * 2.0);
+        }
+    }
+}
+
 // ============================================================================
 // Hypothesis-based operations (LmbmFilter, MultisensorLmbmFilter)
 // ============================================================================
+
+/// Predict all hypotheses forward in time.
+///
+/// Applies the motion model to all tracks in all hypotheses and adds
+/// birth tracks to each hypothesis.
+///
+/// # Arguments
+/// * `hypotheses` - Mutable reference to hypothesis list
+/// * `motion` - Motion model for prediction
+/// * `birth` - Birth model for new track generation
+/// * `timestep` - Current timestep
+pub fn predict_all_hypotheses(
+    hypotheses: &mut [LmbmHypothesis],
+    motion: &MotionModel,
+    birth: &BirthModel,
+    timestep: usize,
+) {
+    for hyp in hypotheses.iter_mut() {
+        predict_tracks(&mut hyp.tracks, motion, birth, timestep, true);
+    }
+}
 
 /// Gate tracks by existence probability across all hypotheses.
 ///

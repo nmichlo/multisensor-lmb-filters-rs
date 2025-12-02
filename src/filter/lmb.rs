@@ -184,38 +184,8 @@ impl<A: Associator> LmbFilter<A> {
     }
 
     /// Update existence probabilities from association result.
-    ///
-    /// The LBP/Gibbs/Murty algorithms compute posterior existence probabilities
-    /// which we need to apply to our tracks.
     fn update_existence_from_association(&mut self, result: &AssociationResult) {
-        // The miss_weights give us P(track i not associated | measurements)
-        // The marginal_weights give us P(track i associated with meas j | measurements)
-        //
-        // For LMB, the posterior existence is:
-        // r' = (miss_weight + sum_j marginal_weight[j]) * prior_factor
-        //
-        // However, the legacy implementation computes r directly in the LBP result.
-        // For now, we use a simplified update based on whether the track was likely detected.
-        for (i, track) in self.tracks.iter_mut().enumerate() {
-            // Total association weight = P(detected) + P(not detected)
-            // The association algorithms already normalize, so we use the
-            // miss weight to scale existence for missed detections
-            let miss_weight = result.miss_weights[i];
-            let detection_weight: f64 = (0..result.marginal_weights.ncols())
-                .map(|j| result.marginal_weights[(i, j)])
-                .sum();
-
-            // If strongly associated with measurements, boost existence
-            // If mostly miss, reduce existence
-            let total = miss_weight + detection_weight;
-            if total > 1e-15 {
-                // Weighted update: detection increases confidence
-                let detection_ratio = detection_weight / total;
-                // Interpolate between current existence and 1.0 based on detection
-                track.existence = track.existence * (1.0 - detection_ratio * 0.5)
-                    + detection_ratio * 0.5 * 1.0_f64.min(track.existence * 2.0);
-            }
-        }
+        super::common_ops::update_existence_from_marginals(&mut self.tracks, result);
     }
 }
 
