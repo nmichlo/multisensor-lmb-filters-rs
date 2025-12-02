@@ -90,8 +90,8 @@ impl LmbmFilter<GibbsAssociator> {
             lmbm_config,
             hypotheses: vec![initial_hypothesis],
             trajectories: Vec::new(),
-            existence_threshold: 1e-3,
-            min_trajectory_length: 3,
+            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             associator: GibbsAssociator,
         }
     }
@@ -130,8 +130,8 @@ impl<A: Associator> LmbmFilter<A> {
             lmbm_config,
             hypotheses: vec![initial_hypothesis],
             trajectories: Vec::new(),
-            existence_threshold: 1e-3,
-            min_trajectory_length: 3,
+            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             associator,
         }
     }
@@ -222,19 +222,12 @@ impl<A: Associator> LmbmFilter<A> {
     }
 
     /// Update existence probabilities when there are no measurements.
-    ///
-    /// Uses the standard missed detection formula for each track.
     fn update_existence_no_measurements(&mut self) {
         let p_d = self.sensor.detection_probability;
-
         for hyp in &mut self.hypotheses {
             for track in &mut hyp.tracks {
-                let r = track.existence;
-                // r' = r * (1 - p_D) / (1 - r * p_D)
-                let denom = 1.0 - r * p_d;
-                if denom.abs() > 1e-15 {
-                    track.existence = r * (1.0 - p_d) / denom;
-                }
+                track.existence =
+                    crate::components::update::update_existence_no_detection(track.existence, p_d);
             }
         }
     }

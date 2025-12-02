@@ -43,3 +43,29 @@ pub use multisensor_lmb::{
 pub use multisensor_lmbm::MultisensorLmbmFilter;
 pub use multisensor_traits::{MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator};
 pub use traits::{Associator, Filter, Merger, Updater};
+
+// ============================================================================
+// Default Filter Constants
+// ============================================================================
+
+/// Default existence probability threshold for track gating.
+/// Tracks with existence below this threshold are pruned.
+pub const DEFAULT_EXISTENCE_THRESHOLD: f64 = 1e-3;
+
+/// Default minimum trajectory length to save when pruning tracks.
+/// Short-lived tracks are discarded without saving their trajectory.
+pub const DEFAULT_MIN_TRAJECTORY_LENGTH: usize = 3;
+
+/// Default weight threshold for GM component pruning.
+/// Components with weight below this threshold are pruned.
+pub const DEFAULT_GM_WEIGHT_THRESHOLD: f64 = 1e-4;
+
+/// Default maximum number of GM components per track.
+pub const DEFAULT_MAX_GM_COMPONENTS: usize = 100;
+
+/// Default maximum number of hypotheses for LMBM filters.
+pub const DEFAULT_LMBM_MAX_HYPOTHESES: usize = 100;
+
+/// Default hypothesis weight threshold for LMBM filters.
+/// Hypotheses with weight below this threshold are pruned.
+pub const DEFAULT_LMBM_WEIGHT_THRESHOLD: f64 = 1e-5;

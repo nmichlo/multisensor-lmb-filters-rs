@@ -502,10 +502,10 @@ impl<M: Merger> MultisensorLmbFilter<LbpAssociator, M> {
             association_config,
             tracks: Vec::new(),
             trajectories: Vec::new(),
-            existence_threshold: 1e-3,
-            min_trajectory_length: 3,
-            gm_weight_threshold: 1e-4,
-            max_gm_components: 100,
+            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
             associator: LbpAssociator,
             merger,
             updater: MarginalUpdater::new(),
@@ -530,10 +530,10 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
             association_config,
             tracks: Vec::new(),
             trajectories: Vec::new(),
-            existence_threshold: 1e-3,
-            min_trajectory_length: 3,
-            gm_weight_threshold: 1e-4,
-            max_gm_components: 100,
+            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
             associator,
             merger,
             updater: MarginalUpdater::new(),
@@ -592,17 +592,17 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
 
     /// Update existence for missed detection (all sensors).
     fn update_existence_no_measurements(&mut self) {
+        let detection_probs: Vec<f64> = self
+            .sensors
+            .sensors
+            .iter()
+            .map(|s| s.detection_probability)
+            .collect();
         for track in &mut self.tracks {
-            let mut r = track.existence;
-            // Apply missed detection update for each sensor
-            for sensor in &self.sensors.sensors {
-                let p_d = sensor.detection_probability;
-                let denom = 1.0 - r * p_d;
-                if denom.abs() > 1e-15 {
-                    r = r * (1.0 - p_d) / denom;
-                }
-            }
-            track.existence = r;
+            track.existence = crate::components::update::update_existence_no_detection_multisensor(
+                track.existence,
+                &detection_probs,
+            );
         }
     }
 }
@@ -675,11 +675,11 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
                     // No measurements for this sensor - missed detection update
                     let p_d = sensor.detection_probability;
                     for track in &mut sensor_tracks {
-                        let r = track.existence;
-                        let denom = 1.0 - r * p_d;
-                        if denom.abs() > 1e-15 {
-                            track.existence = r * (1.0 - p_d) / denom;
-                        }
+                        track.existence =
+                            crate::components::update::update_existence_no_detection(
+                                track.existence,
+                                p_d,
+                            );
                     }
                 }
 

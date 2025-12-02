@@ -88,10 +88,10 @@ impl LmbFilter<LbpAssociator> {
             association_config,
             tracks: Vec::new(),
             trajectories: Vec::new(),
-            existence_threshold: 1e-3,
-            min_trajectory_length: 3,
-            gm_weight_threshold: 1e-4,
-            max_gm_components: 100,
+            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
             associator: LbpAssociator,
             updater,
         }
@@ -129,10 +129,10 @@ impl<A: Associator> LmbFilter<A> {
             association_config,
             tracks: Vec::new(),
             trajectories: Vec::new(),
-            existence_threshold: 1e-3,
-            min_trajectory_length: 3,
-            gm_weight_threshold: 1e-4,
-            max_gm_components: 100,
+            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
             associator,
             updater,
         }
@@ -259,13 +259,10 @@ impl<A: Associator> Filter for LmbFilter<A> {
         } else {
             // No measurements: update existence for missed detection
             for track in &mut self.tracks {
-                let p_d = self.sensor.detection_probability;
-                let r = track.existence;
-                // r' = r * (1 - p_D) / (1 - r * p_D)
-                let denom = 1.0 - r * p_d;
-                if denom.abs() > 1e-15 {
-                    track.existence = r * (1.0 - p_d) / denom;
-                }
+                track.existence = crate::components::update::update_existence_no_detection(
+                    track.existence,
+                    self.sensor.detection_probability,
+                );
             }
         }
 

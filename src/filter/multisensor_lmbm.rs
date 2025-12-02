@@ -136,8 +136,8 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             lmbm_config,
             hypotheses: vec![initial_hypothesis],
             trajectories: Vec::new(),
-            existence_threshold: 1e-3,
-            min_trajectory_length: 3,
+            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             _associator: PhantomData,
         }
     }
@@ -169,21 +169,19 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
     /// Update existence probabilities when there are no measurements from any sensor.
     fn update_existence_no_measurements(&mut self) {
-        // Compute product of (1 - p_D[s]) across all sensors
-        let mut prob_no_detect = 1.0;
-        for sensor in &self.sensors.sensors {
-            prob_no_detect *= 1.0 - sensor.detection_probability;
-        }
-
+        let detection_probs: Vec<f64> = self
+            .sensors
+            .sensors
+            .iter()
+            .map(|s| s.detection_probability)
+            .collect();
         for hyp in &mut self.hypotheses {
             for track in &mut hyp.tracks {
-                let r = track.existence;
-                // r' = r * (1 - p_D)^S / (1 - r + r * (1 - p_D)^S)
-                let numerator = r * prob_no_detect;
-                let denom = 1.0 - r + numerator;
-                if denom.abs() > 1e-15 {
-                    track.existence = numerator / denom;
-                }
+                track.existence =
+                    crate::components::update::update_existence_no_detection_multisensor(
+                        track.existence,
+                        &detection_probs,
+                    );
             }
         }
     }

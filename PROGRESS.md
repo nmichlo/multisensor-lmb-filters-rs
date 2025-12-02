@@ -1,14 +1,18 @@
 # PRAK Library Refactoring Progress
 
-## Status: IN PROGRESS - Deduplication & Standardization
+## Status: COMPLETE - Deduplication & Standardization
 
 **Last Updated:** 2025-12-02
 
-The new trait-based API is complete. Now refactoring to deduplicate ~360 lines of repeated code and standardize interfaces for future extensibility.
+All refactoring phases complete. The library now has:
+- Trait-based API with pluggable associators
+- Shared operations in `filter/common_ops.rs`
+- Centralized constants in `filter/mod.rs`
+- ~300+ lines of duplicated code eliminated
 
 ---
 
-## Current Work: Deduplication Refactoring
+## Completed Refactoring Phases
 
 ### Phase 1: Create MultisensorAssociator Trait ✅
 
@@ -48,27 +52,31 @@ The new trait-based API is complete. Now refactoring to deduplicate ~360 lines o
 
 **Result:** ~50 additional lines of duplicated code eliminated.
 
-### Phase 4: Use Existing Update Helpers [ ]
+### Phase 4: Use Existing Update Helpers ✅
 
 **Goal:** Replace inline logic with existing `update.rs` helpers (~60 lines)
 
-- [ ] Replace inline existence update in `lmb.rs` with `update_existence_no_detection()`
-- [ ] Replace inline existence update in `lmbm.rs` with `update_existence_no_detection()`
-- [ ] Replace inline existence update in `multisensor_lmb.rs` with `update_existence_no_detection_multisensor()`
-- [ ] Replace inline existence update in `multisensor_lmbm.rs` with `update_existence_no_detection_multisensor()`
+- [x] Replace inline existence update in `lmb.rs` with `update_existence_no_detection()`
+- [x] Replace inline existence update in `lmbm.rs` with `update_existence_no_detection()`
+- [x] Replace inline existence update in `multisensor_lmb.rs` with `update_existence_no_detection_multisensor()`
+- [x] Replace inline existence update in `multisensor_lmbm.rs` with `update_existence_no_detection_multisensor()`
 
-### Phase 5: Standardize Constructor Defaults [ ]
+**Result:** All 4 filters now use the shared existence update helpers from `components/update.rs`.
+
+### Phase 5: Standardize Constructor Defaults ✅
 
 **Goal:** Single source of truth for default values (~50 lines)
 
-- [ ] Add constants to `src/filter/mod.rs`:
+- [x] Add constants to `src/filter/mod.rs`:
   - `DEFAULT_EXISTENCE_THRESHOLD: f64 = 1e-3`
   - `DEFAULT_MIN_TRAJECTORY_LENGTH: usize = 3`
   - `DEFAULT_GM_WEIGHT_THRESHOLD: f64 = 1e-4`
   - `DEFAULT_MAX_GM_COMPONENTS: usize = 100`
   - `DEFAULT_LMBM_MAX_HYPOTHESES: usize = 100`
   - `DEFAULT_LMBM_WEIGHT_THRESHOLD: f64 = 1e-5`
-- [ ] Update all filter constructors to use constants
+- [x] Update all filter constructors to use constants
+
+**Result:** All default values now come from a single source in `filter/mod.rs`.
 
 ---
 
