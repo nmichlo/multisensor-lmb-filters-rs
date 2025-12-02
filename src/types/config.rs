@@ -171,6 +171,24 @@ impl MultisensorConfig {
     pub fn sensor(&self, idx: usize) -> Option<&SensorModel> {
         self.sensors.get(idx)
     }
+
+    /// Measurement dimension (from first sensor).
+    ///
+    /// Returns 0 if no sensors are configured.
+    ///
+    /// # Note on standardization
+    ///
+    /// This method was extracted to standardize inconsistent implementations:
+    /// - `MultisensorLmbFilter` originally used `unwrap_or(2)` (assumed 2D position sensor)
+    /// - `MultisensorLmbmFilter` originally used `map_or(0, ...)` (explicit zero)
+    ///
+    /// We standardized on `0` because it makes misconfiguration explicit rather than
+    /// silently assuming a 2D sensor. If you need a default, check `num_sensors() > 0`
+    /// before calling this method.
+    #[inline]
+    pub fn z_dim(&self) -> usize {
+        self.sensors.first().map_or(0, |s| s.z_dim())
+    }
 }
 
 /// Birth location parameters

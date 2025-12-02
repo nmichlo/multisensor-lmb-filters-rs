@@ -706,8 +706,7 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
     }
 
     fn z_dim(&self) -> usize {
-        // Return first sensor's z_dim
-        self.sensors.sensors.first().map(|s| s.z_dim()).unwrap_or(2)
+        self.sensors.z_dim()
     }
 }
 

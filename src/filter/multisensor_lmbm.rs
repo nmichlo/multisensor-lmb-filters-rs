@@ -16,8 +16,6 @@
 //! and sensors, as the likelihood matrix grows as O(∏(m_s + 1) × n) where m_s is
 //! the number of measurements from sensor s and n is the number of objects.
 
-use std::marker::PhantomData;
-
 use nalgebra::{DMatrix, DVector};
 
 use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
@@ -76,8 +74,8 @@ pub struct MultisensorLmbmFilter<A: MultisensorAssociator = MultisensorGibbsAsso
     /// Minimum trajectory length to keep when pruning
     min_trajectory_length: usize,
 
-    /// Phantom data for associator type
-    _associator: PhantomData<A>,
+    /// The multi-sensor associator instance
+    associator: A,
 }
 
 /// Posterior parameters for a single entry in the flattened likelihood tensor.
@@ -137,7 +135,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             trajectories: Vec::new(),
             existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
             min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
-            _associator: PhantomData,
+            associator: A::default(),
         }
     }
 
@@ -574,11 +572,11 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
             let (log_likelihoods, posteriors, dimensions) =
                 self.generate_association_matrices(&self.hypotheses[0].tracks, measurements);
 
-            // Run multi-sensor association using the associator trait
-            let associator = A::default();
-            let association_result = associator
+            // Run multi-sensor association using the stored associator
+            let association_result = self
+                .associator
                 .associate(rng, &log_likelihoods, &dimensions, &self.association_config)
-                .map_err(|e| FilterError::Association(e))?;
+                .map_err(FilterError::Association)?;
 
             // Generate posterior hypotheses from association samples
             self.generate_posterior_hypotheses(
@@ -628,7 +626,7 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
     }
 
     fn z_dim(&self) -> usize {
-        self.sensors.sensors.get(0).map_or(0, |s| s.z_dim())
+        self.sensors.z_dim()
     }
 }
 
