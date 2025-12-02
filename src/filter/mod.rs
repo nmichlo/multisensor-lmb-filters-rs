@@ -1,4 +1,4 @@
-//! Filter implementations
+//! Filter implementations for multi-object tracking.
 //!
 //! This module provides the unified filter trait and implementations:
 //!
@@ -9,13 +9,15 @@
 //!
 //! # Filter Types
 //!
-//! - `LmbFilter` - Single-sensor LMB filter (coming soon)
+//! - [`LmbFilter`] - Single-sensor LMB filter
 //! - `LmbmFilter` - Single-sensor LMBM filter (coming soon)
 //! - `MultisensorLmbFilter<M: Merger>` - Multi-sensor LMB (coming soon)
 //! - `MultisensorLmbmFilter` - Multi-sensor LMBM (coming soon)
 
 pub mod errors;
+pub mod lmb;
 pub mod traits;
 
 pub use errors::{AssociationError, FilterError};
+pub use lmb::LmbFilter;
 pub use traits::{Associator, Filter, Merger, Updater};

@@ -1,6 +1,6 @@
 # PRAK Library Refactoring Progress
 
-## Status: Step 3 Complete - Updaters Implemented
+## Status: Step 4 Complete - LmbFilter Implemented
 
 **Last Updated:** 2025-12-02
 
@@ -81,18 +81,49 @@ Implemented the track update strategies:
    - Miss: keeps prior state unchanged
    - Falls back to best association if no samples available
 
+### Step 4: Implement LmbFilter ✅
+
+Created `src/filter/lmb.rs` with full `LmbFilter<A: Associator>` implementation:
+
+1. [x] `LmbFilter<A: Associator>` struct with generic associator
+   - Default type parameter `LbpAssociator` for convenience
+   - Stores motion, sensor, birth models and association config
+   - Maintains tracks and trajectories
+   - Configurable thresholds (existence, GM pruning, trajectory length)
+
+2. [x] Constructor methods
+   - `LmbFilter::new()` - Default constructor with LBP associator
+   - `LmbFilter::from_params()` - Create from FilterParams (extracts single sensor)
+   - `LmbFilter::with_associator_type()` - Custom associator
+
+3. [x] Builder-style configuration
+   - `with_existence_threshold()` - Set gating threshold
+   - `with_min_trajectory_length()` - Set minimum trajectory to save
+   - `with_gm_pruning()` - Set GM component pruning parameters
+
+4. [x] Core methods
+   - `gate_tracks()` - Remove low-existence tracks, save long trajectories
+   - `extract_estimates()` - MAP cardinality estimation for state extraction
+   - `update_trajectories()` - Record track states at each timestep
+   - `init_birth_trajectories()` - Initialize trajectory recording for births
+   - `update_existence_from_association()` - Apply association result to existence
+
+5. [x] `Filter` trait implementation
+   - `step()` - Full predict-update cycle with measurements
+   - `state()` - Get current tracks
+   - `reset()` - Clear all tracks and trajectories
+   - `x_dim()` / `z_dim()` - State/measurement dimensions
+
+6. [x] Unit tests pass
+   - test_filter_creation
+   - test_filter_step_no_measurements
+   - test_filter_step_with_measurements
+   - test_filter_multiple_steps
+   - test_filter_reset
+
 ---
 
 ## Next Steps
-
-### Step 4: Implement LmbFilter
-
-Create `src/filter/lmb.rs` with full `LmbFilter` implementation:
-- Uses new types (`Track`, `FilterParams`)
-- Uses `predict_tracks()` from components
-- Uses `AssociationBuilder` from association
-- Uses `LbpAssociator` (or selectable via config)
-- Uses `MarginalUpdater`
 
 ### Step 5: Implement LmbmFilter
 
@@ -145,7 +176,8 @@ src/
 ├── filter/
 │   ├── mod.rs          ✅
 │   ├── traits.rs       ✅
-│   └── errors.rs       ✅
+│   ├── errors.rs       ✅
+│   └── lmb.rs          ✅ (Step 4)
 └── lib.rs              ✅ (modified)
 ```
 
