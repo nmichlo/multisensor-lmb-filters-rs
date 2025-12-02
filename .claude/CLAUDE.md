@@ -69,3 +69,4 @@ Only after checking all these should you resort to execution tracing.
 - if you come across code and notice any code that can be de-duplicated or should be turned into traits make not of it in ./docs/03_optimisations/todos.md
 - REMEMBER: you always need to run rust tests or examples with --release
 - REMEMBER: keep track of changes and todos in ./PROGRESS.md, use this as working memory and write next steps, completed work, encountered issues, and context for future tasks. Write this file so that anyone can pickup work in future and know where to start.
+- REMEMBER: add docstrings explaining what algorithms, structs and functions do and why/how they work. I'm not really interested in documenting arguments unnecessarily unless unintruitive.

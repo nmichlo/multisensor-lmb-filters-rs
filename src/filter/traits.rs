@@ -589,18 +589,124 @@ impl Updater for MarginalUpdater {
 }
 
 /// LMBM hard assignment update strategy
+///
+/// Updates tracks using hard (deterministic) assignment from sampled associations.
+/// Unlike `MarginalUpdater`, this selects a single posterior for each track
+/// based on the association event, resulting in single-component tracks.
+///
+/// This is used with LMBM which maintains multiple hypotheses, where each
+/// hypothesis has tracks with single components.
 #[derive(Debug, Clone, Default)]
-pub struct HardAssignmentUpdater;
+pub struct HardAssignmentUpdater {
+    /// Index of the association sample to use (for multi-hypothesis LMBM)
+    pub sample_index: usize,
+}
+
+impl HardAssignmentUpdater {
+    /// Create a new hard assignment updater
+    pub fn new() -> Self {
+        Self { sample_index: 0 }
+    }
+
+    /// Create with specific sample index
+    pub fn with_sample_index(sample_index: usize) -> Self {
+        Self { sample_index }
+    }
+}
 
 impl Updater for HardAssignmentUpdater {
     fn update(
         &self,
-        _tracks: &mut [Track],
-        _result: &AssociationResult,
-        _posteriors: &PosteriorGrid,
+        tracks: &mut [Track],
+        result: &AssociationResult,
+        posteriors: &PosteriorGrid,
     ) {
-        // TODO: Implement hard assignment for LMBM
-        // For now, placeholder
+        let n = tracks.len();
+
+        // Get the association sample to use
+        let assignments = match &result.sampled_associations {
+            Some(samples) if !samples.is_empty() => {
+                let idx = self.sample_index.min(samples.len() - 1);
+                &samples[idx]
+            }
+            _ => {
+                // Fall back to best association if no samples available
+                // Apply best associations directly
+                for i in 0..n {
+                    let track = &mut tracks[i];
+                    let meas_idx = result.best_association(i);
+
+                    match meas_idx {
+                        Some(j) => {
+                            // Track associated with measurement j
+                            if let (Some(post_mean), Some(post_cov)) = (
+                                posteriors.get_mean(i, j),
+                                posteriors.get_covariance(i, j),
+                            ) {
+                                // Replace all components with single posterior
+                                track.components.clear();
+                                track.components.push(crate::types::GaussianComponent::new(
+                                    1.0,
+                                    post_mean.clone(),
+                                    post_cov.clone(),
+                                ));
+                                // Set existence to 1.0 for detected objects
+                                track.existence = 1.0;
+                            }
+                        }
+                        None => {
+                            // Track missed - keep prior mean, prior covariance
+                            // (components unchanged, just normalize weight)
+                            if !track.components.is_empty() {
+                                let total: f64 = track.components.iter().map(|c| c.weight).sum();
+                                if total > 1e-15 {
+                                    for c in track.components.iter_mut() {
+                                        c.weight /= total;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+        };
+
+        // Apply sampled assignments
+        for i in 0..n {
+            let track = &mut tracks[i];
+            let assigned_meas = assignments.get(i).copied().unwrap_or(-1);
+
+            if assigned_meas >= 0 {
+                // Track associated with measurement
+                let j = assigned_meas as usize;
+                if let (Some(post_mean), Some(post_cov)) = (
+                    posteriors.get_mean(i, j),
+                    posteriors.get_covariance(i, j),
+                ) {
+                    // Replace all components with single posterior
+                    track.components.clear();
+                    track.components.push(crate::types::GaussianComponent::new(
+                        1.0,
+                        post_mean.clone(),
+                        post_cov.clone(),
+                    ));
+                    // Set existence to 1.0 for detected objects
+                    track.existence = 1.0;
+                }
+            } else {
+                // Track missed - keep prior state
+                // (components unchanged, just normalize weight)
+                if !track.components.is_empty() {
+                    let total: f64 = track.components.iter().map(|c| c.weight).sum();
+                    if total > 1e-15 {
+                        for c in track.components.iter_mut() {
+                            c.weight /= total;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn name(&self) -> &'static str {
@@ -634,7 +740,7 @@ mod tests {
 
     #[test]
     fn test_updater_names() {
-        assert_eq!(MarginalUpdater.name(), "Marginal");
-        assert_eq!(HardAssignmentUpdater.name(), "HardAssignment");
+        assert_eq!(MarginalUpdater::new().name(), "Marginal");
+        assert_eq!(HardAssignmentUpdater::new().name(), "HardAssignment");
     }
 }

@@ -1,6 +1,6 @@
 # PRAK Library Refactoring Progress
 
-## Status: Step 2 Complete - Associators Wired Up
+## Status: Step 3 Complete - Updaters Implemented
 
 **Last Updated:** 2025-12-02
 
@@ -62,15 +62,28 @@ Connected the placeholder associators to the actual implementations in `common/a
    - Computes marginal probabilities from weighted k-best assignments
    - Handles dummy assignments (clutter) correctly
 
+### Step 3: Implement MarginalUpdater and HardAssignmentUpdater ✅
+
+Implemented the track update strategies:
+
+1. [x] `MarginalUpdater` - LMB marginal reweighting
+   - Reweights GM components by marginal association probabilities
+   - Creates new components for each (prior component, measurement) pair
+   - Miss case: prior components weighted by miss probability
+   - Detection case: posterior components weighted by marginal probabilities
+   - Prunes components below weight threshold, caps to max components
+   - Renormalizes kept components
+
+2. [x] `HardAssignmentUpdater` - LMBM hard selection
+   - Uses sampled association events for deterministic assignment
+   - Selects single posterior for each track (single-component result)
+   - Detection: replaces all components with single posterior, sets existence=1.0
+   - Miss: keeps prior state unchanged
+   - Falls back to best association if no samples available
+
 ---
 
 ## Next Steps
-
-### Step 3: Implement MarginalUpdater and HardAssignmentUpdater
-
-Fill in the actual update logic for:
-- `MarginalUpdater` - LMB marginal reweighting
-- `HardAssignmentUpdater` - LMBM hard selection
 
 ### Step 4: Implement LmbFilter
 
