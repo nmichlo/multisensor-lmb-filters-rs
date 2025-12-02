@@ -1,15 +1,25 @@
-//! Track prediction using Chapman-Kolmogorov equation
+//! Track prediction using the Chapman-Kolmogorov equation.
 //!
-//! This module provides unified prediction for all filter types.
-//! The prediction step propagates tracks forward in time using the motion model.
+//! The prediction step propagates tracks forward in time before measurements arrive.
+//! It accounts for:
+//!
+//! - **Motion dynamics**: Objects move according to the motion model (e.g., constant velocity)
+//! - **Process noise**: Uncertainty grows due to unmodeled accelerations
+//! - **Survival probability**: Some tracks may disappear (leave the scene, be occluded)
+//! - **Birth**: New objects may appear at predefined birth locations
+//!
+//! This module provides unified prediction functions used by all filter variants
+//! (LMB, LMBM, MS-LMB, MS-LMBM).
 
 use crate::types::{BirthModel, GaussianComponent, MotionModel, Track};
 
-/// Predict a single Gaussian component forward in time
+/// Predict a single Gaussian component forward in time.
 ///
-/// Implements the Chapman-Kolmogorov prediction:
-/// - `μ' = A × μ + u`
-/// - `Σ' = A × Σ × Aᵀ + R`
+/// Applies the Chapman-Kolmogorov prediction equations:
+/// - Mean: `μ' = A × μ + u` (apply dynamics)
+/// - Covariance: `Σ' = A × Σ × Aᵀ + R` (propagate and add uncertainty)
+///
+/// This is the core Kalman filter prediction step for one Gaussian component.
 #[inline]
 pub fn predict_component(component: &mut GaussianComponent, motion: &MotionModel) {
     // Mean prediction: μ' = A × μ + u
@@ -22,9 +32,11 @@ pub fn predict_component(component: &mut GaussianComponent, motion: &MotionModel
         + &motion.process_noise;
 }
 
-/// Predict a single track forward in time
+/// Predict a single track forward in time.
 ///
-/// Updates existence probability and all Gaussian components.
+/// Updates both the existence probability (survival model) and all Gaussian
+/// components (motion model). The existence probability decreases by the
+/// survival probability: `r' = p_S × r`, modeling that tracks may disappear.
 #[inline]
 pub fn predict_track(track: &mut Track, motion: &MotionModel) {
     // Existence prediction: r' = p_S × r
@@ -37,17 +49,18 @@ pub fn predict_track(track: &mut Track, motion: &MotionModel) {
         .for_each(|c| predict_component(c, motion));
 }
 
-/// Predict all tracks and add birth tracks
+/// Predict all existing tracks and add new birth tracks.
 ///
-/// This is the main prediction function used by all filters.
-/// It handles both existing track prediction and birth track addition.
+/// This is the main prediction function used by all filters. It performs:
 ///
-/// # Arguments
-/// * `tracks` - Mutable slice of tracks to predict
-/// * `motion` - Motion model parameters
-/// * `birth` - Birth model parameters
-/// * `timestep` - Current timestep (for birth track labeling)
-/// * `use_lmbm` - If true, use LMBM birth existence probability
+/// 1. **Survival prediction**: Existing tracks are propagated forward, with
+///    existence probabilities reduced by the survival probability.
+///
+/// 2. **Birth addition**: New potential tracks are added at predefined birth
+///    locations. These represent objects that might have just appeared.
+///
+/// LMB and LMBM use different birth existence probabilities (LMBM uses lower
+/// values since it maintains multiple hypotheses).
 pub fn predict_tracks(
     tracks: &mut Vec<Track>,
     motion: &MotionModel,
@@ -78,10 +91,11 @@ pub fn predict_tracks(
     tracks.extend(new_tracks);
 }
 
-/// Predict LMBM hypotheses
+/// Predict all LMBM hypotheses.
 ///
-/// For LMBM, we predict all tracks within each hypothesis.
-/// Birth tracks are added to all hypotheses.
+/// LMBM maintains multiple weighted hypotheses, each representing a different
+/// possible association history. This function predicts all tracks within each
+/// hypothesis and adds birth tracks to all of them.
 pub fn predict_hypotheses(
     hypotheses: &mut Vec<crate::types::LmbmHypothesis>,
     motion: &MotionModel,

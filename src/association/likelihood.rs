@@ -1,7 +1,19 @@
-//! Unified likelihood computation
+//! Unified likelihood computation for measurement-track association.
 //!
-//! This module provides the core likelihood computation used by all filters.
-//! Changes here automatically apply to LMB, LMBM, MS-LMB, and MS-LMBM.
+//! This module computes the likelihood that a measurement originated from a track,
+//! which is the foundation of data association. The computation involves:
+//!
+//! 1. **Innovation**: The difference between the measurement and predicted observation
+//! 2. **Mahalanobis distance**: Normalized distance accounting for uncertainty
+//! 3. **Likelihood ratio**: Compares detection likelihood to clutter likelihood
+//! 4. **Kalman posterior**: Updated state estimate if this association is correct
+//!
+//! The likelihood ratio `L = p_D × N(z; Cμ, CΣC'+Q) / κ` balances:
+//! - Detection probability (`p_D`): How likely the sensor detects the track
+//! - Gaussian likelihood: How well the measurement fits the track prediction
+//! - Clutter density (`κ`): The false alarm rate per unit volume
+//!
+//! High `L` means the measurement is much more likely from this track than from clutter.
 
 use std::f64::consts::PI;
 
@@ -9,10 +21,14 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::types::SensorModel;
 
-/// Workspace to avoid repeated allocations in inner loops
+/// Pre-allocated workspace for likelihood computations.
 ///
-/// Reused across all likelihood computations in a filter step.
-/// Create one per filter instance and reuse.
+/// Computing likelihoods involves matrix operations that allocate intermediate
+/// results. This workspace pre-allocates these buffers and reuses them across
+/// multiple likelihood evaluations, significantly reducing allocation overhead
+/// in the inner loop of data association.
+///
+/// Create one workspace per filter and reuse it for all likelihood computations.
 #[derive(Debug, Clone)]
 pub struct LikelihoodWorkspace {
     /// Innovation covariance: Z = C*Σ*Cᵀ + Q
@@ -51,16 +67,21 @@ impl LikelihoodWorkspace {
     }
 }
 
-/// Result of likelihood computation for one track-measurement pair
+/// Result of likelihood computation for one track-measurement pair.
+///
+/// Contains everything needed to evaluate and apply a potential association:
+/// - The likelihood ratio tells us how plausible this association is
+/// - The posterior parameters are used if we accept this association
 #[derive(Debug, Clone)]
 pub struct LikelihoodResult {
-    /// Log-likelihood ratio (includes detection prob and clutter density)
+    /// Log of the likelihood ratio `log(p_D × N(...) / κ)`.
+    /// Positive values indicate the measurement is more likely from this track than clutter.
     pub log_likelihood_ratio: f64,
-    /// Posterior mean after measurement update
+    /// Kalman-updated state mean assuming this association is correct.
     pub posterior_mean: DVector<f64>,
-    /// Posterior covariance after measurement update
+    /// Kalman-updated state covariance (reduced uncertainty from measurement).
     pub posterior_covariance: DMatrix<f64>,
-    /// Kalman gain used in update
+    /// Kalman gain matrix used in the update.
     pub kalman_gain: DMatrix<f64>,
 }
 

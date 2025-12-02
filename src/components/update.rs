@@ -1,20 +1,23 @@
-//! Existence probability update functions
+//! Existence probability updates for Bernoulli random finite sets.
 //!
-//! This module provides unified existence probability updates.
+//! In LMB filtering, each track has an existence probability `r ∈ [0,1]` representing
+//! our belief that the track corresponds to a real object. These probabilities must
+//! be updated based on measurement evidence (or lack thereof).
+//!
+//! Key insight: If a track exists and the sensor has high detection probability,
+//! *not* seeing a measurement is strong evidence the track doesn't exist. Conversely,
+//! receiving a well-matching measurement increases existence probability.
 
-/// Update existence probability when no measurements received
+/// Update existence probability when no measurements are associated.
 ///
-/// Formula: `r' = r × (1-p_D) / (1 - r × p_D)`
+/// Bayesian update for missed detection:
+/// ```text
+/// r' = r × (1 - p_D) / (1 - r × p_D)
+/// ```
 ///
-/// This Bayesian update reflects that if a target exists but wasn't detected,
-/// we should reduce our belief in its existence based on the detection probability.
-///
-/// # Arguments
-/// * `existence` - Current existence probability
-/// * `detection_prob` - Probability of detection
-///
-/// # Returns
-/// Updated existence probability
+/// Intuition: The numerator is P(exists and missed). The denominator normalizes
+/// over all possibilities (doesn't exist, or exists and missed). High detection
+/// probability with no detection strongly decreases existence probability.
 #[inline]
 pub fn update_existence_no_detection(existence: f64, detection_prob: f64) -> f64 {
     let numerator = existence * (1.0 - detection_prob);
@@ -28,16 +31,11 @@ pub fn update_existence_no_detection(existence: f64, detection_prob: f64) -> f64
     }
 }
 
-/// Update existence probability for multi-sensor no-detection case
+/// Update existence for multi-sensor case when no sensor detects the track.
 ///
-/// Applies the no-detection update for each sensor in sequence.
-///
-/// # Arguments
-/// * `existence` - Current existence probability
-/// * `detection_probs` - Detection probabilities for each sensor
-///
-/// # Returns
-/// Updated existence probability after considering all sensors
+/// Applies the no-detection update sequentially for each sensor. This is
+/// correct because the sensors are assumed conditionally independent given
+/// the track state.
 pub fn update_existence_no_detection_multisensor(
     existence: f64,
     detection_probs: &[f64],
@@ -47,18 +45,14 @@ pub fn update_existence_no_detection_multisensor(
         .fold(existence, |r, &p_d| update_existence_no_detection(r, p_d))
 }
 
-/// Update existence probability with measurement
+/// Update existence probability when measurements are received.
 ///
-/// Formula for LMB: used in conjunction with likelihood ratio
-/// This is a helper for the more complex update in association.
+/// This combines miss probability with the total likelihood contribution
+/// from all potential measurement associations. Higher likelihood sum
+/// (meaning measurements match the track well) increases existence probability.
 ///
-/// # Arguments
-/// * `prior_existence` - Prior existence probability
-/// * `detection_prob` - Detection probability
-/// * `likelihood_sum` - Sum of likelihood ratios for all measurements
-///
-/// # Returns
-/// Posterior existence probability
+/// Used as a helper in the full LMB update, which also updates the
+/// spatial distribution (Gaussian mixture).
 #[inline]
 pub fn update_existence_with_measurement(
     prior_existence: f64,

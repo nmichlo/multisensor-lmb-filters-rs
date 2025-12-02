@@ -1,7 +1,11 @@
-//! Association matrix building
+//! Association matrix construction for data association algorithms.
 //!
-//! This module provides unified construction of association matrices
-//! used by data association algorithms.
+//! This module builds the matrices needed by data association algorithms (LBP, Gibbs, Murty).
+//! The key insight is that all algorithms need similar inputs: likelihood ratios between
+//! track-measurement pairs, miss probabilities, and Kalman-updated posteriors.
+//!
+//! The [`AssociationBuilder`] computes these once, avoiding redundant likelihood evaluations.
+//! The resulting [`AssociationMatrices`] can be passed to any [`Associator`](crate::filter::Associator).
 
 use nalgebra::{DMatrix, DVector};
 
@@ -9,18 +13,24 @@ use crate::types::{SensorModel, Track};
 
 use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
 
-/// Grid of posterior parameters for all (track, measurement) pairs
+/// Pre-computed Kalman posteriors for all (track, measurement) pairs.
+///
+/// When a track detects a measurement, the posterior state is computed via
+/// Kalman update. Since we don't know which associations are correct, we
+/// pre-compute posteriors for all possible pairings. The data association
+/// algorithm then selects or weights these posteriors.
+///
+/// This grid stores `n_tracks × n_measurements` posterior means and covariances,
+/// indexed as `[track_idx][measurement_idx]`.
 #[derive(Debug, Clone)]
 pub struct PosteriorGrid {
-    /// Number of tracks
     pub num_tracks: usize,
-    /// Number of measurements
     pub num_measurements: usize,
-    /// Posterior means: indexed as [track_idx][measurement_idx]
+    /// Kalman-updated posterior means for each (track, measurement) pair.
     pub means: Vec<Vec<DVector<f64>>>,
-    /// Posterior covariances
+    /// Kalman-updated posterior covariances.
     pub covariances: Vec<Vec<DMatrix<f64>>>,
-    /// Kalman gains
+    /// Kalman gains (useful for some update strategies).
     pub kalman_gains: Vec<Vec<DMatrix<f64>>>,
 }
 
@@ -51,29 +61,44 @@ impl PosteriorGrid {
     }
 }
 
-/// Association matrices used by data association algorithms
+/// All matrices needed by data association algorithms.
+///
+/// Different association algorithms need the likelihood information in different forms:
+///
+/// - **LBP** uses `psi`, `phi`, `eta` for message passing on the factor graph
+/// - **Gibbs** uses `sampling_prob` for conditional sampling
+/// - **Murty** uses `cost` (negative log-likelihood) for the Hungarian algorithm
+///
+/// All algorithms use `posteriors` to get the Kalman-updated states.
+///
+/// The matrices encode the same underlying likelihood information, just transformed
+/// for each algorithm's needs. Computing them together avoids redundant work.
 #[derive(Debug, Clone)]
 pub struct AssociationMatrices {
-    // LBP matrices
-    /// Likelihood ratios: psi[i,j] = L[i,j] normalized
+    /// LBP message matrix: `psi[i,j] = r[i] × L[i,j] / eta[i]`
+    /// where L is the likelihood ratio and eta is a normalization factor.
     pub psi: DMatrix<f64>,
-    /// Miss probability factor: phi[i] = (1-p_D) / eta[i]
+
+    /// LBP miss factor: `phi[i] = r[i] × (1 - p_D) / eta[i]`
+    /// representing the relative probability of track i missing detection.
     pub phi: DVector<f64>,
-    /// Normalization: eta[i] = 1 - p_D × r[i]
+
+    /// LBP normalization: `eta[i] = 1 - p_D × r[i]`
+    /// used to normalize the LBP messages.
     pub eta: DVector<f64>,
 
-    // Cost matrix for assignment algorithms
-    /// Negative log-likelihood for assignment: cost[i,j] = -log(L[i,j])
+    /// Cost matrix for assignment algorithms: `cost[i,j] = -log(L[i,j])`
+    /// Murty/Hungarian minimize cost, which maximizes likelihood.
     pub cost: DMatrix<f64>,
 
-    // Gibbs sampling probabilities
-    /// Sampling probabilities (row-normalized)
+    /// Row-normalized sampling probabilities for Gibbs (n × (m+1)).
+    /// Last column is miss probability. Each row sums to 1.
     pub sampling_prob: DMatrix<f64>,
 
-    /// Posterior parameters for each (track, measurement) pair
+    /// Pre-computed Kalman posteriors for all (track, measurement) pairs.
     pub posteriors: PosteriorGrid,
 
-    /// Log-likelihood ratios (raw values)
+    /// Raw log-likelihood ratios: `log(L[i,j])` for track i and measurement j.
     pub log_likelihood_ratios: DMatrix<f64>,
 }
 
@@ -91,9 +116,18 @@ impl AssociationMatrices {
     }
 }
 
-/// Builder for constructing association matrices
+/// Builds association matrices from tracks and measurements.
 ///
-/// Handles both single-sensor and multi-sensor cases.
+/// The builder pre-allocates workspace for likelihood computations and constructs
+/// all the matrices needed by association algorithms in a single pass over the
+/// (track, measurement) pairs.
+///
+/// For each pair, it computes:
+/// 1. The likelihood ratio (how well the measurement fits the track prediction)
+/// 2. The Kalman posterior (state estimate if this association is correct)
+///
+/// These are then transformed into the various matrix formats needed by LBP,
+/// Gibbs, and Murty algorithms.
 pub struct AssociationBuilder<'a> {
     tracks: &'a [Track],
     sensor: &'a SensorModel,
@@ -112,7 +146,11 @@ impl<'a> AssociationBuilder<'a> {
         }
     }
 
-    /// Build association matrices for single-sensor case
+    /// Build association matrices from current tracks and given measurements.
+    ///
+    /// This is the main computation that evaluates all (track, measurement) pairs,
+    /// computing likelihoods and Kalman posteriors. The results are structured
+    /// for use by any association algorithm.
     pub fn build(&mut self, measurements: &[DVector<f64>]) -> AssociationMatrices {
         let n = self.tracks.len();
         let m = measurements.len();

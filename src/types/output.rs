@@ -1,19 +1,30 @@
-//! Output types for filter results
+//! Output types for filter state estimates and trajectories.
 //!
-//! This module defines the output types returned by filters.
+//! After processing measurements, filters produce state estimates: the inferred
+//! positions, velocities, and uncertainties of tracked objects. This module
+//! defines the types used to represent these outputs.
+//!
+//! - [`EstimatedTrack`] - A single track's state at one timestep
+//! - [`StateEstimate`] - All tracks' states at one timestep
+//! - [`Trajectory`] - A single track's complete history across timesteps
+//! - [`FilterOutput`] - Complete output: all estimates and all trajectories
 
 use nalgebra::{DMatrix, DVector};
 
 use super::TrackLabel;
 
-/// Single track estimate at a timestep
+/// Estimated state of a single track at one timestep.
+///
+/// This represents the filter's best estimate of an object's state (position,
+/// velocity, etc.) along with uncertainty. The track label provides identity
+/// across timesteps.
 #[derive(Debug, Clone)]
 pub struct EstimatedTrack {
-    /// Track label (unique identifier)
+    /// Unique track identifier (birth time + birth location).
     pub label: TrackLabel,
-    /// Estimated mean state
+    /// Estimated state vector (e.g., [x, vx, y, vy] for 2D constant velocity).
     pub mean: DVector<f64>,
-    /// Estimated covariance
+    /// Uncertainty in the state estimate.
     pub covariance: DMatrix<f64>,
 }
 
@@ -34,12 +45,16 @@ impl EstimatedTrack {
     }
 }
 
-/// State estimates at a single timestep
+/// All track state estimates at a single timestep.
+///
+/// This is the primary output from each filter step: the set of objects
+/// believed to exist at this time, along with their states and uncertainties.
+/// The number of tracks varies as objects appear and disappear.
 #[derive(Debug, Clone)]
 pub struct StateEstimate {
-    /// Timestep index
+    /// Timestep index (0-based).
     pub timestamp: usize,
-    /// Estimated tracks at this timestep
+    /// All estimated tracks at this timestep.
     pub tracks: Vec<EstimatedTrack>,
 }
 
@@ -64,16 +79,20 @@ impl StateEstimate {
     }
 }
 
-/// Complete trajectory of a single track
+/// Complete trajectory of a single track across multiple timesteps.
+///
+/// A trajectory accumulates states over time for a single tracked object,
+/// from when it first appeared (birth) until it disappears or the filter ends.
+/// Useful for smoothing, visualization, and performance evaluation.
 #[derive(Debug, Clone)]
 pub struct Trajectory {
-    /// Track label
+    /// Unique track identifier.
     pub label: TrackLabel,
-    /// States at each timestep (each DVector is a state)
+    /// State vector at each recorded timestep.
     pub states: Vec<DVector<f64>>,
-    /// Covariances at each timestep
+    /// Covariance matrix at each recorded timestep.
     pub covariances: Vec<DMatrix<f64>>,
-    /// Timestamps corresponding to states
+    /// Timestep indices corresponding to each state.
     pub timestamps: Vec<usize>,
 }
 
@@ -123,12 +142,17 @@ impl Trajectory {
     }
 }
 
-/// Complete output from a filter run
+/// Complete output from running a filter over a sequence of measurements.
+///
+/// Contains both per-timestep estimates (for online use) and complete
+/// trajectories (for offline analysis/evaluation). The estimates give
+/// what the filter believed at each moment; trajectories give the full
+/// history of each tracked object.
 #[derive(Debug, Clone)]
 pub struct FilterOutput {
-    /// State estimates at each timestep
+    /// State estimates at each timestep (in chronological order).
     pub estimates: Vec<StateEstimate>,
-    /// Complete trajectories for all tracks
+    /// Complete trajectories for all tracks that were ever estimated.
     pub trajectories: Vec<Trajectory>,
 }
 

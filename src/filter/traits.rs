@@ -1,6 +1,16 @@
 //! Core traits for filters and components
 //!
-//! This module defines the trait hierarchy used by all filters.
+//! This module defines the trait hierarchy for the modular filter architecture.
+//! The design separates concerns into distinct traits:
+//!
+//! - [`Filter`] - Main filter interface for running tracking algorithms
+//! - [`Associator`] - Data association algorithms (LBP, Gibbs, Murty)
+//! - [`Updater`] - Track update strategies (marginal vs hard assignment)
+//! - [`Merger`] - Multi-sensor track fusion strategies
+//!
+//! This trait-based design allows mixing and matching components. For example,
+//! an LMB filter can use LBP or Gibbs for association, while LMBM uses Murty
+//! with hard assignment updates.
 
 use crate::association::{AssociationMatrices, PosteriorGrid};
 use crate::common::association::gibbs as legacy_gibbs;
@@ -11,7 +21,11 @@ use crate::types::{AssociationConfig, StateEstimate, Track};
 
 use super::errors::{AssociationError, FilterError};
 
-/// Adapter to use rand::Rng with legacy crate::common::rng::Rng trait
+/// Adapter to bridge `rand::Rng` to the legacy `common::rng::Rng` trait.
+///
+/// The legacy association implementations use a custom RNG trait for
+/// deterministic cross-language testing with MATLAB. This adapter allows
+/// using standard `rand::Rng` implementations with those functions.
 struct RngAdapter<'a, R: rand::Rng>(&'a mut R);
 
 impl<'a, R: rand::Rng> legacy_rng::Rng for RngAdapter<'a, R> {
@@ -63,23 +77,40 @@ pub trait Filter {
     fn z_dim(&self) -> usize;
 }
 
-/// Result of data association
+/// Result of data association containing marginal probabilities and optional samples.
+///
+/// Data association solves the measurement-to-track assignment problem. Given n tracks
+/// and m measurements, we need to determine which measurements originated from which
+/// tracks. This is inherently ambiguous, so we compute probabilities.
+///
+/// The result contains:
+/// - **Marginal weights**: P(track i associated with measurement j) for each (i,j) pair
+/// - **Miss weights**: P(track i not detected) for each track
+/// - **Sampled associations**: For LMBM, discrete association events sampled from the posterior
+///
+/// Different algorithms produce these in different ways:
+/// - LBP: Iterative message passing converges to marginal probabilities
+/// - Gibbs: MCMC sampling estimates marginals from sample frequencies
+/// - Murty: K-best assignments weighted by likelihood give approximate marginals
 #[derive(Debug, Clone)]
 pub struct AssociationResult {
-    /// Marginal association probabilities: W[i,j] = P(track i associated with measurement j)
+    /// Marginal association probabilities matrix (n_tracks × n_measurements).
+    /// Entry `[i,j]` is P(track i generated measurement j).
     pub marginal_weights: nalgebra::DMatrix<f64>,
 
-    /// Marginal miss probabilities: miss_weights[i] = P(track i not associated)
+    /// Miss (non-detection) probabilities vector (n_tracks).
+    /// Entry `[i]` is P(track i exists but was not detected).
     pub miss_weights: nalgebra::DVector<f64>,
 
-    /// For LMBM: sampled association events
-    /// Each inner Vec is one sample: v[i] = measurement index for track i (-1 for miss)
+    /// Discrete association event samples for hypothesis-based filters (LMBM).
+    /// Each inner Vec represents one sampled association: `v[i]` is the measurement
+    /// index assigned to track i, or -1 if track i missed detection.
     pub sampled_associations: Option<Vec<Vec<i32>>>,
 
-    /// Number of iterations/samples used
+    /// Number of iterations (LBP) or samples (Gibbs/Murty) used.
     pub iterations: usize,
 
-    /// Whether the algorithm converged (for iterative methods)
+    /// Whether the algorithm converged (meaningful for LBP).
     pub converged: bool,
 }
 
@@ -98,7 +129,10 @@ impl AssociationResult {
         }
     }
 
-    /// Get most likely association for a track
+    /// Get the most likely association for a track (MAP estimate).
+    ///
+    /// Returns `Some(j)` if measurement j has higher probability than missing,
+    /// or `None` if the track most likely missed detection.
     pub fn best_association(&self, track_idx: usize) -> Option<usize> {
         let n_meas = self.marginal_weights.ncols();
         let mut best_j = None;
@@ -116,22 +150,24 @@ impl AssociationResult {
     }
 }
 
-/// Data association algorithm trait
+/// Data association algorithm trait.
 ///
-/// Implementations:
-/// - `LbpAssociator` - Loopy Belief Propagation
-/// - `GibbsAssociator` - Gibbs sampling
-/// - `MurtyAssociator` - Murty's k-best algorithm
+/// Data association computes the probability that each measurement originated
+/// from each track. This is the core computational problem in multi-object tracking,
+/// as the true associations are unknown and must be inferred probabilistically.
+///
+/// The trait is implemented by different algorithms with different trade-offs:
+/// - [`LbpAssociator`] - Loopy Belief Propagation: fast, approximate message passing
+/// - [`GibbsAssociator`] - Gibbs sampling: MCMC-based, produces samples for LMBM
+/// - [`MurtyAssociator`] - Murty's k-best: exact top-k assignments, good for LMBM
+///
+/// All implementations are `Send + Sync` to support parallel filter execution.
 pub trait Associator: Send + Sync {
-    /// Perform data association
+    /// Compute association probabilities from pre-computed likelihood matrices.
     ///
-    /// # Arguments
-    /// * `matrices` - Pre-computed association matrices (likelihoods, etc.)
-    /// * `config` - Association algorithm configuration
-    /// * `rng` - Random number generator (for stochastic methods)
-    ///
-    /// # Returns
-    /// Association result with marginal probabilities
+    /// The input `matrices` contains likelihood ratios and related quantities
+    /// computed from track predictions and measurements. The output contains
+    /// marginal association probabilities and optionally discrete samples.
     fn associate<R: rand::Rng>(
         &self,
         matrices: &AssociationMatrices,
@@ -139,46 +175,51 @@ pub trait Associator: Send + Sync {
         rng: &mut R,
     ) -> Result<AssociationResult, AssociationError>;
 
-    /// Get algorithm name
+    /// Algorithm name for logging and debugging.
     fn name(&self) -> &'static str;
 }
 
-/// Multi-sensor track merging trait
+/// Multi-sensor track fusion strategy.
 ///
-/// Implementations:
-/// - `ArithmeticAverageMerger` - AA-LMB
-/// - `GeometricAverageMerger` - GA-LMB
-/// - `ParallelUpdateMerger` - PU-LMB
-/// - `IteratedCorrectorMerger` - IC-LMB
+/// In multi-sensor tracking, each sensor produces independent track posteriors.
+/// The merger combines these into a single unified track set. Different fusion
+/// strategies have different properties:
+///
+/// - `ArithmeticAverageMerger` (AA-LMB): Simple weighted average of densities
+/// - `GeometricAverageMerger` (GA-LMB): Geometric mean, handles sensor disagreement better
+/// - `ParallelUpdateMerger` (PU-LMB): Sequential Bayesian updates
+/// - `IteratedCorrectorMerger` (IC-LMB): Iterative refinement for consistency
+///
+/// The choice of merger affects tracking accuracy and computational cost.
 pub trait Merger: Send + Sync {
-    /// Merge per-sensor track posteriors into unified tracks
-    ///
-    /// # Arguments
-    /// * `per_sensor_tracks` - Tracks from each sensor after individual updates
-    /// * `weights` - Optional sensor weights (for weighted averaging)
-    ///
-    /// # Returns
-    /// Merged tracks
+    /// Fuse per-sensor track posteriors into a unified track set.
     fn merge(&self, per_sensor_tracks: &[Vec<Track>], weights: Option<&[f64]>) -> Vec<Track>;
 
-    /// Get merger name
+    /// Merger name for logging and debugging.
     fn name(&self) -> &'static str;
 }
 
-/// Track update strategy trait
+/// Track update strategy after data association.
 ///
-/// Differs between LMB (marginal reweighting) and LMBM (hard selection).
+/// Once association probabilities are computed, tracks must be updated with
+/// measurement information. The update strategy differs fundamentally between
+/// filter types:
 ///
-/// Implementations:
-/// - `MarginalUpdater` - LMB: reweight GM components by marginal probabilities
-/// - `HardAssignmentUpdater` - LMBM: select based on sampled association events
+/// - [`MarginalUpdater`] (LMB): Maintains Gaussian mixture by reweighting components
+///   according to marginal association probabilities. Each track becomes a weighted
+///   mixture of "missed" and "detected with measurement j" hypotheses.
+///
+/// - [`HardAssignmentUpdater`] (LMBM): Makes hard (deterministic) assignments from
+///   sampled association events. Each track gets a single component based on its
+///   assigned measurement. Used with hypothesis-based filters.
+///
+/// The updater modifies tracks in-place, updating their Gaussian components
+/// based on the association result and pre-computed posterior parameters.
 pub trait Updater: Send + Sync {
-    /// Update tracks based on association results
+    /// Apply measurement update to tracks based on association results.
     ///
-    /// # Arguments
-    /// * `tracks` - Tracks to update (modified in place)
-    /// * `result` - Association result with marginal/sampled assignments
-    /// * `posteriors` - Pre-computed posterior parameters
+    /// Modifies tracks in-place, updating their Gaussian mixture components
+    /// using the posterior parameters for each (track, measurement) pair.
     fn update(
         &self,
         tracks: &mut [Track],
@@ -186,15 +227,27 @@ pub trait Updater: Send + Sync {
         posteriors: &PosteriorGrid,
     );
 
-    /// Get updater name
+    /// Updater name for logging and debugging.
     fn name(&self) -> &'static str;
 }
 
 // ============================================================================
-// Placeholder implementations (to be fleshed out later)
+// Associator implementations
 // ============================================================================
 
-/// LBP (Loopy Belief Propagation) associator
+/// Loopy Belief Propagation (LBP) data association.
+///
+/// LBP treats the association problem as inference on a factor graph and uses
+/// iterative message passing to compute approximate marginal probabilities.
+/// It's the fastest association method and works well when associations are
+/// relatively unambiguous.
+///
+/// The algorithm iterates until convergence (messages change less than tolerance)
+/// or reaches the maximum iteration count. Convergence is typically fast (10-50
+/// iterations) for well-separated tracks.
+///
+/// LBP is deterministic and does not produce discrete samples, making it suitable
+/// for LMB filters but not for LMBM which requires sampled association events.
 #[derive(Debug, Clone, Default)]
 pub struct LbpAssociator;
 
@@ -248,7 +301,20 @@ impl Associator for LbpAssociator {
     }
 }
 
-/// Gibbs sampling associator
+/// Gibbs sampling data association.
+///
+/// Gibbs sampling is a Markov Chain Monte Carlo (MCMC) method that generates
+/// samples from the posterior distribution over association events. Unlike LBP
+/// which computes marginals directly, Gibbs produces discrete samples that can
+/// be used to approximate marginals and to generate hypothesis sets for LMBM.
+///
+/// The algorithm works by iteratively sampling each track's association conditioned
+/// on all other tracks' current associations. After a burn-in period, the samples
+/// approximate the true posterior distribution.
+///
+/// Gibbs is stochastic (requires RNG) and slower than LBP, but produces the
+/// discrete samples needed for LMBM filters. The quality of approximation improves
+/// with more samples but at increased computational cost.
 #[derive(Debug, Clone, Default)]
 pub struct GibbsAssociator;
 
@@ -352,7 +418,19 @@ impl Associator for GibbsAssociator {
     }
 }
 
-/// Murty's k-best algorithm associator
+/// Murty's k-best assignment algorithm for data association.
+///
+/// Murty's algorithm finds the k most likely (lowest cost) assignments between
+/// tracks and measurements. Unlike LBP which approximates marginals, Murty finds
+/// exact solutions ranked by likelihood.
+///
+/// The algorithm works by solving the optimal assignment (Hungarian algorithm),
+/// then systematically partitioning the solution space to find the next best
+/// assignments. This produces discrete association events with known likelihoods.
+///
+/// Murty is deterministic and produces ranked assignments suitable for LMBM.
+/// The marginal probabilities are computed by weighting each assignment by its
+/// likelihood. Computational cost grows with k, but typically k=100-1000 suffices.
 #[derive(Debug, Clone, Default)]
 pub struct MurtyAssociator;
 
@@ -459,16 +537,31 @@ impl Associator for MurtyAssociator {
     }
 }
 
-/// LMB marginal update strategy
+/// LMB marginal update strategy using soft (probabilistic) associations.
 ///
-/// Updates tracks using marginal association probabilities from LBP or similar.
-/// Each track's GM components are reweighted by the marginal probabilities,
-/// creating new components for each (prior component, measurement) pair.
+/// This updater implements the standard LMB measurement update, which maintains
+/// uncertainty about associations by creating a Gaussian mixture. For each track,
+/// the posterior is a weighted mixture of:
+///
+/// 1. **Miss hypothesis**: The track was not detected. Uses prior state with
+///    weight proportional to miss probability.
+///
+/// 2. **Detection hypotheses**: The track generated measurement j. Uses Kalman-
+///    updated posterior with weight proportional to marginal association probability.
+///
+/// The resulting mixture grows as (m+1) × prior_components, so pruning is applied:
+/// - Components below `weight_threshold` are discarded
+/// - Only top `max_components` are kept
+/// - Remaining weights are renormalized
+///
+/// This approach preserves uncertainty about associations, which is important when
+/// measurements are ambiguous. However, it can lead to component explosion in
+/// dense scenarios.
 #[derive(Debug, Clone, Default)]
 pub struct MarginalUpdater {
-    /// Weight threshold for pruning small components
+    /// Components with weight below this threshold are pruned.
     pub weight_threshold: f64,
-    /// Maximum number of GM components to keep
+    /// Maximum number of Gaussian components to retain per track.
     pub max_components: usize,
 }
 
@@ -588,17 +681,28 @@ impl Updater for MarginalUpdater {
     }
 }
 
-/// LMBM hard assignment update strategy
+/// LMBM hard assignment update strategy using discrete association events.
 ///
-/// Updates tracks using hard (deterministic) assignment from sampled associations.
-/// Unlike `MarginalUpdater`, this selects a single posterior for each track
-/// based on the association event, resulting in single-component tracks.
+/// Unlike [`MarginalUpdater`] which maintains uncertainty through Gaussian mixtures,
+/// this updater makes hard (deterministic) assignments. Each track is updated
+/// based on a single association event, resulting in single-component posteriors.
 ///
-/// This is used with LMBM which maintains multiple hypotheses, where each
-/// hypothesis has tracks with single components.
+/// This is the natural update for LMBM (Labeled Multi-Bernoulli Mixture) filters,
+/// which maintain multiple weighted hypotheses. Each hypothesis represents one
+/// possible "world state" with definite associations:
+///
+/// - **Detection**: Track existence is set to 1.0 (definitely exists) and state
+///   is updated using the Kalman posterior for the assigned measurement.
+///
+/// - **Miss**: Track keeps its prior state. Existence probability is updated
+///   according to missed detection likelihood.
+///
+/// The `sample_index` selects which association event from `sampled_associations`
+/// to use. For LMBM, different hypotheses use different sample indices to
+/// represent different association possibilities.
 #[derive(Debug, Clone, Default)]
 pub struct HardAssignmentUpdater {
-    /// Index of the association sample to use (for multi-hypothesis LMBM)
+    /// Which association sample to apply (0 = first/best sample).
     pub sample_index: usize,
 }
 
