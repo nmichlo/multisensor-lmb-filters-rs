@@ -240,62 +240,12 @@ impl<A: Associator> LmbmFilter<A> {
     }
 
     /// Normalize and gate hypotheses.
-    ///
-    /// 1. Normalizes hypothesis weights using log-sum-exp
-    /// 2. Removes hypotheses with weight below threshold
-    /// 3. Sorts by descending weight
-    /// 4. Caps to maximum number of hypotheses
     fn normalize_and_gate_hypotheses(&mut self) {
-        if self.hypotheses.is_empty() {
-            return;
-        }
-
-        // Log-sum-exp normalization
-        let max_log_w = self
-            .hypotheses
-            .iter()
-            .map(|h| h.log_weight)
-            .fold(f64::NEG_INFINITY, f64::max);
-
-        let sum_exp: f64 = self
-            .hypotheses
-            .iter()
-            .map(|h| (h.log_weight - max_log_w).exp())
-            .sum();
-
-        let log_normalizer = max_log_w + sum_exp.ln();
-
-        // Normalize all hypothesis weights
-        for hyp in &mut self.hypotheses {
-            hyp.log_weight -= log_normalizer;
-        }
-
-        // Filter by weight threshold
-        let threshold = self.lmbm_config.hypothesis_weight_threshold.ln();
-        self.hypotheses.retain(|h| h.log_weight > threshold);
-
-        if self.hypotheses.is_empty() {
-            // Reinitialize with empty hypothesis if all were pruned
-            self.hypotheses
-                .push(LmbmHypothesis::new(0.0, Vec::new()));
-            return;
-        }
-
-        // Sort by descending weight (descending log_weight)
-        self.hypotheses
-            .sort_by(|a, b| b.log_weight.partial_cmp(&a.log_weight).unwrap());
-
-        // Cap to maximum hypotheses
-        if self.hypotheses.len() > self.lmbm_config.max_hypotheses {
-            self.hypotheses.truncate(self.lmbm_config.max_hypotheses);
-
-            // Renormalize after truncation
-            let sum_exp: f64 = self.hypotheses.iter().map(|h| h.log_weight.exp()).sum();
-            let log_normalizer = sum_exp.ln();
-            for hyp in &mut self.hypotheses {
-                hyp.log_weight -= log_normalizer;
-            }
-        }
+        super::common_ops::normalize_and_gate_hypotheses(
+            &mut self.hypotheses,
+            self.lmbm_config.hypothesis_weight_threshold,
+            self.lmbm_config.max_hypotheses,
+        );
     }
 
     /// Gate tracks by existence probability across all hypotheses.

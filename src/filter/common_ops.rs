@@ -263,6 +263,75 @@ pub fn init_hypothesis_birth_trajectories(hypotheses: &mut [LmbmHypothesis], max
     }
 }
 
+// ============================================================================
+// Hypothesis normalization (LmbmFilter, MultisensorLmbmFilter)
+// ============================================================================
+
+/// Normalize and gate hypotheses.
+///
+/// 1. Normalizes hypothesis weights using log-sum-exp
+/// 2. Removes hypotheses with weight below threshold
+/// 3. Sorts by descending weight
+/// 4. Caps to maximum number of hypotheses
+/// 5. Renormalizes after truncation
+///
+/// # Arguments
+/// * `hypotheses` - Mutable reference to hypothesis list
+/// * `weight_threshold` - Minimum hypothesis weight to keep (linear scale)
+/// * `max_hypotheses` - Maximum number of hypotheses to keep
+pub fn normalize_and_gate_hypotheses(
+    hypotheses: &mut Vec<LmbmHypothesis>,
+    weight_threshold: f64,
+    max_hypotheses: usize,
+) {
+    if hypotheses.is_empty() {
+        return;
+    }
+
+    // Log-sum-exp normalization
+    let max_log_w = hypotheses
+        .iter()
+        .map(|h| h.log_weight)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    let sum_exp: f64 = hypotheses
+        .iter()
+        .map(|h| (h.log_weight - max_log_w).exp())
+        .sum();
+
+    let log_normalizer = max_log_w + sum_exp.ln();
+
+    // Normalize all hypothesis weights
+    for hyp in hypotheses.iter_mut() {
+        hyp.log_weight -= log_normalizer;
+    }
+
+    // Filter by weight threshold
+    let log_threshold = weight_threshold.ln();
+    hypotheses.retain(|h| h.log_weight > log_threshold);
+
+    if hypotheses.is_empty() {
+        // Reinitialize with empty hypothesis if all were pruned
+        hypotheses.push(LmbmHypothesis::new(0.0, Vec::new()));
+        return;
+    }
+
+    // Sort by descending weight (descending log_weight)
+    hypotheses.sort_by(|a, b| b.log_weight.partial_cmp(&a.log_weight).unwrap());
+
+    // Cap to maximum hypotheses
+    if hypotheses.len() > max_hypotheses {
+        hypotheses.truncate(max_hypotheses);
+
+        // Renormalize after truncation
+        let sum_exp: f64 = hypotheses.iter().map(|h| h.log_weight.exp()).sum();
+        let log_normalizer = sum_exp.ln();
+        for hyp in hypotheses.iter_mut() {
+            hyp.log_weight -= log_normalizer;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

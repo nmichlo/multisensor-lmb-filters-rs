@@ -37,14 +37,16 @@ The new trait-based API is complete. Now refactoring to deduplicate ~360 lines o
 - Single-track operations for LmbFilter and MultisensorLmbFilter
 - Hypothesis-based operations for LmbmFilter and MultisensorLmbmFilter
 
-### Phase 3: Extract LMBM Hypothesis Management [ ]
+### Phase 3: Extract LMBM Hypothesis Management ✅
 
 **Goal:** Deduplicate ~65 lines identical in LmbmFilter and MultisensorLmbmFilter
 
-- [ ] Add `normalize_and_gate_hypotheses()` to `common_ops.rs`
-- [ ] Add `gate_hypothesis_tracks()` to `common_ops.rs`
-- [ ] Update `lmbm.rs` to use shared functions
-- [ ] Update `multisensor_lmbm.rs` to use shared functions
+- [x] Add `normalize_and_gate_hypotheses()` to `common_ops.rs`
+- [x] `gate_hypothesis_tracks()` already added in Phase 2
+- [x] Update `lmbm.rs` to use shared function
+- [x] Update `multisensor_lmbm.rs` to use shared function
+
+**Result:** ~50 additional lines of duplicated code eliminated.
 
 ### Phase 4: Use Existing Update Helpers [ ]
 
