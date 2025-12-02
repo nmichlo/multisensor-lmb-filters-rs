@@ -165,7 +165,7 @@ impl<'a> AssociationBuilder<'a> {
         let mut posteriors = PosteriorGrid::new(n, m);
 
         let p_d = self.sensor.detection_probability;
-        let clutter_density = self.sensor.clutter_density();
+        let _clutter_density = self.sensor.clutter_density();
 
         // Compute likelihoods for all (track, measurement) pairs
         // Matching MATLAB: iterate over ALL GM components and sum weighted likelihoods

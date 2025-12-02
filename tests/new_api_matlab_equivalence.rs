@@ -1099,11 +1099,6 @@ fn test_new_api_psi_phi_eta_vs_matlab() {
 /// Test that LBP marginal weights match MATLAB exactly.
 #[test]
 fn test_new_api_lbp_marginals_equivalence() {
-    // Run LBP using LEGACY path first to confirm it works
-    use prak::lmb::data_association::lmb_lbp;
-    use prak::lmb::association::generate_lmb_association_matrices;
-    use prak::common::types::Object;
-
     let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
         .unwrap_or_else(|e| panic!("Failed to read fixture {}: {}", fixture_path, e));

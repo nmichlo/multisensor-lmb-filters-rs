@@ -1,65 +1,70 @@
 /*!
 # Prak - Multi-object tracking library
 
-Rust port of the MATLAB multisensor-lmb-filters library.
+Rust implementation of multi-object tracking algorithms based on
+Labelled Multi-Bernoulli (LMB) filters and their variants.
 
-This library implements various multi-object tracking algorithms based on
-Labelled Multi-Bernoulli (LMB) filters and their variants, including:
+## Features
 
 - Single-sensor LMB and LMBM filters
 - Multi-sensor fusion algorithms (PU-LMB, IC-LMB, GA-LMB, AA-LMB)
 - Multiple data association methods (LBP, Gibbs, Murty's algorithm)
 
-## New API (v2)
-
-The library is being refactored to a cleaner, trait-based API:
+## Modules
 
 - [`types`] - Core types: `Track`, `FilterParams`, `StateEstimate`
 - [`components`] - Shared algorithms: prediction, update
 - [`association`] - Data association: likelihood computation, matrix building
 - [`filter`] - Filter trait and implementations
 
-## Legacy API
+## Example
 
-The following modules contain the original MATLAB-ported implementations:
+```rust,no_run
+use prak::filter::{Filter, LmbFilter};
+use prak::types::{MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
+use nalgebra::{DVector, DMatrix};
 
-- `common` - Shared utilities, data structures, and algorithms
-- `lmb` - Single-sensor LMB filter implementation
-- `lmbm` - Single-sensor LMBM filter implementation
-- `multisensor_lmb` - Multi-sensor LMB variants
-- `multisensor_lmbm` - Multi-sensor LMBM implementation
+// Create filter configuration
+let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
+let sensor = SensorModel::position_sensor_2d(1.0, 0.9, 10.0, 100.0);
+
+// Define a birth location
+let birth_loc = BirthLocation::new(
+    0,
+    DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
+    DMatrix::identity(4, 4) * 100.0,
+);
+let birth = BirthModel::new(vec![birth_loc], 0.1, 0.01);
+let association = AssociationConfig::default();
+
+// Create filter
+let mut filter = LmbFilter::new(motion, sensor, birth, association);
+
+// Process measurements
+let mut rng = rand::thread_rng();
+let measurements = vec![DVector::from_vec(vec![1.0, 2.0])];
+let estimate = filter.step(&mut rng, &measurements, 0).unwrap();
+```
 */
 
-// ============================================================================
-// New API (v2) - Trait-based, modular design
-// ============================================================================
-
+// Core modules
 pub mod types;
 pub mod components;
 pub mod association;
 pub mod filter;
 
-// Re-export commonly used new types
+// Internal utilities (exposed for advanced use cases)
+pub mod common;
+pub mod lmb;
+
+// Re-export commonly used types
 pub use types::{
     Track, TrackLabel, GaussianComponent, LmbmHypothesis,
-    MotionModel, SensorModel, FilterParams, BirthModel,
+    MotionModel, SensorModel, FilterParams, BirthModel, BirthLocation,
     StateEstimate, EstimatedTrack, FilterOutput,
 };
 
 pub use filter::{Filter, Associator, Merger, FilterError};
-
-// ============================================================================
-// Legacy API - Original MATLAB-ported implementations
-// ============================================================================
-
-pub mod common;
-pub mod lmb;
-pub mod lmbm;
-pub mod multisensor_lmb;
-pub mod multisensor_lmbm;
-
-// Re-export legacy types (for backward compatibility)
-pub use common::types::{Model, Object, Measurement, GroundTruth};
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -1,6 +1,6 @@
 # PRAK Library Refactoring Progress
 
-## Status: Step 9c Complete - Full MATLAB Equivalence Achieved (All Bugs Fixed)
+## Status: Step 10 Complete - Legacy Cleanup Done
 
 **Last Updated:** 2025-12-02
 
@@ -335,27 +335,52 @@ Fixed bugs in `AssociationBuilder::build()` to achieve exact numerical equivalen
 
 **Result:** All new API components now produce **IDENTICAL** numerical results to MATLAB/legacy (tolerance 1e-12)
 
+### Step 10: Legacy Cleanup ✅
+
+Deleted all legacy filter implementations and tests:
+
+1. [x] **Deleted legacy filter modules**
+   - `src/lmbm/` - entire module deleted
+   - `src/multisensor_lmb/` - entire module deleted
+   - `src/multisensor_lmbm/` - entire module deleted
+   - `src/lmb/` - kept only `cardinality.rs` (used by new filters)
+
+2. [x] **Deleted legacy common modules**
+   - `src/common/model.rs` - replaced by `types/config.rs`
+   - `src/common/types.rs` - replaced by `types/`
+   - `src/common/ground_truth.rs` - only used by deleted tests
+   - `src/common/metrics.rs` - only used by deleted tests
+
+3. [x] **Kept essential common modules** (still used by new API)
+   - `src/common/association/` - LBP, Gibbs, Murty's algorithms
+   - `src/common/linalg.rs` - linear algebra utilities
+   - `src/common/constants.rs` - numerical constants
+   - `src/common/utils.rs` - GM pruning utilities
+   - `src/common/rng.rs` - RNG trait
+
+4. [x] **Deleted legacy tests** (24 test files)
+   - All tests that depended on deleted modules
+
+5. [x] **Deleted legacy examples** (8 example files)
+   - All examples that used legacy filters
+
+6. [x] **Updated lib.rs**
+   - Removed legacy module exports
+   - Added proper doctest example
+
+**Test Results:** 145 tests pass (3 ignored for memory usage)
+
 ---
 
-## Next Steps
+## Final Files Overview
 
-### Step 10: Cleanup
-
-1. Remove legacy modules once new implementations are validated
-2. Update examples to use new API
-3. Update documentation
-
----
-
-## Files Overview
-
-### New Files Created
+### Core API
 ```
 src/
 ├── types/
 │   ├── mod.rs          ✅
-│   ├── track.rs        ✅ (pre-existing, reviewed)
-│   ├── config.rs       ✅ (pre-existing, reviewed)
+│   ├── track.rs        ✅
+│   ├── config.rs       ✅
 │   └── output.rs       ✅
 ├── components/
 │   ├── mod.rs          ✅
@@ -369,24 +394,44 @@ src/
 │   ├── mod.rs          ✅
 │   ├── traits.rs       ✅
 │   ├── errors.rs       ✅
-│   ├── lmb.rs          ✅ (Step 4)
-│   ├── lmbm.rs         ✅ (Step 5)
-│   ├── multisensor_lmb.rs ✅ (Step 6)
-│   └── multisensor_lmbm.rs ✅ (Step 7)
-└── lib.rs              ✅ (modified)
+│   ├── lmb.rs          ✅
+│   ├── lmbm.rs         ✅
+│   ├── multisensor_lmb.rs ✅
+│   └── multisensor_lmbm.rs ✅
+└── lib.rs              ✅
 ```
 
-### Legacy Files (to be replaced)
+### Internal Utilities (kept)
 ```
 src/
 ├── common/
-│   ├── types.rs        → replaced by src/types/
-│   ├── model.rs        → replaced by src/types/config.rs
-│   └── association/    → algorithms moved to src/association/
-├── lmb/                → replaced by src/filter/lmb.rs
-├── lmbm/               → replaced by src/filter/lmbm.rs
-├── multisensor_lmb/    → replaced by src/filter/multisensor_lmb.rs
-└── multisensor_lmbm/   → replaced by src/filter/multisensor_lmbm.rs
+│   ├── mod.rs          ✅
+│   ├── constants.rs    ✅
+│   ├── linalg.rs       ✅
+│   ├── utils.rs        ✅
+│   ├── rng.rs          ✅
+│   └── association/
+│       ├── mod.rs      ✅
+│       ├── gibbs.rs    ✅
+│       ├── lbp.rs      ✅
+│       ├── murtys.rs   ✅
+│       └── hungarian.rs ✅
+└── lmb/
+    ├── mod.rs          ✅
+    └── cardinality.rs  ✅
+```
+
+### Remaining Tests
+```
+tests/
+├── check_rust_summation.rs
+├── debug_sort_order.rs
+├── marginal_evaluations.rs
+├── new_api_matlab_equivalence.rs
+├── test_gibbs_frequency_equivalence.rs
+├── test_map_cardinality.rs
+├── test_rng_equivalence.rs
+└── test_utils.rs
 ```
 
 ---

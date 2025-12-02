@@ -1,11 +1,5 @@
-//! Labeled Multi-Bernoulli (LMB) filter implementation
+//! Labeled Multi-Bernoulli (LMB) utilities
 //!
-//! Implements the single-sensor LMB filter for multi-object tracking.
-//! Matches MATLAB runLmbFilter.m and associated functions.
+//! Contains shared utilities used by LMB-based filters.
 
 pub mod cardinality;
-pub mod prediction;
-pub mod association;
-pub mod update;
-pub mod data_association;
-pub mod filter;
