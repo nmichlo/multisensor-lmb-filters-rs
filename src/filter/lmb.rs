@@ -229,13 +229,19 @@ impl<A: Associator> Filter for LmbFilter<A> {
         measurements: &Self::Measurements,
         timestep: usize,
     ) -> Result<StateEstimate, FilterError> {
-        // 1. Prediction: propagate existing tracks and add births
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction - propagate tracks forward and add birth components
+        // ══════════════════════════════════════════════════════════════════════
         predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
 
-        // Initialize trajectory recording for any new tracks
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2: Initialize trajectory recording for new birth tracks
+        // ══════════════════════════════════════════════════════════════════════
         self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
-        // 2. Measurement update
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 3: Measurement update - data association and track updates
+        // ══════════════════════════════════════════════════════════════════════
         if !measurements.is_empty() {
             // Build association matrices
             let mut builder = AssociationBuilder::new(&self.tracks, &self.sensor);
@@ -248,9 +254,6 @@ impl<A: Associator> Filter for LmbFilter<A> {
                 .map_err(FilterError::Association)?;
 
             // Update existence probabilities from association result
-            // The r values come from the legacy LBP result, but our new API
-            // computes marginals differently. For now, update existence based
-            // on the association result.
             self.update_existence_from_association(&result);
 
             // Update track spatial distributions
@@ -266,13 +269,21 @@ impl<A: Associator> Filter for LmbFilter<A> {
             }
         }
 
-        // 3. Gate tracks by existence
+        // (STEP 4 skipped - hypothesis management is LMBM only)
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Track gating - prune low-existence tracks, archive trajectories
+        // ══════════════════════════════════════════════════════════════════════
         self.gate_tracks();
 
-        // 4. Update trajectories
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Update trajectories - append current state to track histories
+        // ══════════════════════════════════════════════════════════════════════
         self.update_trajectories(timestep);
 
-        // 5. Extract and return state estimates
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract estimates - return current state estimate
+        // ══════════════════════════════════════════════════════════════════════
         Ok(self.extract_estimates(timestep))
     }
 

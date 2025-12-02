@@ -317,13 +317,19 @@ impl<A: Associator> Filter for LmbmFilter<A> {
         measurements: &Self::Measurements,
         timestep: usize,
     ) -> Result<StateEstimate, FilterError> {
-        // 1. Prediction: propagate all hypotheses forward
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction - propagate tracks forward and add birth components
+        // ══════════════════════════════════════════════════════════════════════
         self.predict_hypotheses(timestep);
 
-        // Initialize trajectory recording for any new tracks
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2: Initialize trajectory recording for new birth tracks
+        // ══════════════════════════════════════════════════════════════════════
         self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
-        // 2. Measurement update
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 3: Measurement update - data association and track updates
+        // ══════════════════════════════════════════════════════════════════════
         if !measurements.is_empty() {
             // For LMBM, we process each prior hypothesis
             // and generate multiple posterior hypotheses from association samples
@@ -353,16 +359,24 @@ impl<A: Associator> Filter for LmbmFilter<A> {
             self.update_existence_no_measurements();
         }
 
-        // 3. Normalize and gate hypotheses
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 4: Hypothesis management (LMBM only) - normalize and gate hypotheses
+        // ══════════════════════════════════════════════════════════════════════
         self.normalize_and_gate_hypotheses();
 
-        // 4. Gate tracks by existence
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Track gating - prune low-existence tracks, archive trajectories
+        // ══════════════════════════════════════════════════════════════════════
         self.gate_tracks();
 
-        // 5. Update trajectories
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Update trajectories - append current state to track histories
+        // ══════════════════════════════════════════════════════════════════════
         self.update_trajectories(timestep);
 
-        // 6. Extract and return state estimates
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract estimates - return current state estimate
+        // ══════════════════════════════════════════════════════════════════════
         Ok(self.extract_estimates(timestep))
     }
 

@@ -551,16 +551,24 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
             )));
         }
 
-        // 1. Prediction
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction - propagate tracks forward and add birth components
+        // ══════════════════════════════════════════════════════════════════════
         self.predict_hypotheses(timestep);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2: Initialize trajectory recording for new birth tracks
+        // ══════════════════════════════════════════════════════════════════════
         self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
-        // 2. Measurement update
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 3: Measurement update - data association and track updates
+        // ══════════════════════════════════════════════════════════════════════
         let has_measurements = measurements.iter().any(|m| !m.is_empty());
 
         if has_measurements && !self.hypotheses.is_empty() && !self.hypotheses[0].tracks.is_empty()
         {
-            // Generate joint association matrices
+            // Generate joint association matrices across all sensors
             let (log_likelihoods, posteriors, dimensions) =
                 self.generate_association_matrices(&self.hypotheses[0].tracks, measurements);
 
@@ -570,7 +578,7 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
                 .associate(rng, &log_likelihoods, &dimensions, &self.association_config)
                 .map_err(|e| FilterError::Association(e))?;
 
-            // Generate posterior hypotheses
+            // Generate posterior hypotheses from association samples
             self.generate_posterior_hypotheses(
                 &association_result.samples,
                 &log_likelihoods,
@@ -582,16 +590,24 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
             self.update_existence_no_measurements();
         }
 
-        // 3. Normalize and gate hypotheses
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 4: Hypothesis management (LMBM only) - normalize and gate hypotheses
+        // ══════════════════════════════════════════════════════════════════════
         self.normalize_and_gate_hypotheses();
 
-        // 4. Gate tracks
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Track gating - prune low-existence tracks, archive trajectories
+        // ══════════════════════════════════════════════════════════════════════
         self.gate_tracks();
 
-        // 5. Update trajectories
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Update trajectories - append current state to track histories
+        // ══════════════════════════════════════════════════════════════════════
         self.update_trajectories(timestep);
 
-        // 6. Extract estimates
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract estimates - return current state estimate
+        // ══════════════════════════════════════════════════════════════════════
         Ok(self.extract_estimates(timestep))
     }
 

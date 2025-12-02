@@ -603,18 +603,26 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
     ) -> Result<StateEstimate, FilterError> {
         let num_sensors = self.num_sensors();
 
-        // 1. Prediction
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction - propagate tracks forward and add birth components
+        // ══════════════════════════════════════════════════════════════════════
         predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2: Initialize trajectory recording for new birth tracks
+        // ══════════════════════════════════════════════════════════════════════
         self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
-        // 2. Per-sensor measurement updates
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 3: Measurement update - data association and track updates
+        // ══════════════════════════════════════════════════════════════════════
         let has_any_measurements = measurements.iter().any(|m| !m.is_empty());
 
         if has_any_measurements && !self.tracks.is_empty() {
             // Store prior tracks for PU fusion if needed
             let prior_tracks = self.tracks.clone();
 
-            // Process each sensor
+            // --- STEP 3a: Per-sensor measurement updates ---
             let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
 
             for s in 0..num_sensors {
@@ -667,20 +675,28 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
                 per_sensor_tracks.push(sensor_tracks);
             }
 
-            // 3. Fuse per-sensor updates
+            // --- STEP 3b: Fuse per-sensor updates ---
             self.tracks = self.merger.merge(&per_sensor_tracks, None);
         } else if !has_any_measurements {
             // No measurements from any sensor
             self.update_existence_no_measurements();
         }
 
-        // 4. Gate tracks
+        // (STEP 4 skipped - hypothesis management is LMBM only)
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Track gating - prune low-existence tracks, archive trajectories
+        // ══════════════════════════════════════════════════════════════════════
         self.gate_tracks();
 
-        // 5. Update trajectories
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Update trajectories - append current state to track histories
+        // ══════════════════════════════════════════════════════════════════════
         self.update_trajectories(timestep);
 
-        // 6. Extract estimates
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract estimates - return current state estimate
+        // ══════════════════════════════════════════════════════════════════════
         Ok(self.extract_estimates(timestep))
     }
 
