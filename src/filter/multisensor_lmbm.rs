@@ -8,6 +8,7 @@
 //! - **Joint association**: Considers all sensor measurements simultaneously
 //! - **Hypothesis management**: Maintains weighted hypotheses with hard assignments
 //! - **Multi-sensor updates**: Properly handles per-sensor detection probabilities
+//! - **Pluggable association**: Uses [`MultisensorAssociator`] trait for swappable algorithms
 //!
 //! # Warning
 //!
@@ -15,11 +16,12 @@
 //! and sensors, as the likelihood matrix grows as O(∏(m_s + 1) × n) where m_s is
 //! the number of measurements from sensor s and n is the number of objects.
 
+use std::marker::PhantomData;
+
 use nalgebra::{DMatrix, DVector};
 
 use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
 use crate::components::prediction::predict_tracks;
-use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::types::{
     AssociationConfig, BirthModel, FilterParams, GaussianComponent, LmbmConfig, LmbmHypothesis,
     MotionModel, MultisensorConfig, StateEstimate, Track, Trajectory,
@@ -27,6 +29,7 @@ use crate::types::{
 
 use super::errors::FilterError;
 use super::multisensor_lmb::MultisensorMeasurements;
+use super::multisensor_traits::{MultisensorAssociator, MultisensorGibbsAssociator};
 use super::traits::Filter;
 
 /// Multi-sensor LMBM filter.
@@ -35,10 +38,12 @@ use super::traits::Filter;
 /// data association across all sensors. The association likelihood is computed
 /// in the Cartesian product space of all sensor measurements.
 ///
-/// Unlike the single-sensor LMBM or multi-sensor LMB filters, this filter:
-/// - Does NOT use the Associator trait (has its own specialized multi-sensor Gibbs)
-/// - Does NOT use the Merger trait (joint association replaces fusion)
-/// - Uses a flattened likelihood tensor for memory efficiency
+/// The filter is generic over the association algorithm via [`MultisensorAssociator`].
+/// The default is [`MultisensorGibbsAssociator`] which uses Gibbs sampling.
+///
+/// # Type Parameters
+///
+/// * `A` - Multi-sensor associator type (default: [`MultisensorGibbsAssociator`])
 ///
 /// # Performance Warning
 ///
@@ -50,7 +55,7 @@ use super::traits::Filter;
 /// (10+1) × (10+1) × 5 = 605 entries
 ///
 /// With 3 sensors: (10+1)³ × 5 = 6,655 entries
-pub struct MultisensorLmbmFilter {
+pub struct MultisensorLmbmFilter<A: MultisensorAssociator = MultisensorGibbsAssociator> {
     /// Motion model (dynamics, survival probability)
     motion: MotionModel,
     /// Multi-sensor configuration
@@ -71,6 +76,9 @@ pub struct MultisensorLmbmFilter {
     existence_threshold: f64,
     /// Minimum trajectory length to keep when pruning
     min_trajectory_length: usize,
+
+    /// Phantom data for associator type
+    _associator: PhantomData<A>,
 }
 
 /// Posterior parameters for a single entry in the flattened likelihood tensor.
@@ -84,9 +92,33 @@ struct MultisensorPosterior {
     covariance: DMatrix<f64>,
 }
 
-impl MultisensorLmbmFilter {
-    /// Create a new multi-sensor LMBM filter.
+impl MultisensorLmbmFilter<MultisensorGibbsAssociator> {
+    /// Create a new multi-sensor LMBM filter with default Gibbs associator.
     pub fn new(
+        motion: MotionModel,
+        sensors: MultisensorConfig,
+        birth: BirthModel,
+        association_config: AssociationConfig,
+        lmbm_config: LmbmConfig,
+    ) -> Self {
+        Self::with_associator(motion, sensors, birth, association_config, lmbm_config)
+    }
+
+    /// Create from FilterParams with default Gibbs associator.
+    pub fn from_params(params: &FilterParams) -> Self {
+        Self::new(
+            params.motion.clone(),
+            params.sensor.multi().clone(),
+            params.birth.clone(),
+            params.association.clone(),
+            params.lmbm.clone(),
+        )
+    }
+}
+
+impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
+    /// Create a new multi-sensor LMBM filter with a custom associator type.
+    pub fn with_associator(
         motion: MotionModel,
         sensors: MultisensorConfig,
         birth: BirthModel,
@@ -106,18 +138,8 @@ impl MultisensorLmbmFilter {
             trajectories: Vec::new(),
             existence_threshold: 1e-3,
             min_trajectory_length: 3,
+            _associator: PhantomData,
         }
-    }
-
-    /// Create from FilterParams.
-    pub fn from_params(params: &FilterParams) -> Self {
-        Self::new(
-            params.motion.clone(),
-            params.sensor.multi().clone(),
-            params.birth.clone(),
-            params.association.clone(),
-            params.lmbm.clone(),
-        )
     }
 
     /// Set the existence threshold for gating.
@@ -411,104 +433,7 @@ impl MultisensorLmbmFilter {
         }
     }
 
-    /// Run multi-sensor Gibbs sampling.
-    ///
-    /// Returns a matrix of unique association samples, where each row is a
-    /// flattened association vector [v_{1,1}, v_{1,2}, ..., v_{n,S}].
-    fn gibbs_sampling<R: rand::Rng>(
-        &self,
-        rng: &mut R,
-        log_likelihoods: &[f64],
-        dimensions: &[usize],
-    ) -> Vec<Vec<usize>> {
-        let num_sensors = dimensions.len() - 1;
-        let num_objects = dimensions[num_sensors];
-
-        // m[s] = number of measurements from sensor s
-        let m: Vec<usize> = dimensions[0..num_sensors].iter().map(|&d| d - 1).collect();
-        let max_m = m.iter().copied().max().unwrap_or(0);
-
-        // V[i, s] = measurement index assigned to object i by sensor s (0 = miss)
-        let mut v = DMatrix::zeros(num_objects, num_sensors);
-        // W[j, s] = object index assigned to measurement j by sensor s (0 = none)
-        let mut w = DMatrix::zeros(max_m, num_sensors);
-
-        let mut unique_samples = std::collections::HashSet::new();
-
-        for _ in 0..self.association_config.gibbs_samples {
-            // Generate one Gibbs sample
-            self.generate_association_event(rng, log_likelihoods, dimensions, &m, &mut v, &mut w);
-
-            // Flatten V column-major and store
-            let mut sample = Vec::with_capacity(num_objects * num_sensors);
-            for s in 0..num_sensors {
-                for i in 0..num_objects {
-                    sample.push(v[(i, s)]);
-                }
-            }
-            unique_samples.insert(sample);
-        }
-
-        unique_samples.into_iter().collect()
-    }
-
-    /// Generate a single association event using Gibbs sampling.
-    fn generate_association_event<R: rand::Rng>(
-        &self,
-        rng: &mut R,
-        log_likelihoods: &[f64],
-        dimensions: &[usize],
-        m: &[usize],
-        v: &mut DMatrix<usize>,
-        w: &mut DMatrix<usize>,
-    ) {
-        let num_sensors = m.len();
-        let num_objects = dimensions[num_sensors];
-
-        for s in 0..num_sensors {
-            for i in 0..num_objects {
-                // Starting measurement index
-                let k = if v[(i, s)] == 0 {
-                    0
-                } else {
-                    v[(i, s)] - 1
-                };
-
-                // Build association vector u (1-indexed for internal indexing)
-                let mut u: Vec<usize> = (0..num_sensors).map(|s_idx| v[(i, s_idx)] + 1).collect();
-                u.push(i + 1); // Object index
-
-                for j in k..m[s] {
-                    // Check if measurement j is available
-                    if w[(j, s)] == 0 || w[(j, s)] == i + 1 {
-                        // Detection case
-                        u[s] = j + 2; // j is 0-indexed, detection is j+1 in 1-indexed, +1 for offset
-                        let q_idx = self.cartesian_to_linear(&u, dimensions);
-
-                        // Miss case
-                        u[s] = 1;
-                        let r_idx = self.cartesian_to_linear(&u, dimensions);
-
-                        // Sampling probability
-                        let p = 1.0 / ((log_likelihoods[r_idx] - log_likelihoods[q_idx]).exp() + 1.0);
-
-                        if rng.gen::<f64>() < p {
-                            // Associate object i with measurement j
-                            v[(i, s)] = j + 1;
-                            w[(j, s)] = i + 1;
-                            break;
-                        } else {
-                            // No association
-                            v[(i, s)] = 0;
-                            w[(j, s)] = 0;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Generate posterior hypotheses from Gibbs samples.
+    /// Generate posterior hypotheses from association samples.
     fn generate_posterior_hypotheses(
         &mut self,
         samples: &[Vec<usize>],
@@ -623,129 +548,35 @@ impl MultisensorLmbmFilter {
 
     /// Gate tracks by existence probability across all hypotheses.
     fn gate_tracks(&mut self) {
-        if self.hypotheses.is_empty() || self.hypotheses[0].tracks.is_empty() {
-            return;
-        }
-
-        let num_tracks = self.hypotheses[0].tracks.len();
-
-        // Compute weighted total existence for each track
-        let mut total_existence = vec![0.0; num_tracks];
-        for hyp in &self.hypotheses {
-            let w = hyp.weight();
-            for (i, track) in hyp.tracks.iter().enumerate() {
-                if i < num_tracks {
-                    total_existence[i] += w * track.existence;
-                }
-            }
-        }
-
-        // Determine which tracks to keep
-        let keep_mask: Vec<bool> = total_existence
-            .iter()
-            .map(|&r| r > self.existence_threshold)
-            .collect();
-
-        // Remove low-existence tracks from all hypotheses
-        for hyp in &mut self.hypotheses {
-            let mut kept_tracks = Vec::new();
-            for (i, track) in hyp.tracks.drain(..).enumerate() {
-                if i < keep_mask.len() && keep_mask[i] {
-                    kept_tracks.push(track);
-                } else if let Some(ref traj) = track.trajectory {
-                    if traj.length >= self.min_trajectory_length {
-                        self.trajectories.push(Trajectory {
-                            label: track.label,
-                            states: (0..traj.length)
-                                .filter_map(|j| traj.get_state(j))
-                                .collect(),
-                            covariances: Vec::new(),
-                            timestamps: traj.timestamps.clone(),
-                        });
-                    }
-                }
-            }
-            hyp.tracks = kept_tracks;
-        }
+        super::common_ops::gate_hypothesis_tracks(
+            &mut self.hypotheses,
+            &mut self.trajectories,
+            self.existence_threshold,
+            self.min_trajectory_length,
+        );
     }
 
     /// Extract state estimates from the hypothesis mixture.
     fn extract_estimates(&self, timestamp: usize) -> StateEstimate {
-        if self.hypotheses.is_empty() || self.hypotheses[0].tracks.is_empty() {
-            return StateEstimate::empty(timestamp);
-        }
-
-        // Compute weighted total existence
-        let num_tracks = self.hypotheses[0].tracks.len();
-        let mut total_existence = vec![0.0; num_tracks];
-        for hyp in &self.hypotheses {
-            let w = hyp.weight();
-            for (i, track) in hyp.tracks.iter().enumerate() {
-                if i < num_tracks {
-                    total_existence[i] += w * track.existence;
-                }
-            }
-        }
-
-        // MAP cardinality estimation
-        let (n_map, map_indices) = if self.lmbm_config.use_eap {
-            let n = total_existence.iter().sum::<f64>().floor() as usize;
-            let mut indexed: Vec<(usize, f64)> = self.hypotheses[0]
-                .tracks
-                .iter()
-                .enumerate()
-                .map(|(i, t)| (i, t.existence))
-                .collect();
-            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-            let indices: Vec<usize> = indexed.into_iter().take(n).map(|(i, _)| i).collect();
-            (n, indices)
-        } else {
-            lmb_map_cardinality_estimate(&total_existence)
-        };
-
-        // Extract from best hypothesis
-        let best_hyp = &self.hypotheses[0];
-        let mut estimated_tracks = Vec::with_capacity(n_map);
-        for &idx in &map_indices {
-            if idx < best_hyp.tracks.len() {
-                let track = &best_hyp.tracks[idx];
-                if let (Some(mean), Some(cov)) =
-                    (track.primary_mean(), track.primary_covariance())
-                {
-                    estimated_tracks.push(crate::types::EstimatedTrack::new(
-                        track.label,
-                        mean.clone(),
-                        cov.clone(),
-                    ));
-                }
-            }
-        }
-
-        StateEstimate::new(timestamp, estimated_tracks)
+        super::common_ops::extract_hypothesis_estimates(
+            &self.hypotheses,
+            timestamp,
+            self.lmbm_config.use_eap,
+        )
     }
 
     /// Update track trajectories.
     fn update_trajectories(&mut self, timestamp: usize) {
-        for hyp in &mut self.hypotheses {
-            for track in &mut hyp.tracks {
-                track.record_state(timestamp);
-            }
-        }
+        super::common_ops::update_hypothesis_trajectories(&mut self.hypotheses, timestamp);
     }
 
     /// Initialize trajectory recording for birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        for hyp in &mut self.hypotheses {
-            for track in &mut hyp.tracks {
-                if track.trajectory.is_none() {
-                    track.init_trajectory(max_length);
-                }
-            }
-        }
+        super::common_ops::init_hypothesis_birth_trajectories(&mut self.hypotheses, max_length);
     }
 }
 
-impl Filter for MultisensorLmbmFilter {
+impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
     type State = Vec<LmbmHypothesis>;
     type Measurements = MultisensorMeasurements;
 
@@ -777,12 +608,15 @@ impl Filter for MultisensorLmbmFilter {
             let (log_likelihoods, posteriors, dimensions) =
                 self.generate_association_matrices(&self.hypotheses[0].tracks, measurements);
 
-            // Run multi-sensor Gibbs sampling
-            let samples = self.gibbs_sampling(rng, &log_likelihoods, &dimensions);
+            // Run multi-sensor association using the associator trait
+            let associator = A::default();
+            let association_result = associator
+                .associate(rng, &log_likelihoods, &dimensions, &self.association_config)
+                .map_err(|e| FilterError::Association(e))?;
 
             // Generate posterior hypotheses
             self.generate_posterior_hypotheses(
-                &samples,
+                &association_result.samples,
                 &log_likelihoods,
                 &posteriors,
                 &dimensions,

@@ -32,7 +32,6 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
-use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::types::{
     AssociationConfig, BirthModel, GaussianComponent, MotionModel, MultisensorConfig,
     StateEstimate, Track, Trajectory,
@@ -568,64 +567,27 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
 
     /// Gate tracks by existence probability.
     fn gate_tracks(&mut self) {
-        let mut kept_tracks = Vec::new();
-
-        for track in self.tracks.drain(..) {
-            if track.existence > self.existence_threshold {
-                kept_tracks.push(track);
-            } else if let Some(ref traj) = track.trajectory {
-                if traj.length >= self.min_trajectory_length {
-                    self.trajectories.push(Trajectory {
-                        label: track.label,
-                        states: (0..traj.length).filter_map(|i| traj.get_state(i)).collect(),
-                        covariances: Vec::new(),
-                        timestamps: traj.timestamps.clone(),
-                    });
-                }
-            }
-        }
-
-        self.tracks = kept_tracks;
+        super::common_ops::gate_tracks(
+            &mut self.tracks,
+            &mut self.trajectories,
+            self.existence_threshold,
+            self.min_trajectory_length,
+        );
     }
 
     /// Extract state estimates using MAP cardinality estimation.
     fn extract_estimates(&self, timestamp: usize) -> StateEstimate {
-        if self.tracks.is_empty() {
-            return StateEstimate::empty(timestamp);
-        }
-
-        let existence_probs: Vec<f64> = self.tracks.iter().map(|t| t.existence).collect();
-        let (n_map, map_indices) = lmb_map_cardinality_estimate(&existence_probs);
-
-        let mut estimated_tracks = Vec::with_capacity(n_map);
-        for &idx in &map_indices {
-            let track = &self.tracks[idx];
-            if let (Some(mean), Some(cov)) = (track.primary_mean(), track.primary_covariance()) {
-                estimated_tracks.push(crate::types::EstimatedTrack::new(
-                    track.label,
-                    mean.clone(),
-                    cov.clone(),
-                ));
-            }
-        }
-
-        StateEstimate::new(timestamp, estimated_tracks)
+        super::common_ops::extract_estimates(&self.tracks, timestamp)
     }
 
     /// Update track trajectories.
     fn update_trajectories(&mut self, timestamp: usize) {
-        for track in &mut self.tracks {
-            track.record_state(timestamp);
-        }
+        super::common_ops::update_trajectories(&mut self.tracks, timestamp);
     }
 
     /// Initialize trajectory recording for birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        for track in &mut self.tracks {
-            if track.trajectory.is_none() {
-                track.init_trajectory(max_length);
-            }
-        }
+        super::common_ops::init_birth_trajectories(&mut self.tracks, max_length);
     }
 
     /// Update existence for missed detection (all sensors).

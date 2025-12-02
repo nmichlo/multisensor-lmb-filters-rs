@@ -23,11 +23,13 @@
 //! - [`IcLmbFilter`] - Iterated Corrector (sequential sensor updates)
 //! - [`MultisensorLmbmFilter`] - Multi-sensor LMBM with joint association
 
+pub mod common_ops;
 pub mod errors;
 pub mod lmb;
 pub mod lmbm;
 pub mod multisensor_lmb;
 pub mod multisensor_lmbm;
+pub mod multisensor_traits;
 pub mod traits;
 
 pub use errors::{AssociationError, FilterError};
@@ -39,4 +41,5 @@ pub use multisensor_lmb::{
     PuLmbFilter,
 };
 pub use multisensor_lmbm::MultisensorLmbmFilter;
+pub use multisensor_traits::{MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator};
 pub use traits::{Associator, Filter, Merger, Updater};

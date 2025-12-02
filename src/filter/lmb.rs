@@ -16,10 +16,9 @@ use nalgebra::DVector;
 
 use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
-use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::types::{
-    AssociationConfig, BirthModel, FilterParams, MotionModel, SensorModel,
-    StateEstimate, Track, Trajectory,
+    AssociationConfig, BirthModel, FilterParams, MotionModel, SensorModel, StateEstimate, Track,
+    Trajectory,
 };
 
 use super::errors::FilterError;
@@ -160,78 +159,28 @@ impl<A: Associator> LmbFilter<A> {
     }
 
     /// Gate tracks by existence probability.
-    ///
-    /// Removes tracks with existence below the threshold, optionally saving
-    /// long trajectories for later analysis.
     fn gate_tracks(&mut self) {
-        let mut kept_tracks = Vec::new();
-
-        for track in self.tracks.drain(..) {
-            if track.existence > self.existence_threshold {
-                kept_tracks.push(track);
-            } else if let Some(ref traj) = track.trajectory {
-                // Save long trajectories even if track is pruned
-                if traj.length >= self.min_trajectory_length {
-                    self.trajectories.push(Trajectory {
-                        label: track.label,
-                        states: (0..traj.length)
-                            .filter_map(|i| traj.get_state(i))
-                            .collect(),
-                        covariances: Vec::new(), // Could store if needed
-                        timestamps: traj.timestamps.clone(),
-                    });
-                }
-            }
-        }
-
-        self.tracks = kept_tracks;
+        super::common_ops::gate_tracks(
+            &mut self.tracks,
+            &mut self.trajectories,
+            self.existence_threshold,
+            self.min_trajectory_length,
+        );
     }
 
     /// Extract state estimates using MAP cardinality estimation.
-    ///
-    /// Uses the existence probabilities to determine how many objects exist,
-    /// then selects the most likely ones.
     fn extract_estimates(&self, timestamp: usize) -> StateEstimate {
-        if self.tracks.is_empty() {
-            return StateEstimate::empty(timestamp);
-        }
-
-        // Get existence probabilities
-        let existence_probs: Vec<f64> = self.tracks.iter().map(|t| t.existence).collect();
-
-        // MAP cardinality estimation
-        let (n_map, map_indices) = lmb_map_cardinality_estimate(&existence_probs);
-
-        // Extract estimates for selected tracks
-        let mut estimated_tracks = Vec::with_capacity(n_map);
-        for &idx in &map_indices {
-            let track = &self.tracks[idx];
-            if let (Some(mean), Some(cov)) = (track.primary_mean(), track.primary_covariance()) {
-                estimated_tracks.push(crate::types::EstimatedTrack::new(
-                    track.label,
-                    mean.clone(),
-                    cov.clone(),
-                ));
-            }
-        }
-
-        StateEstimate::new(timestamp, estimated_tracks)
+        super::common_ops::extract_estimates(&self.tracks, timestamp)
     }
 
     /// Update track trajectories after measurement update.
     fn update_trajectories(&mut self, timestamp: usize) {
-        for track in &mut self.tracks {
-            track.record_state(timestamp);
-        }
+        super::common_ops::update_trajectories(&mut self.tracks, timestamp);
     }
 
     /// Initialize trajectory recording for new birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        for track in &mut self.tracks {
-            if track.trajectory.is_none() {
-                track.init_trajectory(max_length);
-            }
-        }
+        super::common_ops::init_birth_trajectories(&mut self.tracks, max_length);
     }
 
     /// Update existence probabilities from association result.

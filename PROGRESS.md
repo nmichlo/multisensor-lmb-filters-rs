@@ -1,10 +1,72 @@
 # PRAK Library Refactoring Progress
 
-## Status: COMPLETE - New API Ready
+## Status: IN PROGRESS - Deduplication & Standardization
 
 **Last Updated:** 2025-12-02
 
-The library has been fully refactored to use a new trait-based API with 100% MATLAB equivalence.
+The new trait-based API is complete. Now refactoring to deduplicate ~360 lines of repeated code and standardize interfaces for future extensibility.
+
+---
+
+## Current Work: Deduplication Refactoring
+
+### Phase 1: Create MultisensorAssociator Trait ✅
+
+**Goal:** Make `MultisensorLmbmFilter` generic over associators (currently hardcoded Gibbs)
+
+- [x] Create `src/filter/multisensor_traits.rs` with `MultisensorAssociator` trait
+- [x] Create `MultisensorGibbsAssociator` struct
+- [x] Move `gibbs_sampling()` and `generate_association_event()` from `MultisensorLmbmFilter`
+- [x] Make `MultisensorLmbmFilter` generic: `MultisensorLmbmFilter<A: MultisensorAssociator>`
+- [x] Update `src/filter/mod.rs` exports
+
+**Result:** `MultisensorLmbmFilter<A>` now accepts any `MultisensorAssociator` implementation. Default is `MultisensorGibbsAssociator`.
+
+### Phase 2: Extract Common Filter Operations ✅
+
+**Goal:** Deduplicate ~200 lines across 4 filter implementations
+
+- [x] Create `src/filter/common_ops.rs`
+- [x] Extract `gate_tracks()` / `gate_hypothesis_tracks()` - shared by all 4 filters
+- [x] Extract `extract_estimates()` / `extract_hypothesis_estimates()` - MAP cardinality + EstimatedTrack creation
+- [x] Extract `update_trajectories()` / `update_hypothesis_trajectories()` - record track states
+- [x] Extract `init_birth_trajectories()` / `init_hypothesis_birth_trajectories()` - initialize trajectory recording
+- [x] Update `lmb.rs`, `lmbm.rs`, `multisensor_lmb.rs`, `multisensor_lmbm.rs` to use shared functions
+
+**Result:** ~200 lines of duplicated code replaced with calls to shared functions. Two patterns supported:
+- Single-track operations for LmbFilter and MultisensorLmbFilter
+- Hypothesis-based operations for LmbmFilter and MultisensorLmbmFilter
+
+### Phase 3: Extract LMBM Hypothesis Management [ ]
+
+**Goal:** Deduplicate ~65 lines identical in LmbmFilter and MultisensorLmbmFilter
+
+- [ ] Add `normalize_and_gate_hypotheses()` to `common_ops.rs`
+- [ ] Add `gate_hypothesis_tracks()` to `common_ops.rs`
+- [ ] Update `lmbm.rs` to use shared functions
+- [ ] Update `multisensor_lmbm.rs` to use shared functions
+
+### Phase 4: Use Existing Update Helpers [ ]
+
+**Goal:** Replace inline logic with existing `update.rs` helpers (~60 lines)
+
+- [ ] Replace inline existence update in `lmb.rs` with `update_existence_no_detection()`
+- [ ] Replace inline existence update in `lmbm.rs` with `update_existence_no_detection()`
+- [ ] Replace inline existence update in `multisensor_lmb.rs` with `update_existence_no_detection_multisensor()`
+- [ ] Replace inline existence update in `multisensor_lmbm.rs` with `update_existence_no_detection_multisensor()`
+
+### Phase 5: Standardize Constructor Defaults [ ]
+
+**Goal:** Single source of truth for default values (~50 lines)
+
+- [ ] Add constants to `src/filter/mod.rs`:
+  - `DEFAULT_EXISTENCE_THRESHOLD: f64 = 1e-3`
+  - `DEFAULT_MIN_TRAJECTORY_LENGTH: usize = 3`
+  - `DEFAULT_GM_WEIGHT_THRESHOLD: f64 = 1e-4`
+  - `DEFAULT_MAX_GM_COMPONENTS: usize = 100`
+  - `DEFAULT_LMBM_MAX_HYPOTHESES: usize = 100`
+  - `DEFAULT_LMBM_WEIGHT_THRESHOLD: f64 = 1e-5`
+- [ ] Update all filter constructors to use constants
 
 ---
 

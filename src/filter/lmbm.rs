@@ -21,7 +21,6 @@ use nalgebra::DVector;
 
 use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
-use crate::lmb::cardinality::lmb_map_cardinality_estimate;
 use crate::types::{
     AssociationConfig, BirthModel, FilterParams, LmbmConfig, LmbmHypothesis, MotionModel,
     SensorModel, StateEstimate, Trajectory,
@@ -300,136 +299,32 @@ impl<A: Associator> LmbmFilter<A> {
     }
 
     /// Gate tracks by existence probability across all hypotheses.
-    ///
-    /// Computes total existence probability for each track (weighted sum across
-    /// hypotheses), then removes tracks with low total existence.
     fn gate_tracks(&mut self) {
-        if self.hypotheses.is_empty() || self.hypotheses[0].tracks.is_empty() {
-            return;
-        }
-
-        let num_tracks = self.hypotheses[0].tracks.len();
-
-        // Compute weighted total existence for each track position
-        let mut total_existence = vec![0.0; num_tracks];
-        for hyp in &self.hypotheses {
-            let w = hyp.weight();
-            for (i, track) in hyp.tracks.iter().enumerate() {
-                if i < num_tracks {
-                    total_existence[i] += w * track.existence;
-                }
-            }
-        }
-
-        // Determine which tracks to keep
-        let keep_mask: Vec<bool> = total_existence
-            .iter()
-            .map(|&r| r > self.existence_threshold)
-            .collect();
-
-        // Remove low-existence tracks from all hypotheses
-        for hyp in &mut self.hypotheses {
-            let mut kept_tracks = Vec::new();
-            for (i, track) in hyp.tracks.drain(..).enumerate() {
-                if i < keep_mask.len() && keep_mask[i] {
-                    kept_tracks.push(track);
-                } else if let Some(ref traj) = track.trajectory {
-                    // Save long trajectories
-                    if traj.length >= self.min_trajectory_length {
-                        self.trajectories.push(Trajectory {
-                            label: track.label,
-                            states: (0..traj.length)
-                                .filter_map(|j| traj.get_state(j))
-                                .collect(),
-                            covariances: Vec::new(),
-                            timestamps: traj.timestamps.clone(),
-                        });
-                    }
-                }
-            }
-            hyp.tracks = kept_tracks;
-        }
+        super::common_ops::gate_hypothesis_tracks(
+            &mut self.hypotheses,
+            &mut self.trajectories,
+            self.existence_threshold,
+            self.min_trajectory_length,
+        );
     }
 
     /// Extract state estimates from the hypothesis mixture.
-    ///
-    /// Uses MAP cardinality estimation on the weighted existence probabilities
-    /// to determine how many objects exist, then extracts states from the
-    /// highest-weight hypothesis.
     fn extract_estimates(&self, timestamp: usize) -> StateEstimate {
-        if self.hypotheses.is_empty() || self.hypotheses[0].tracks.is_empty() {
-            return StateEstimate::empty(timestamp);
-        }
-
-        // Compute weighted total existence for each track
-        let num_tracks = self.hypotheses[0].tracks.len();
-        let mut total_existence = vec![0.0; num_tracks];
-        for hyp in &self.hypotheses {
-            let w = hyp.weight();
-            for (i, track) in hyp.tracks.iter().enumerate() {
-                if i < num_tracks {
-                    total_existence[i] += w * track.existence;
-                }
-            }
-        }
-
-        // MAP cardinality estimation
-        let (n_map, map_indices) = if self.lmbm_config.use_eap {
-            // EAP: floor(sum of existence), select top-k
-            let n = total_existence.iter().sum::<f64>().floor() as usize;
-            let mut indexed: Vec<(usize, f64)> = self.hypotheses[0]
-                .tracks
-                .iter()
-                .enumerate()
-                .map(|(i, t)| (i, t.existence))
-                .collect();
-            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-            let indices: Vec<usize> = indexed.into_iter().take(n).map(|(i, _)| i).collect();
-            (n, indices)
-        } else {
-            // MAP estimate
-            lmb_map_cardinality_estimate(&total_existence)
-        };
-
-        // Extract estimates from highest-weight hypothesis
-        let best_hyp = &self.hypotheses[0];
-        let mut estimated_tracks = Vec::with_capacity(n_map);
-        for &idx in &map_indices {
-            if idx < best_hyp.tracks.len() {
-                let track = &best_hyp.tracks[idx];
-                if let (Some(mean), Some(cov)) =
-                    (track.primary_mean(), track.primary_covariance())
-                {
-                    estimated_tracks.push(crate::types::EstimatedTrack::new(
-                        track.label,
-                        mean.clone(),
-                        cov.clone(),
-                    ));
-                }
-            }
-        }
-
-        StateEstimate::new(timestamp, estimated_tracks)
+        super::common_ops::extract_hypothesis_estimates(
+            &self.hypotheses,
+            timestamp,
+            self.lmbm_config.use_eap,
+        )
     }
 
     /// Update track trajectories after measurement update.
     fn update_trajectories(&mut self, timestamp: usize) {
-        for hyp in &mut self.hypotheses {
-            for track in &mut hyp.tracks {
-                track.record_state(timestamp);
-            }
-        }
+        super::common_ops::update_hypothesis_trajectories(&mut self.hypotheses, timestamp);
     }
 
     /// Initialize trajectory recording for new birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        for hyp in &mut self.hypotheses {
-            for track in &mut hyp.tracks {
-                if track.trajectory.is_none() {
-                    track.init_trajectory(max_length);
-                }
-            }
-        }
+        super::common_ops::init_hypothesis_birth_trajectories(&mut self.hypotheses, max_length);
     }
 
     /// Build log-likelihood matrix for computing hypothesis weights.
