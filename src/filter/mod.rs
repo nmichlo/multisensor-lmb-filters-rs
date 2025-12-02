@@ -9,17 +9,32 @@
 //!
 //! # Filter Types
 //!
-//! - [`LmbFilter`] - Single-sensor LMB filter
-//! - [`LmbmFilter`] - Single-sensor LMBM filter
-//! - `MultisensorLmbFilter<M: Merger>` - Multi-sensor LMB (coming soon)
+//! ## Single-Sensor Filters
+//!
+//! - [`LmbFilter`] - Single-sensor LMB filter with marginal association
+//! - [`LmbmFilter`] - Single-sensor LMBM filter with hypothesis management
+//!
+//! ## Multi-Sensor Filters
+//!
+//! - [`MultisensorLmbFilter`] - Multi-sensor LMB with configurable fusion
+//! - [`AaLmbFilter`] - Arithmetic Average fusion (fast, simple)
+//! - [`GaLmbFilter`] - Geometric Average fusion (conservative covariance)
+//! - [`PuLmbFilter`] - Parallel Update fusion (optimal for independent sensors)
+//! - [`IcLmbFilter`] - Iterated Corrector (sequential sensor updates)
 //! - `MultisensorLmbmFilter` - Multi-sensor LMBM (coming soon)
 
 pub mod errors;
 pub mod lmb;
 pub mod lmbm;
+pub mod multisensor_lmb;
 pub mod traits;
 
 pub use errors::{AssociationError, FilterError};
 pub use lmb::LmbFilter;
 pub use lmbm::LmbmFilter;
+pub use multisensor_lmb::{
+    AaLmbFilter, ArithmeticAverageMerger, GaLmbFilter, GeometricAverageMerger, IcLmbFilter,
+    IteratedCorrectorMerger, MultisensorLmbFilter, MultisensorMeasurements, ParallelUpdateMerger,
+    PuLmbFilter,
+};
 pub use traits::{Associator, Filter, Merger, Updater};
