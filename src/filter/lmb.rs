@@ -233,7 +233,7 @@ impl<A: Associator> Filter for LmbFilter<A> {
         predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
 
         // Initialize trajectory recording for any new tracks
-        self.init_birth_trajectories(1000); // TODO: make configurable
+        self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // 2. Measurement update
         if !measurements.is_empty() {

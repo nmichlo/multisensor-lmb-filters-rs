@@ -4,7 +4,150 @@
 //! filter implementations to avoid code duplication.
 
 use crate::lmb::cardinality::lmb_map_cardinality_estimate;
-use crate::types::{EstimatedTrack, LmbmHypothesis, StateEstimate, Track, Trajectory};
+use crate::types::{EstimatedTrack, GaussianComponent, LmbmHypothesis, StateEstimate, Track, Trajectory};
+use nalgebra::{DMatrix, DVector};
+use smallvec::SmallVec;
+
+// ============================================================================
+// Gaussian Mixture Component Operations
+// ============================================================================
+
+/// Prune and normalize Gaussian mixture components.
+///
+/// This performs the common operation of:
+/// 1. Sorting components by weight (descending)
+/// 2. Keeping only components above the weight threshold
+/// 3. Limiting to maximum number of components
+/// 4. Renormalizing weights to sum to 1.0
+///
+/// # Arguments
+/// * `components` - Mutable reference to component list
+/// * `weight_threshold` - Minimum weight to keep (components below are pruned)
+/// * `max_components` - Maximum number of components to keep
+pub fn prune_and_normalize_components(
+    components: &mut SmallVec<[GaussianComponent; 4]>,
+    weight_threshold: f64,
+    max_components: usize,
+) {
+    if components.is_empty() {
+        return;
+    }
+
+    // Sort by weight descending
+    components.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Find cutoff index
+    let mut cutoff = components.len();
+    for (i, comp) in components.iter().enumerate() {
+        if comp.weight < weight_threshold || i >= max_components {
+            cutoff = i;
+            break;
+        }
+    }
+
+    // Truncate
+    components.truncate(cutoff);
+
+    // Renormalize
+    normalize_component_weights(components);
+}
+
+/// Normalize Gaussian mixture component weights to sum to 1.0.
+///
+/// # Arguments
+/// * `components` - Mutable reference to component list
+pub fn normalize_component_weights(components: &mut SmallVec<[GaussianComponent; 4]>) {
+    let total: f64 = components.iter().map(|c| c.weight).sum();
+    if total > 1e-15 {
+        for comp in components.iter_mut() {
+            comp.weight /= total;
+        }
+    }
+}
+
+/// Normalize track's Gaussian mixture component weights to sum to 1.0.
+///
+/// Convenience wrapper around [`normalize_component_weights`] for tracks.
+///
+/// # Arguments
+/// * `track` - Mutable reference to track
+pub fn normalize_track_weights(track: &mut Track) {
+    normalize_component_weights(&mut track.components);
+}
+
+/// Prune weighted components by threshold, truncate to max, and normalize.
+///
+/// This is the general form used when building new component mixtures
+/// from (weight, mean, covariance) tuples.
+///
+/// # Arguments
+/// * `weighted_components` - Vector of (weight, mean, covariance) tuples
+/// * `weight_threshold` - Minimum weight to keep (use 0.0 to skip threshold check)
+/// * `max_components` - Maximum number of components to keep
+///
+/// # Returns
+/// Pruned, truncated and renormalized components as a SmallVec
+pub fn prune_weighted_components(
+    mut weighted_components: Vec<(f64, DVector<f64>, DMatrix<f64>)>,
+    weight_threshold: f64,
+    max_components: usize,
+) -> SmallVec<[GaussianComponent; 4]> {
+    if weighted_components.is_empty() {
+        return SmallVec::new();
+    }
+
+    // First normalize weights
+    let total_weight: f64 = weighted_components.iter().map(|(w, _, _)| w).sum();
+    if total_weight > 1e-15 {
+        for (w, _, _) in &mut weighted_components {
+            *w /= total_weight;
+        }
+    }
+
+    // Sort by weight descending
+    weighted_components.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Build result with threshold and max checks
+    let mut result: SmallVec<[GaussianComponent; 4]> = SmallVec::new();
+    let mut kept_weight = 0.0;
+
+    for (w, mean, cov) in weighted_components {
+        if w < weight_threshold {
+            break; // Sorted descending, so remaining are also below threshold
+        }
+        if result.len() >= max_components {
+            break;
+        }
+        kept_weight += w;
+        result.push(GaussianComponent::new(w, mean, cov));
+    }
+
+    // Renormalize kept components
+    if kept_weight > 1e-15 && !result.is_empty() {
+        for comp in result.iter_mut() {
+            comp.weight /= kept_weight;
+        }
+    }
+
+    result
+}
+
+/// Merge Gaussian mixture components by sorting and truncating.
+///
+/// Convenience wrapper for [`prune_weighted_components`] with no threshold.
+///
+/// # Arguments
+/// * `weighted_components` - Vector of (weight, mean, covariance) tuples
+/// * `max_components` - Maximum number of components to keep
+///
+/// # Returns
+/// Truncated and renormalized components as a SmallVec
+pub fn merge_and_truncate_components(
+    weighted_components: Vec<(f64, DVector<f64>, DMatrix<f64>)>,
+    max_components: usize,
+) -> SmallVec<[GaussianComponent; 4]> {
+    prune_weighted_components(weighted_components, 0.0, max_components)
+}
 
 // ============================================================================
 // Single-track operations (LmbFilter, MultisensorLmbFilter)

@@ -1,14 +1,15 @@
 # PRAK Library Refactoring Progress
 
-## Status: COMPLETE - Deduplication & Standardization
+## Status: COMPLETE - Phase 6 Deduplication
 
-**Last Updated:** 2025-12-02
+**Last Updated:** 2025-12-03
 
-All refactoring phases complete. The library now has:
+All immediate refactoring complete. The library now has:
 - Trait-based API with pluggable associators
 - Shared operations in `filter/common_ops.rs`
 - Centralized constants in `filter/mod.rs`
-- ~300+ lines of duplicated code eliminated
+- ~350+ lines of duplicated code eliminated
+- Component pruning helpers for MarginalUpdater and Mergers
 
 ---
 
@@ -77,6 +78,52 @@ All refactoring phases complete. The library now has:
 - [x] Update all filter constructors to use constants
 
 **Result:** All default values now come from a single source in `filter/mod.rs`.
+
+### Phase 6: Additional Deduplication (Part A) ✅
+
+**Goal:** Extract remaining duplicated code patterns
+
+- [x] Add `prune_and_normalize_components()` to `common_ops.rs` - for SmallVec<GaussianComponent>
+- [x] Add `prune_weighted_components()` to `common_ops.rs` - for Vec<(weight, mean, cov)> tuples
+- [x] Add `normalize_component_weights()` and `normalize_track_weights()` helpers
+- [x] Add `merge_and_truncate_components()` convenience wrapper
+- [x] Update `MarginalUpdater` in `traits.rs` to use `prune_weighted_components()`
+- [x] Update `ArithmeticAverageMerger` in `multisensor_lmb.rs` to use `merge_and_truncate_components()`
+- [x] Add `DEFAULT_MAX_TRAJECTORY_LENGTH` constant to `filter/mod.rs`
+- [x] Update trajectory initialization in all 4 filters to use the constant
+
+**Result:** ~50 additional lines of duplicated code eliminated. Component pruning now centralized.
+
+---
+
+## Future Work: Unified Tracker API (Deferred)
+
+The following was planned but deferred. Full plan details preserved in `/Users/nmichlo/.claude/plans/linear-pondering-yeti.md`.
+
+### Part B: Unified Detection/TrackedObject Types
+- `src/types/detection.rs` - Detection type supporting both points and bounding boxes
+  - `from_point()`, `from_bbox()`, `from_norfair()`, `from_bytetrack()`, `from_deepsort()`
+  - `to_point()`, `to_bbox()` for conversion
+- `src/types/tracked_object.rs` - TrackedObject output type
+  - TrackId (Label or Numeric), TrackStatus (Tentative/Confirmed/Coasting/Deleted)
+  - Unified output format for all trackers
+
+### Part C: Tracker Trait and PRAK Adapters
+- `src/tracker/mod.rs` - Tracker and MultisensorTracker traits
+  - `update(&[Detection]) -> Vec<TrackedObject>`
+  - `tracks()`, `reset()`, `name()`
+- `src/tracker/prak_adapter.rs` - Wraps existing Filter implementations
+  - LmbTracker, LmbmTracker, MultisensorLmbTracker, MultisensorLmbmTracker
+  - Converts Detection → DVector, EstimatedTrack → TrackedObject
+
+### Part D: External Tracker Stubs
+- `src/tracker/external.rs` - Feature-gated placeholders
+  - `#[cfg(feature = "norfair")]` NorfairTracker
+  - `#[cfg(feature = "bytetrack")]` ByteTracker
+  - `#[cfg(feature = "sort")]` SortTracker
+- Would require PyO3/FFI bindings or native Rust ports
+
+**Goal:** Same `Tracker` interface to swap between PRAK's LMB/LMBM and external trackers (Norfair, ByteTrack, SORT).
 
 ---
 

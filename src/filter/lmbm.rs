@@ -321,7 +321,7 @@ impl<A: Associator> Filter for LmbmFilter<A> {
         self.predict_hypotheses(timestep);
 
         // Initialize trajectory recording for any new tracks
-        self.init_birth_trajectories(1000); // TODO: make configurable
+        self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // 2. Measurement update
         if !measurements.is_empty() {

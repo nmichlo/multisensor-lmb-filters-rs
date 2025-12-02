@@ -116,28 +116,9 @@ impl Merger for ArithmeticAverageMerger {
                 }
             }
 
-            // Sort by weight descending
-            all_components.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-
-            // Truncate to max components
-            let keep_count = all_components.len().min(self.max_components);
-            all_components.truncate(keep_count);
-
-            // Renormalize weights
-            let total_weight: f64 = all_components.iter().map(|(w, _, _)| w).sum();
-            if total_weight > 1e-15 {
-                for (w, _, _) in &mut all_components {
-                    *w /= total_weight;
-                }
-            }
-
-            // Update track components
-            fused_tracks[i].components.clear();
-            for (w, mean, cov) in all_components {
-                fused_tracks[i]
-                    .components
-                    .push(GaussianComponent::new(w, mean, cov));
-            }
+            // Merge, truncate, and normalize using shared helper
+            fused_tracks[i].components =
+                super::common_ops::merge_and_truncate_components(all_components, self.max_components);
         }
 
         fused_tracks
@@ -624,7 +605,7 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
 
         // 1. Prediction
         predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
-        self.init_birth_trajectories(1000);
+        self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // 2. Per-sensor measurement updates
         let has_any_measurements = measurements.iter().any(|m| !m.is_empty());

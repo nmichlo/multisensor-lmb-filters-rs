@@ -553,7 +553,7 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
 
         // 1. Prediction
         self.predict_hypotheses(timestep);
-        self.init_birth_trajectories(1000);
+        self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // 2. Measurement update
         let has_measurements = measurements.iter().any(|m| !m.is_empty());

@@ -633,46 +633,20 @@ impl Updater for MarginalUpdater {
                 }
             }
 
-            // Normalize weights
-            let total_weight: f64 = new_weights.iter().sum();
-            if total_weight > 1e-15 {
-                for w in &mut new_weights {
-                    *w /= total_weight;
-                }
-            }
-
-            // Prune and keep top components
-            let mut indexed: Vec<(usize, f64)> = new_weights
-                .iter()
-                .enumerate()
-                .map(|(idx, &w)| (idx, w))
+            // Build weighted components for pruning
+            let weighted_components: Vec<_> = new_weights
+                .into_iter()
+                .zip(new_means.into_iter())
+                .zip(new_covs.into_iter())
+                .map(|((w, m), c)| (w, m, c))
                 .collect();
-            indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-            // Keep components above threshold, up to max
-            track.components.clear();
-            let mut kept_weight = 0.0;
-            for (orig_idx, weight) in indexed.into_iter() {
-                if weight < self.weight_threshold {
-                    break;
-                }
-                if track.components.len() >= self.max_components {
-                    break;
-                }
-                track.components.push(crate::types::GaussianComponent::new(
-                    weight,
-                    new_means[orig_idx].clone(),
-                    new_covs[orig_idx].clone(),
-                ));
-                kept_weight += weight;
-            }
-
-            // Renormalize kept components
-            if kept_weight > 1e-15 && !track.components.is_empty() {
-                for comp in track.components.iter_mut() {
-                    comp.weight /= kept_weight;
-                }
-            }
+            // Prune, truncate, and normalize using shared helper
+            track.components = super::common_ops::prune_weighted_components(
+                weighted_components,
+                self.weight_threshold,
+                self.max_components,
+            );
         }
     }
 

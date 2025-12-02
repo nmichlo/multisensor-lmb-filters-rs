@@ -69,3 +69,6 @@ pub const DEFAULT_LMBM_MAX_HYPOTHESES: usize = 100;
 /// Default hypothesis weight threshold for LMBM filters.
 /// Hypotheses with weight below this threshold are pruned.
 pub const DEFAULT_LMBM_WEIGHT_THRESHOLD: f64 = 1e-5;
+
+/// Default maximum trajectory length for track history recording.
+pub const DEFAULT_MAX_TRAJECTORY_LENGTH: usize = 1000;
