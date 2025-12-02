@@ -1,6 +1,6 @@
 # PRAK Library Refactoring Progress
 
-## Status: Phase 1 Complete - Module Structure Created
+## Status: Step 2 Complete - Associators Wired Up
 
 **Last Updated:** 2025-12-02
 
@@ -44,17 +44,27 @@ All new module structures have been created and compile successfully.
 - [x] All existing tests pass (`cargo test --release`)
 - [x] New unit tests added for types, components, association
 
+### Step 2: Wire Up Associator Implementations ✅
+
+Connected the placeholder associators to the actual implementations in `common/association/`:
+
+1. [x] `LbpAssociator.associate()` → calls `legacy_lbp::loopy_belief_propagation()`
+   - Converts between new and legacy `AssociationMatrices` types
+   - Extracts miss weights from first column, marginal weights from remaining columns
+
+2. [x] `GibbsAssociator.associate()` → calls `legacy_gibbs::lmb_gibbs_sampling()`
+   - Builds `GibbsAssociationMatrices` (p, l, r, c) from new matrices
+   - Uses `RngAdapter` to bridge `rand::Rng` to legacy `common::rng::Rng` trait
+   - Converts sampled associations to new format (-1 for miss, 0-indexed measurements)
+
+3. [x] `MurtyAssociator.associate()` → calls `legacy_murtys::murtys_algorithm_wrapper()`
+   - Uses cost matrix directly from new matrices
+   - Computes marginal probabilities from weighted k-best assignments
+   - Handles dummy assignments (clutter) correctly
+
 ---
 
 ## Next Steps
-
-### Step 2: Wire Up Associator Implementations
-
-Connect the placeholder `LbpAssociator`, `GibbsAssociator`, `MurtyAssociator` to the actual implementations in `common/association/`:
-
-1. `filter/traits.rs` - LbpAssociator.associate() should call `lbp::loopy_belief_propagation()`
-2. `filter/traits.rs` - GibbsAssociator.associate() should call `gibbs::gibbs_sampling()`
-3. `filter/traits.rs` - MurtyAssociator.associate() should call `murtys::murtys_kbest()`
 
 ### Step 3: Implement MarginalUpdater and HardAssignmentUpdater
 
