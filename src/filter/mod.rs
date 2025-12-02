@@ -21,12 +21,13 @@
 //! - [`GaLmbFilter`] - Geometric Average fusion (conservative covariance)
 //! - [`PuLmbFilter`] - Parallel Update fusion (optimal for independent sensors)
 //! - [`IcLmbFilter`] - Iterated Corrector (sequential sensor updates)
-//! - `MultisensorLmbmFilter` - Multi-sensor LMBM (coming soon)
+//! - [`MultisensorLmbmFilter`] - Multi-sensor LMBM with joint association
 
 pub mod errors;
 pub mod lmb;
 pub mod lmbm;
 pub mod multisensor_lmb;
+pub mod multisensor_lmbm;
 pub mod traits;
 
 pub use errors::{AssociationError, FilterError};
@@ -37,4 +38,5 @@ pub use multisensor_lmb::{
     IteratedCorrectorMerger, MultisensorLmbFilter, MultisensorMeasurements, ParallelUpdateMerger,
     PuLmbFilter,
 };
+pub use multisensor_lmbm::MultisensorLmbmFilter;
 pub use traits::{Associator, Filter, Merger, Updater};

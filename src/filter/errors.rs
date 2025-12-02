@@ -38,6 +38,9 @@ pub enum FilterError {
         description: String,
     },
 
+    /// Invalid input provided
+    InvalidInput(String),
+
     /// No valid tracks/hypotheses remain
     NoValidTracks,
 }
@@ -66,6 +69,7 @@ impl fmt::Display for FilterError {
             FilterError::Configuration { description } => {
                 write!(f, "Configuration error: {}", description)
             }
+            FilterError::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
             FilterError::NoValidTracks => write!(f, "No valid tracks or hypotheses remain"),
         }
     }
