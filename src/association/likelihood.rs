@@ -19,7 +19,7 @@ use std::f64::consts::PI;
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::types::SensorModel;
+use crate::lmb::SensorModel;
 
 /// Pre-allocated workspace for likelihood computations.
 ///

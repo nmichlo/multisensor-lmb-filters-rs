@@ -25,6 +25,7 @@ use super::super::output::{StateEstimate, Trajectory};
 use super::super::types::{GaussianComponent, LmbmHypothesis, Track};
 use super::super::errors::FilterError;
 use super::super::traits::Filter;
+use super::super::builder::FilterBuilder;
 use super::lmb::MultisensorMeasurements;
 use super::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
 
@@ -144,18 +145,6 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             associator,
         }
-    }
-
-    /// Set the existence threshold for gating.
-    pub fn with_existence_threshold(mut self, threshold: f64) -> Self {
-        self.existence_threshold = threshold;
-        self
-    }
-
-    /// Set the minimum trajectory length for keeping discarded tracks.
-    pub fn with_min_trajectory_length(mut self, length: usize) -> Self {
-        self.min_trajectory_length = length;
-        self
     }
 
     /// Number of sensors.
@@ -637,10 +626,24 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
     }
 }
 
+// ============================================================================
+// Builder Trait Implementations
+// ============================================================================
+
+impl<A: MultisensorAssociator> FilterBuilder for MultisensorLmbmFilter<A> {
+    fn existence_threshold_mut(&mut self) -> &mut f64 {
+        &mut self.existence_threshold
+    }
+
+    fn min_trajectory_length_mut(&mut self) -> &mut usize {
+        &mut self.min_trajectory_length
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{BirthLocation, SensorModel};
+    use crate::lmb::{BirthLocation, SensorModel};
 
     fn create_test_filter() -> MultisensorLmbmFilter {
         let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);

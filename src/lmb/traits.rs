@@ -766,7 +766,7 @@ impl Updater for HardAssignmentUpdater {
                 ) {
                     // Replace all components with single posterior
                     track.components.clear();
-                    track.components.push(crate::types::GaussianComponent::new(
+                    track.components.push(super::types::GaussianComponent::new(
                         1.0,
                         post_mean.clone(),
                         post_cov.clone(),

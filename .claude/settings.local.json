@@ -20,7 +20,9 @@
       "Bash(octave:*)",
       "Bash(cargo clean:*)",
       "Bash(timeout 60 octave:*)",
-      "Bash(rustc:*)"
+      "Bash(rustc:*)",
+      "Bash(grep:*)",
+      "Bash(wc:*)"
     ],
     "deny": [
       "Bash(git:*)"

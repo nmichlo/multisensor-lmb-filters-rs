@@ -1201,7 +1201,7 @@ fn test_new_api_lbp_marginals_equivalence() {
 /// Test a complete filter step against MATLAB
 #[test]
 fn test_new_api_lmb_filter_step() {
-    use prak::lmb::{Filter, LmbFilter};
+    use prak::lmb::{Filter, FilterBuilder, LmbFilter, LmbFilterBuilder};
 
     let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)

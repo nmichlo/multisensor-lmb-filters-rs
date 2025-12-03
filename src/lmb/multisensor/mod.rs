@@ -21,21 +21,26 @@
 //! - [`ParallelUpdateMerger`] - Information-form fusion
 //! - [`IteratedCorrectorMerger`] - Sequential sensor updates
 
+pub mod fusion;
 pub mod lmb;
 pub mod lmbm;
 pub mod traits;
 
+// Re-export fusion strategies
+pub use fusion::{
+    ArithmeticAverageMerger,
+    GeometricAverageMerger,
+    IteratedCorrectorMerger,
+    ParallelUpdateMerger,
+};
+
 // Re-export from lmb.rs
 pub use lmb::{
     AaLmbFilter,
-    ArithmeticAverageMerger,
     GaLmbFilter,
-    GeometricAverageMerger,
     IcLmbFilter,
-    IteratedCorrectorMerger,
     MultisensorLmbFilter,
     MultisensorMeasurements,
-    ParallelUpdateMerger,
     PuLmbFilter,
 };
 

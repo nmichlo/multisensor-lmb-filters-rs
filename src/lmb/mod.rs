@@ -45,6 +45,7 @@ pub mod output;
 // Filter infrastructure
 pub mod errors;
 pub mod traits;
+pub mod builder;
 pub mod common_ops;
 
 // Filter implementations
@@ -105,6 +106,9 @@ pub use traits::{
     MurtyAssociator,
     Updater,
 };
+
+// Builder traits
+pub use builder::{FilterBuilder, LmbFilterBuilder};
 
 // Single-sensor filters
 pub use singlesensor::{LmbFilter, LmbmFilter};

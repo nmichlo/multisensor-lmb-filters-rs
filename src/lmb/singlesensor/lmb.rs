@@ -22,6 +22,7 @@ use super::super::output::{StateEstimate, Trajectory};
 use super::super::types::Track;
 use super::super::errors::FilterError;
 use super::super::traits::{AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Updater};
+use super::super::builder::{FilterBuilder, LmbFilterBuilder};
 
 /// Single-sensor LMB filter.
 ///
@@ -146,19 +147,9 @@ impl<A: Associator> LmbFilter<A> {
         }
     }
 
-    /// Set the existence threshold for gating.
-    pub fn with_existence_threshold(mut self, threshold: f64) -> Self {
-        self.existence_threshold = threshold;
-        self
-    }
-
-    /// Set the minimum trajectory length for keeping discarded tracks.
-    pub fn with_min_trajectory_length(mut self, length: usize) -> Self {
-        self.min_trajectory_length = length;
-        self
-    }
-
     /// Set the GM component pruning parameters.
+    ///
+    /// This also updates the internal updater to use the new thresholds.
     pub fn with_gm_pruning(mut self, weight_threshold: f64, max_components: usize) -> Self {
         self.gm_weight_threshold = weight_threshold;
         self.max_gm_components = max_components;
@@ -284,6 +275,30 @@ impl<A: Associator> Filter for LmbFilter<A> {
 
     fn z_dim(&self) -> usize {
         self.sensor.z_dim()
+    }
+}
+
+// ============================================================================
+// Builder Trait Implementations
+// ============================================================================
+
+impl<A: Associator> FilterBuilder for LmbFilter<A> {
+    fn existence_threshold_mut(&mut self) -> &mut f64 {
+        &mut self.existence_threshold
+    }
+
+    fn min_trajectory_length_mut(&mut self) -> &mut usize {
+        &mut self.min_trajectory_length
+    }
+}
+
+impl<A: Associator> LmbFilterBuilder for LmbFilter<A> {
+    fn gm_weight_threshold_mut(&mut self) -> &mut f64 {
+        &mut self.gm_weight_threshold
+    }
+
+    fn max_gm_components_mut(&mut self) -> &mut usize {
+        &mut self.max_gm_components
     }
 }
 

@@ -9,7 +9,7 @@
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::types::{SensorModel, Track};
+use crate::lmb::{SensorModel, Track};
 
 use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
 
@@ -317,7 +317,7 @@ impl<'a> AssociationBuilder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::TrackLabel;
+    use crate::lmb::TrackLabel;
     use nalgebra::DMatrix;
 
     fn create_test_track() -> Track {

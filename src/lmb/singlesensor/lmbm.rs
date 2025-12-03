@@ -28,6 +28,7 @@ use super::super::errors::FilterError;
 use super::super::traits::{
     AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, Updater,
 };
+use super::super::builder::FilterBuilder;
 
 /// Log-likelihood floor to prevent underflow when computing ln(x) for very small x.
 /// Approximately ln(UNDERFLOW_THRESHOLD), used when likelihood values are below f64 precision.
@@ -151,18 +152,6 @@ impl<A: Associator> LmbmFilter<A> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             associator,
         }
-    }
-
-    /// Set the existence threshold for gating.
-    pub fn with_existence_threshold(mut self, threshold: f64) -> Self {
-        self.existence_threshold = threshold;
-        self
-    }
-
-    /// Set the minimum trajectory length for keeping discarded tracks.
-    pub fn with_min_trajectory_length(mut self, length: usize) -> Self {
-        self.min_trajectory_length = length;
-        self
     }
 
     /// Predict all hypotheses forward in time.
@@ -414,6 +403,20 @@ impl<A: Associator> Filter for LmbmFilter<A> {
 
     fn z_dim(&self) -> usize {
         self.sensor.z_dim()
+    }
+}
+
+// ============================================================================
+// Builder Trait Implementation
+// ============================================================================
+
+impl<A: Associator> FilterBuilder for LmbmFilter<A> {
+    fn existence_threshold_mut(&mut self) -> &mut f64 {
+        &mut self.existence_threshold
+    }
+
+    fn min_trajectory_length_mut(&mut self) -> &mut usize {
+        &mut self.min_trajectory_length
     }
 }
 

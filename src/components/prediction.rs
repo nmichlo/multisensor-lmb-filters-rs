@@ -11,7 +11,7 @@
 //! This module provides unified prediction functions used by all filter variants
 //! (LMB, LMBM, MS-LMB, MS-LMBM).
 
-use crate::types::{BirthModel, GaussianComponent, MotionModel, Track};
+use crate::lmb::{BirthModel, GaussianComponent, MotionModel, Track};
 
 /// Predict a single Gaussian component forward in time.
 ///
@@ -97,7 +97,7 @@ pub fn predict_tracks(
 /// possible association history. This function predicts all tracks within each
 /// hypothesis and adds birth tracks to all of them.
 pub fn predict_hypotheses(
-    hypotheses: &mut Vec<crate::types::LmbmHypothesis>,
+    hypotheses: &mut Vec<crate::lmb::LmbmHypothesis>,
     motion: &MotionModel,
     birth: &BirthModel,
     timestep: usize,
@@ -110,7 +110,7 @@ pub fn predict_hypotheses(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::TrackLabel;
+    use crate::lmb::TrackLabel;
     use nalgebra::{DMatrix, DVector};
 
     fn create_test_motion() -> MotionModel {
@@ -155,7 +155,7 @@ mod tests {
     fn test_predict_tracks_with_birth() {
         let motion = create_test_motion();
 
-        let birth_loc = crate::types::BirthLocation::new(
+        let birth_loc = crate::lmb::BirthLocation::new(
             0,
             DVector::from_vec(vec![10.0, 0.0, 10.0, 0.0]),
             DMatrix::identity(4, 4) * 100.0,
