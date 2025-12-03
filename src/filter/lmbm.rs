@@ -30,6 +30,10 @@ use super::traits::{
     AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, Updater,
 };
 
+/// Log-likelihood floor to prevent underflow when computing ln(x) for very small x.
+/// Approximately ln(1e-300), used when likelihood values are below f64 precision.
+const LOG_UNDERFLOW: f64 = -700.0;
+
 /// Single-sensor LMBM filter.
 ///
 /// This filter maintains multiple weighted hypotheses, where each hypothesis
@@ -288,7 +292,7 @@ impl<A: Associator> LmbmFilter<A> {
             log_likelihood[(i, 0)] = if matrices.phi[i] > 1e-300 {
                 matrices.phi[i].ln()
             } else {
-                -700.0 // approx ln(1e-300)
+                LOG_UNDERFLOW
             };
 
             // Measurement columns: log(eta_i * psi_ij) = log(L_ij)
@@ -297,7 +301,7 @@ impl<A: Associator> LmbmFilter<A> {
                 log_likelihood[(i, j + 1)] = if likelihood_ij > 1e-300 {
                     likelihood_ij.ln()
                 } else {
-                    -700.0
+                    LOG_UNDERFLOW
                 };
             }
         }

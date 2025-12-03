@@ -98,7 +98,14 @@ impl MultisensorLmbmFilter<MultisensorGibbsAssociator> {
         association_config: AssociationConfig,
         lmbm_config: LmbmConfig,
     ) -> Self {
-        Self::with_associator(motion, sensors, birth, association_config, lmbm_config)
+        Self::with_associator_type(
+            motion,
+            sensors,
+            birth,
+            association_config,
+            lmbm_config,
+            MultisensorGibbsAssociator::default(),
+        )
     }
 
     /// Create from FilterParams with default Gibbs associator.
@@ -115,12 +122,13 @@ impl MultisensorLmbmFilter<MultisensorGibbsAssociator> {
 
 impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
     /// Create a new multi-sensor LMBM filter with a custom associator type.
-    pub fn with_associator(
+    pub fn with_associator_type(
         motion: MotionModel,
         sensors: MultisensorConfig,
         birth: BirthModel,
         association_config: AssociationConfig,
         lmbm_config: LmbmConfig,
+        associator: A,
     ) -> Self {
         // Start with a single empty hypothesis with weight 1.0
         let initial_hypothesis = LmbmHypothesis::new(0.0, Vec::new()); // log(1.0) = 0.0
@@ -135,7 +143,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             trajectories: Vec::new(),
             existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
             min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
-            associator: A::default(),
+            associator,
         }
     }
 

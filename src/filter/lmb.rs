@@ -187,6 +187,15 @@ impl<A: Associator> LmbFilter<A> {
     fn update_existence_from_association(&mut self, result: &AssociationResult) {
         super::common_ops::update_existence_from_marginals(&mut self.tracks, result);
     }
+
+    /// Update existence probabilities when no measurements are received.
+    fn update_existence_no_measurements(&mut self) {
+        let p_d = self.sensor.detection_probability;
+        for track in &mut self.tracks {
+            track.existence =
+                crate::components::update::update_existence_no_detection(track.existence, p_d);
+        }
+    }
 }
 
 impl<A: Associator> Filter for LmbFilter<A> {
@@ -231,12 +240,7 @@ impl<A: Associator> Filter for LmbFilter<A> {
                 .update(&mut self.tracks, &result, &matrices.posteriors);
         } else {
             // No measurements: update existence for missed detection
-            for track in &mut self.tracks {
-                track.existence = crate::components::update::update_existence_no_detection(
-                    track.existence,
-                    self.sensor.detection_probability,
-                );
-            }
+            self.update_existence_no_measurements();
         }
 
         // (STEP 4 skipped - hypothesis management is LMBM only)

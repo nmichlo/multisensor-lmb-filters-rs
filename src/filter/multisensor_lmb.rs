@@ -603,6 +603,15 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
     ) -> Result<StateEstimate, FilterError> {
         let num_sensors = self.num_sensors();
 
+        // Validate measurements
+        if measurements.len() != num_sensors {
+            return Err(FilterError::InvalidInput(format!(
+                "Expected {} sensors, got {}",
+                num_sensors,
+                measurements.len()
+            )));
+        }
+
         // ══════════════════════════════════════════════════════════════════════
         // STEP 1: Prediction - propagate tracks forward and add birth components
         // ══════════════════════════════════════════════════════════════════════
