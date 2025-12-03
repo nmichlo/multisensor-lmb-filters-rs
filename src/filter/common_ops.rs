@@ -64,7 +64,7 @@ pub fn prune_and_normalize_components(
 /// * `components` - Mutable reference to component list
 pub fn normalize_component_weights(components: &mut SmallVec<[GaussianComponent; 4]>) {
     let total: f64 = components.iter().map(|c| c.weight).sum();
-    if total > 1e-15 {
+    if total > super::NUMERICAL_ZERO {
         for comp in components.iter_mut() {
             comp.weight /= total;
         }
@@ -104,7 +104,7 @@ pub fn prune_weighted_components(
 
     // First normalize weights
     let total_weight: f64 = weighted_components.iter().map(|(w, _, _)| w).sum();
-    if total_weight > 1e-15 {
+    if total_weight > super::NUMERICAL_ZERO {
         for (w, _, _) in &mut weighted_components {
             *w /= total_weight;
         }
@@ -129,7 +129,7 @@ pub fn prune_weighted_components(
     }
 
     // Renormalize kept components
-    if kept_weight > 1e-15 && !result.is_empty() {
+    if kept_weight > super::NUMERICAL_ZERO && !result.is_empty() {
         for comp in result.iter_mut() {
             comp.weight /= kept_weight;
         }
@@ -270,7 +270,7 @@ pub fn update_existence_from_marginals(tracks: &mut [Track], result: &Associatio
             .sum();
 
         let total = miss_weight + detection_weight;
-        if total > 1e-15 {
+        if total > super::NUMERICAL_ZERO {
             // Weighted update: detection increases confidence
             let detection_ratio = detection_weight / total;
             // Interpolate between current existence and boosted value based on detection

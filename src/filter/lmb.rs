@@ -38,6 +38,15 @@ use super::traits::{AssociationResult, Associator, Filter, LbpAssociator, Margin
 /// - [`MarginalUpdater`] for soft association updates
 /// - MAP cardinality estimation for state extraction
 ///
+/// # Default Associator
+///
+/// LMB defaults to [`LbpAssociator`] because:
+/// - LMB uses soft/marginal association (Gaussian mixture posteriors)
+/// - LBP computes exact marginals efficiently via message passing
+/// - Deterministic and fast (no sampling variance)
+///
+/// For sampling-based association, use `with_associator_type(GibbsAssociator)`.
+///
 /// # Type Parameters
 ///
 /// * `A` - The data association algorithm, must implement [`Associator`]

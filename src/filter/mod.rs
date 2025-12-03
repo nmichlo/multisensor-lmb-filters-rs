@@ -72,3 +72,11 @@ pub const DEFAULT_LMBM_WEIGHT_THRESHOLD: f64 = 1e-5;
 
 /// Default maximum trajectory length for track history recording.
 pub const DEFAULT_MAX_TRAJECTORY_LENGTH: usize = 1000;
+
+/// Numerical zero threshold for avoiding division by zero and log(0).
+/// Values below this threshold are treated as effectively zero.
+pub const NUMERICAL_ZERO: f64 = 1e-15;
+
+/// Threshold for detecting underflow in likelihood computations.
+/// Values below this threshold use LOG_UNDERFLOW instead of ln().
+pub const UNDERFLOW_THRESHOLD: f64 = 1e-300;

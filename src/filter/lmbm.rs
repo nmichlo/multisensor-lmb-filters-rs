@@ -31,7 +31,7 @@ use super::traits::{
 };
 
 /// Log-likelihood floor to prevent underflow when computing ln(x) for very small x.
-/// Approximately ln(1e-300), used when likelihood values are below f64 precision.
+/// Approximately ln(UNDERFLOW_THRESHOLD), used when likelihood values are below f64 precision.
 const LOG_UNDERFLOW: f64 = -700.0;
 
 /// Single-sensor LMBM filter.
@@ -43,6 +43,21 @@ const LOG_UNDERFLOW: f64 = -700.0;
 /// The filter is generic over the association algorithm `A`, typically:
 /// - [`GibbsAssociator`] for sampling-based association (default)
 /// - [`MurtyAssociator`] for k-best deterministic assignments
+///
+/// # Default Associator
+///
+/// LMBM defaults to [`GibbsAssociator`] because:
+/// - LMBM requires discrete/hard associations (one measurement per track per hypothesis)
+/// - Gibbs sampling efficiently generates diverse hypothesis samples
+/// - Works well with the hypothesis-weighted posterior
+///
+/// For deterministic k-best assignments, use `with_associator_type(MurtyAssociator)`.
+///
+/// # Note: No GM Pruning
+///
+/// Unlike [`LmbFilter`], LMBM does not have `with_gm_pruning()` because each track
+/// in a hypothesis has exactly one Gaussian component (single-component tracks).
+/// Hypothesis pruning is controlled via [`LmbmConfig`] instead.
 ///
 /// # Type Parameters
 ///
@@ -289,7 +304,7 @@ impl<A: Associator> LmbmFilter<A> {
 
         for i in 0..n {
             // Miss column: log(phi_i)
-            log_likelihood[(i, 0)] = if matrices.phi[i] > 1e-300 {
+            log_likelihood[(i, 0)] = if matrices.phi[i] > super::UNDERFLOW_THRESHOLD {
                 matrices.phi[i].ln()
             } else {
                 LOG_UNDERFLOW
@@ -298,7 +313,7 @@ impl<A: Associator> LmbmFilter<A> {
             // Measurement columns: log(eta_i * psi_ij) = log(L_ij)
             for j in 0..m {
                 let likelihood_ij = matrices.eta[i] * matrices.psi[(i, j)];
-                log_likelihood[(i, j + 1)] = if likelihood_ij > 1e-300 {
+                log_likelihood[(i, j + 1)] = if likelihood_ij > super::UNDERFLOW_THRESHOLD {
                     likelihood_ij.ln()
                 } else {
                     LOG_UNDERFLOW

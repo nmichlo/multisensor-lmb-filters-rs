@@ -4,6 +4,63 @@ This document tracks code quality and performance improvements to the codebase.
 
 ---
 
+## 2025-12-03: Filter Standardization & Code Quality
+
+**Goal**: Standardize flow, deduplicate code, and improve API consistency across all 4 filter implementations.
+
+### Phase 1: High Priority - Completed
+
+| Change | Files Affected |
+|--------|----------------|
+| Standardized STEP 1-7 flow comments | `lmb.rs`, `lmbm.rs`, `multisensor_lmb.rs`, `multisensor_lmbm.rs` |
+| Extract `update_existence_from_marginals()` | `common_ops.rs` (new), `lmb.rs`, `multisensor_lmb.rs` |
+| Extract `predict_all_hypotheses()` | `common_ops.rs` (new), `lmbm.rs`, `multisensor_lmbm.rs` |
+| Add `MultisensorConfig::z_dim()` | `types/config.rs`, `multisensor_lmb.rs`, `multisensor_lmbm.rs` |
+| Fix MultisensorLMBM associator storage | `multisensor_lmbm.rs` (stores instance, not PhantomData) |
+
+### Phase 1: Medium Priority - Completed
+
+| Change | Files Affected |
+|--------|----------------|
+| Add input validation | `multisensor_lmb.rs` (matches `multisensor_lmbm.rs`) |
+| Extract inline to private method | `lmb.rs` (`update_existence_no_measurements()`) |
+
+### Phase 1: Low Priority - Completed
+
+| Change | Files Affected |
+|--------|----------------|
+| Rename `with_associator()` → `with_associator_type()` | `multisensor_lmbm.rs` (API consistency) |
+| Extract magic number to constant | `lmbm.rs` (`LOG_UNDERFLOW = -700.0`) |
+
+### Phase 2: Magic Number Consolidation - Completed
+
+| Change | Files Affected |
+|--------|----------------|
+| Add `NUMERICAL_ZERO` constant (1e-15) | `mod.rs`, replaced 9 inline uses in `common_ops.rs`, `traits.rs` |
+| Add `UNDERFLOW_THRESHOLD` constant (1e-300) | `mod.rs`, replaced 2 inline uses in `lmbm.rs` |
+| Document default associator choices | `lmb.rs` (why LBP), `lmbm.rs` (why Gibbs) |
+| Document missing `with_gm_pruning()` | `lmbm.rs` (single-component tracks don't need GM pruning) |
+
+### Impact
+
+- All filters now have identical STEP 1-7 flow comments for easy cross-reference
+- ~40 lines of duplicate code extracted to `common_ops.rs`
+- Consistent constructor naming across all filters
+- Input validation added to `multisensor_lmb.rs` (prevents silent failures)
+- `z_dim()` standardized with documentation explaining original differences
+- All magic numbers in filter module now use named constants
+- Default associator choices documented (LMB→LBP, LMBM→Gibbs)
+- All 114 tests pass, MATLAB equivalence maintained
+
+### Documentation
+
+- Updated plan file: `.claude/plans/linear-pondering-yeti.md`
+- z_dim() documentation explains original implementations
+- Default associator section added to LmbFilter and LmbmFilter docs
+- Note about single-component tracks explains why LMBM lacks GM pruning
+
+---
+
 ## 2025-12-02: New API & Legacy Cleanup
 
 **Major Refactoring**: Replaced legacy function-based API with new trait-based API.

@@ -356,7 +356,7 @@ impl Associator for GibbsAssociator {
         // R: existence ratio matrix (n x (m+1)) with [phi/eta, 1, 1, ...]
         let mut r_mat = nalgebra::DMatrix::from_element(n, m + 1, 1.0);
         for i in 0..n {
-            if matrices.eta[i].abs() > 1e-15 {
+            if matrices.eta[i].abs() > super::NUMERICAL_ZERO {
                 r_mat[(i, 0)] = matrices.phi[i] / matrices.eta[i];
             } else {
                 r_mat[(i, 0)] = 0.0;
@@ -473,7 +473,7 @@ impl Associator for MurtyAssociator {
 
         // Normalize weights
         let total_weight: f64 = assignment_weights.iter().sum();
-        if total_weight > 1e-15 {
+        if total_weight > super::NUMERICAL_ZERO {
             for w in &mut assignment_weights {
                 *w /= total_weight;
             }
@@ -615,7 +615,7 @@ impl Updater for MarginalUpdater {
             // Measurement cases: posterior components weighted by marginal probabilities
             for j in 0..m {
                 let meas_prob = result.marginal_weights[(i, j)];
-                if meas_prob < 1e-15 {
+                if meas_prob < super::NUMERICAL_ZERO {
                     continue; // Skip negligible associations
                 }
 
@@ -737,7 +737,7 @@ impl Updater for HardAssignmentUpdater {
                             // (components unchanged, just normalize weight)
                             if !track.components.is_empty() {
                                 let total: f64 = track.components.iter().map(|c| c.weight).sum();
-                                if total > 1e-15 {
+                                if total > super::NUMERICAL_ZERO {
                                     for c in track.components.iter_mut() {
                                         c.weight /= total;
                                     }
@@ -777,7 +777,7 @@ impl Updater for HardAssignmentUpdater {
                 // (components unchanged, just normalize weight)
                 if !track.components.is_empty() {
                     let total: f64 = track.components.iter().map(|c| c.weight).sum();
-                    if total > 1e-15 {
+                    if total > super::NUMERICAL_ZERO {
                         for c in track.components.iter_mut() {
                             c.weight /= total;
                         }
