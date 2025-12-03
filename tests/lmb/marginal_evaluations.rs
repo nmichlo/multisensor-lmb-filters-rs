@@ -9,9 +9,7 @@
 //!
 //! Using both KL divergence and Hellinger distance metrics.
 
-mod test_utils;
-
-use test_utils::{
+use super::utils::{
     average_hellinger_distance, average_kullback_leibler_divergence,
     calculate_number_of_association_events, generate_association_matrices,
     generate_simplified_model,
@@ -24,7 +22,7 @@ use prak::common::rng::SimpleRng;
 
 /// Convert test association matrices to LBP association matrices format
 fn convert_to_lbp_matrices(
-    test_matrices: &test_utils::TestAssociationMatrices,
+    test_matrices: &super::utils::TestAssociationMatrices,
 ) -> AssociationMatrices {
     AssociationMatrices {
         eta: test_matrices.eta.clone(),
@@ -45,7 +43,7 @@ fn convert_to_lbp_matrices(
 /// # Returns
 /// (r_murty, w_murty) - Existence probabilities and association marginals
 fn compute_exact_marginals_murty(
-    test_matrices: &test_utils::TestAssociationMatrices,
+    test_matrices: &super::utils::TestAssociationMatrices,
     n: usize,
     num_events: usize,
 ) -> (DMatrix<f64>, DMatrix<f64>) {

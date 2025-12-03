@@ -23,48 +23,42 @@ Transform Prak into a high-quality, extensible open-source multi-object tracking
 src/
 ├── lib.rs
 ├── association/           # Association matrix building
-│   ├── mod.rs
-│   ├── builder.rs         # AssociationBuilder, AssociationMatrices
-│   └── likelihood.rs      # Likelihood computation
-├── common/                # Low-level utilities
-│   ├── mod.rs
-│   ├── association/       # Algorithm implementations
-│   │   ├── lbp.rs         # Loopy Belief Propagation
-│   │   ├── gibbs.rs       # Gibbs sampling
-│   │   ├── murtys.rs      # Murty's k-best
-│   │   └── hungarian.rs   # Hungarian algorithm
-│   ├── constants.rs       # Numerical constants
-│   ├── linalg.rs          # Kalman, Mahalanobis, robust ops
-│   └── rng.rs             # RNG utilities
-├── components/            # Shared algorithms
-│   ├── mod.rs
-│   ├── prediction.rs      # Track prediction
-│   └── update.rs          # Existence updates
+├── common/                # Low-level utilities (linalg, rng, association algorithms)
+├── components/            # Shared algorithms (prediction, update)
 └── lmb/                   # LMB filter family
-    ├── mod.rs             # Re-exports
-    ├── builder.rs         # FilterBuilder traits
-    ├── cardinality.rs     # MAP cardinality estimation
-    ├── common_ops.rs      # Pruning, gating, normalization
-    ├── config.rs          # MotionModel, SensorModel, etc.
-    ├── errors.rs          # FilterError
-    ├── output.rs          # StateEstimate, Trajectory
-    ├── traits.rs          # Associator, Merger, Updater traits + impls
-    ├── types.rs           # Track, GaussianComponent, etc.
-    ├── singlesensor/
-    │   ├── mod.rs
-    │   ├── lmb.rs         # LmbFilter
-    │   └── lmbm.rs        # LmbmFilter
-    └── multisensor/
-        ├── mod.rs
-        ├── lmb.rs         # MultisensorLmbFilter + AA/GA/PU/IC aliases
-        ├── lmbm.rs        # MultisensorLmbmFilter
-        ├── fusion.rs      # Merger implementations
-        └── traits.rs      # MultisensorAssociator trait
+    ├── singlesensor/      # LmbFilter, LmbmFilter
+    └── multisensor/       # MultisensorLmbFilter, MultisensorLmbmFilter, fusion
+
+tests/
+├── lmb.rs                 # LMB test entry point
+├── lmb/                   # LMB-specific tests
+│   ├── matlab_equivalence.rs
+│   ├── marginal_evaluations.rs
+│   ├── gibbs_frequency.rs
+│   ├── map_cardinality.rs
+│   └── utils.rs
+├── common.rs              # Common test entry point
+├── common/
+│   └── rng_equivalence.rs
+├── debug.rs               # Debug test entry point
+├── debug/
+│   ├── check_rust_summation.rs
+│   └── sort_order.rs
+└── data/                  # Test fixtures
 ```
 
 ---
 
 ## Changelog
+
+### 2025-12-03: Test Reorganization
+
+**Completed:**
+- Reorganized tests into `tests/lmb/`, `tests/common/`, `tests/debug/`
+- LMB tests: matlab_equivalence, marginal_evaluations, gibbs_frequency, map_cardinality, utils
+- Common tests: rng_equivalence
+- Debug tests: check_rust_summation, sort_order
+- All 29 tests passing
 
 ### 2025-12-03: Phase 2 - Cleanup & Deduplication
 
