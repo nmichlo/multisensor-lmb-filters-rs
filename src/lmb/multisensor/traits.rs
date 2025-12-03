@@ -16,8 +16,8 @@
 
 use nalgebra::DMatrix;
 
-use super::errors::AssociationError;
-use crate::types::AssociationConfig;
+use super::super::config::AssociationConfig;
+use super::super::errors::AssociationError;
 
 /// Result of multi-sensor data association.
 ///

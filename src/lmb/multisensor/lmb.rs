@@ -32,13 +32,12 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
-use crate::types::{
-    AssociationConfig, BirthModel, GaussianComponent, MotionModel, MultisensorConfig,
-    StateEstimate, Track, Trajectory,
-};
 
-use super::errors::FilterError;
-use super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
+use super::super::config::{AssociationConfig, BirthModel, MotionModel, MultisensorConfig};
+use super::super::output::{StateEstimate, Trajectory};
+use super::super::types::{GaussianComponent, Track};
+use super::super::errors::FilterError;
+use super::super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
 
 // ============================================================================
 // Merger Implementations
@@ -118,7 +117,7 @@ impl Merger for ArithmeticAverageMerger {
 
             // Merge, truncate, and normalize using shared helper
             fused_tracks[i].components =
-                super::common_ops::merge_and_truncate_components(all_components, self.max_components);
+                super::super::common_ops::merge_and_truncate_components(all_components, self.max_components);
         }
 
         fused_tracks
@@ -483,10 +482,10 @@ impl<M: Merger> MultisensorLmbFilter<LbpAssociator, M> {
             association_config,
             tracks: Vec::new(),
             trajectories: Vec::new(),
-            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
-            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
-            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
-            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
+            existence_threshold: super::super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
             associator: LbpAssociator,
             merger,
             updater: MarginalUpdater::new(),
@@ -511,10 +510,10 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
             association_config,
             tracks: Vec::new(),
             trajectories: Vec::new(),
-            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
-            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
-            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
-            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
+            existence_threshold: super::super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
             associator,
             merger,
             updater: MarginalUpdater::new(),
@@ -548,7 +547,7 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
 
     /// Gate tracks by existence probability.
     fn gate_tracks(&mut self) {
-        super::common_ops::gate_tracks(
+        super::super::common_ops::gate_tracks(
             &mut self.tracks,
             &mut self.trajectories,
             self.existence_threshold,
@@ -558,17 +557,17 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
 
     /// Extract state estimates using MAP cardinality estimation.
     fn extract_estimates(&self, timestamp: usize) -> StateEstimate {
-        super::common_ops::extract_estimates(&self.tracks, timestamp)
+        super::super::common_ops::extract_estimates(&self.tracks, timestamp)
     }
 
     /// Update track trajectories.
     fn update_trajectories(&mut self, timestamp: usize) {
-        super::common_ops::update_trajectories(&mut self.tracks, timestamp);
+        super::super::common_ops::update_trajectories(&mut self.tracks, timestamp);
     }
 
     /// Initialize trajectory recording for birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        super::common_ops::init_birth_trajectories(&mut self.tracks, max_length);
+        super::super::common_ops::init_birth_trajectories(&mut self.tracks, max_length);
     }
 
     /// Update existence for missed detection (all sensors).
@@ -620,7 +619,7 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
         // ══════════════════════════════════════════════════════════════════════
         // STEP 2: Initialize trajectory recording for new birth tracks
         // ══════════════════════════════════════════════════════════════════════
-        self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+        self.init_birth_trajectories(super::super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 3: Measurement update - data association and track updates
@@ -657,7 +656,7 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
                         .update(&mut sensor_tracks, &result, &matrices.posteriors);
 
                     // Update existence from association
-                    super::common_ops::update_existence_from_marginals(
+                    super::super::common_ops::update_existence_from_marginals(
                         &mut sensor_tracks,
                         &result,
                     );

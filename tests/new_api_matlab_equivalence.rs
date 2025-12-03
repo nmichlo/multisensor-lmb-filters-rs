@@ -17,8 +17,8 @@ use std::fs;
 // New API imports
 use prak::association::AssociationBuilder;
 use prak::components::prediction::{predict_track, predict_tracks};
-use prak::filter::traits::{Associator, LbpAssociator};
-use prak::types::{
+use prak::lmb::{
+    Associator, LbpAssociator,
     AssociationConfig, BirthModel, DataAssociationMethod,
     GaussianComponent, MotionModel, SensorModel, Track, TrackLabel,
 };
@@ -1201,7 +1201,7 @@ fn test_new_api_lbp_marginals_equivalence() {
 /// Test a complete filter step against MATLAB
 #[test]
 fn test_new_api_lmb_filter_step() {
-    use prak::filter::{Filter, LmbFilter};
+    use prak::lmb::{Filter, LmbFilter};
 
     let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)

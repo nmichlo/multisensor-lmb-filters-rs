@@ -16,11 +16,10 @@ use nalgebra::DVector;
 
 use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
-use crate::types::{
-    AssociationConfig, BirthModel, FilterParams, MotionModel, SensorModel, StateEstimate, Track,
-    Trajectory,
-};
 
+use super::config::{AssociationConfig, BirthModel, FilterParams, MotionModel, SensorModel};
+use super::output::{StateEstimate, Trajectory};
+use super::types::Track;
 use super::errors::FilterError;
 use super::traits::{AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Updater};
 
@@ -297,7 +296,7 @@ mod tests {
         let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
         let sensor = SensorModel::position_sensor_2d(1.0, 0.9, 10.0, 100.0);
 
-        let birth_loc = crate::types::BirthLocation::new(
+        let birth_loc = crate::lmb::config::BirthLocation::new(
             0,
             DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
             DMatrix::identity(4, 4) * 100.0,

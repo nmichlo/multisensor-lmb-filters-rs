@@ -17,8 +17,10 @@ use crate::common::association::gibbs as legacy_gibbs;
 use crate::common::association::lbp as legacy_lbp;
 use crate::common::association::murtys as legacy_murtys;
 use crate::common::rng as legacy_rng;
-use crate::types::{AssociationConfig, StateEstimate, Track};
 
+use super::config::AssociationConfig;
+use super::output::StateEstimate;
+use super::types::Track;
 use super::errors::{AssociationError, FilterError};
 
 /// Adapter to bridge `rand::Rng` to the legacy `common::rng::Rng` trait.
@@ -723,7 +725,7 @@ impl Updater for HardAssignmentUpdater {
                             ) {
                                 // Replace all components with single posterior
                                 track.components.clear();
-                                track.components.push(crate::types::GaussianComponent::new(
+                                track.components.push(super::types::GaussianComponent::new(
                                     1.0,
                                     post_mean.clone(),
                                     post_cov.clone(),

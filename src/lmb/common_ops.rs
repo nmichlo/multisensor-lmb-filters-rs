@@ -4,15 +4,15 @@
 //! filter implementations to avoid code duplication.
 
 use crate::components::prediction::predict_tracks;
-use crate::lmb::cardinality::lmb_map_cardinality_estimate;
-use crate::types::{
-    BirthModel, EstimatedTrack, GaussianComponent, LmbmHypothesis, MotionModel, StateEstimate,
-    Track, Trajectory,
-};
+
+use super::cardinality::lmb_map_cardinality_estimate;
+use super::config::{BirthModel, MotionModel};
+use super::output::{EstimatedTrack, StateEstimate, Trajectory};
+use super::types::{GaussianComponent, LmbmHypothesis, Track};
+use super::traits::AssociationResult;
+
 use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
-
-use super::traits::AssociationResult;
 
 // ============================================================================
 // Gaussian Mixture Component Operations
@@ -532,7 +532,7 @@ pub fn normalize_and_gate_hypotheses(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{GaussianComponent, TrackLabel};
+    use crate::lmb::types::{GaussianComponent, TrackLabel};
     use nalgebra::{DMatrix, DVector};
     use smallvec::smallvec;
 

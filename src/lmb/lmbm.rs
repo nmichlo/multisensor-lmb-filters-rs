@@ -20,11 +20,10 @@
 use nalgebra::DVector;
 
 use crate::association::AssociationBuilder;
-use crate::types::{
-    AssociationConfig, BirthModel, FilterParams, LmbmConfig, LmbmHypothesis, MotionModel,
-    SensorModel, StateEstimate, Trajectory,
-};
 
+use super::config::{AssociationConfig, BirthModel, FilterParams, LmbmConfig, MotionModel, SensorModel};
+use super::output::{StateEstimate, Trajectory};
+use super::types::LmbmHypothesis;
 use super::errors::FilterError;
 use super::traits::{
     AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, Updater,
@@ -421,7 +420,7 @@ impl<A: Associator> Filter for LmbmFilter<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::BirthLocation;
+    use crate::lmb::config::BirthLocation;
     use nalgebra::DMatrix;
 
     fn create_test_filter() -> LmbmFilter {

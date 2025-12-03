@@ -19,15 +19,14 @@
 use nalgebra::{DMatrix, DVector};
 
 use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
-use crate::types::{
-    AssociationConfig, BirthModel, FilterParams, GaussianComponent, LmbmConfig, LmbmHypothesis,
-    MotionModel, MultisensorConfig, StateEstimate, Track, Trajectory,
-};
 
-use super::errors::FilterError;
-use super::multisensor_lmb::MultisensorMeasurements;
-use super::multisensor_traits::{MultisensorAssociator, MultisensorGibbsAssociator};
-use super::traits::Filter;
+use super::super::config::{AssociationConfig, BirthModel, FilterParams, LmbmConfig, MotionModel, MultisensorConfig};
+use super::super::output::{StateEstimate, Trajectory};
+use super::super::types::{GaussianComponent, LmbmHypothesis, Track};
+use super::super::errors::FilterError;
+use super::super::traits::Filter;
+use super::lmb::MultisensorMeasurements;
+use super::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
 
 /// Multi-sensor LMBM filter.
 ///
@@ -141,8 +140,8 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             lmbm_config,
             hypotheses: vec![initial_hypothesis],
             trajectories: Vec::new(),
-            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
-            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            existence_threshold: super::super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             associator,
         }
     }
@@ -167,7 +166,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
     /// Predict all hypotheses forward in time.
     fn predict_hypotheses(&mut self, timestep: usize) {
-        super::common_ops::predict_all_hypotheses(
+        super::super::common_ops::predict_all_hypotheses(
             &mut self.hypotheses,
             &self.motion,
             &self.birth,
@@ -503,7 +502,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
     /// Normalize and gate hypotheses.
     fn normalize_and_gate_hypotheses(&mut self) {
-        super::common_ops::normalize_and_gate_hypotheses(
+        super::super::common_ops::normalize_and_gate_hypotheses(
             &mut self.hypotheses,
             self.lmbm_config.hypothesis_weight_threshold,
             self.lmbm_config.max_hypotheses,
@@ -512,7 +511,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
     /// Gate tracks by existence probability across all hypotheses.
     fn gate_tracks(&mut self) {
-        super::common_ops::gate_hypothesis_tracks(
+        super::super::common_ops::gate_hypothesis_tracks(
             &mut self.hypotheses,
             &mut self.trajectories,
             self.existence_threshold,
@@ -522,7 +521,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
     /// Extract state estimates from the hypothesis mixture.
     fn extract_estimates(&self, timestamp: usize) -> StateEstimate {
-        super::common_ops::extract_hypothesis_estimates(
+        super::super::common_ops::extract_hypothesis_estimates(
             &self.hypotheses,
             timestamp,
             self.lmbm_config.use_eap,
@@ -531,12 +530,12 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
     /// Update track trajectories.
     fn update_trajectories(&mut self, timestamp: usize) {
-        super::common_ops::update_hypothesis_trajectories(&mut self.hypotheses, timestamp);
+        super::super::common_ops::update_hypothesis_trajectories(&mut self.hypotheses, timestamp);
     }
 
     /// Initialize trajectory recording for birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        super::common_ops::init_hypothesis_birth_trajectories(&mut self.hypotheses, max_length);
+        super::super::common_ops::init_hypothesis_birth_trajectories(&mut self.hypotheses, max_length);
     }
 }
 
@@ -567,7 +566,7 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         // STEP 2: Initialize trajectory recording for new birth tracks
         // ══════════════════════════════════════════════════════════════════════
-        self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+        self.init_birth_trajectories(super::super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 3: Measurement update - data association and track updates

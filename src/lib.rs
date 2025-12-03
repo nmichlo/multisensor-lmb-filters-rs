@@ -12,16 +12,15 @@ Labelled Multi-Bernoulli (LMB) filters and their variants.
 
 ## Modules
 
-- [`types`] - Core types: `Track`, `FilterParams`, `StateEstimate`
+- [`lmb`] - LMB tracking algorithms and types
 - [`components`] - Shared algorithms: prediction, update
 - [`association`] - Data association: likelihood computation, matrix building
-- [`filter`] - Filter trait and implementations
+- [`common`] - Low-level utilities
 
 ## Example
 
 ```rust,no_run
-use prak::filter::{Filter, LmbFilter};
-use prak::types::{MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
+use prak::lmb::{Filter, LmbFilter, MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
 use nalgebra::{DVector, DMatrix};
 
 // Create filter configuration
@@ -47,24 +46,112 @@ let estimate = filter.step(&mut rng, &measurements, 0).unwrap();
 ```
 */
 
+// ============================================================================
 // Core modules
-pub mod types;
-pub mod components;
-pub mod association;
-pub mod filter;
+// ============================================================================
 
-// Internal utilities (exposed for advanced use cases)
-pub mod common;
+/// LMB (Labeled Multi-Bernoulli) tracking algorithms
+///
+/// This is the main module containing all LMB-family implementations:
+/// - Single-sensor: `LmbFilter`, `LmbmFilter`
+/// - Multi-sensor: `MultisensorLmbFilter`, `MultisensorLmbmFilter`
+/// - Fusion strategies: `ArithmeticAverageMerger`, `GeometricAverageMerger`, etc.
 pub mod lmb;
 
-// Re-export commonly used types
-pub use types::{
+/// Shared tracking components (prediction, update)
+pub mod components;
+
+/// Data association algorithms and utilities
+pub mod association;
+
+/// Low-level utilities (linear algebra, RNG, constants)
+pub mod common;
+
+// ============================================================================
+// Re-exports for convenience
+// ============================================================================
+
+// Core types
+pub use lmb::{
     Track, TrackLabel, GaussianComponent, LmbmHypothesis,
     MotionModel, SensorModel, FilterParams, BirthModel, BirthLocation,
-    StateEstimate, EstimatedTrack, FilterOutput,
+    StateEstimate, EstimatedTrack, FilterOutput, Trajectory,
+    AssociationConfig, FilterThresholds, LmbmConfig,
+    MultisensorConfig, SensorVariant,
 };
 
-pub use filter::{Filter, Associator, Merger, FilterError};
+// Errors
+pub use lmb::{FilterError, AssociationError};
+
+// Traits
+pub use lmb::{Filter, Associator, Merger, Updater};
+
+// Associator implementations
+pub use lmb::{LbpAssociator, GibbsAssociator, MurtyAssociator};
+
+// Updater implementations
+pub use lmb::{MarginalUpdater, HardAssignmentUpdater};
+
+// Single-sensor filters
+pub use lmb::{LmbFilter, LmbmFilter};
+
+// Multi-sensor filters
+pub use lmb::{
+    MultisensorLmbFilter, MultisensorLmbmFilter,
+    AaLmbFilter, GaLmbFilter, PuLmbFilter, IcLmbFilter,
+    ArithmeticAverageMerger, GeometricAverageMerger,
+    ParallelUpdateMerger, IteratedCorrectorMerger,
+    MultisensorMeasurements,
+};
+
+// Multi-sensor association
+pub use lmb::{
+    MultisensorAssociator, MultisensorGibbsAssociator,
+    MultisensorAssociationResult,
+};
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// ============================================================================
+// Backwards compatibility re-exports
+// ============================================================================
+
+/// Deprecated: Use `lmb` module instead
+#[deprecated(since = "2.0.0", note = "Use `lmb` module instead")]
+pub mod types {
+    //! Deprecated: Types have moved to the `lmb` module.
+    pub use super::lmb::{
+        Track, TrackLabel, GaussianComponent, LmbmHypothesis, TrajectoryHistory,
+        MotionModel, SensorModel, FilterParams, BirthModel, BirthLocation,
+        StateEstimate, EstimatedTrack, FilterOutput, Trajectory,
+        AssociationConfig, FilterThresholds, LmbmConfig,
+        MultisensorConfig, SensorVariant, FilterParamsBuilder,
+        DataAssociationMethod,
+    };
+}
+
+/// Deprecated: Use `lmb` module instead
+#[deprecated(since = "2.0.0", note = "Use `lmb` module instead")]
+pub mod filter {
+    //! Deprecated: Filters have moved to the `lmb` module.
+    pub use super::lmb::{
+        Filter, Associator, Merger, Updater,
+        FilterError, AssociationError,
+        LbpAssociator, GibbsAssociator, MurtyAssociator,
+        MarginalUpdater, HardAssignmentUpdater,
+        LmbFilter, LmbmFilter,
+        MultisensorLmbFilter, MultisensorLmbmFilter,
+        AaLmbFilter, GaLmbFilter, PuLmbFilter, IcLmbFilter,
+        ArithmeticAverageMerger, GeometricAverageMerger,
+        ParallelUpdateMerger, IteratedCorrectorMerger,
+        MultisensorMeasurements,
+        MultisensorAssociator, MultisensorGibbsAssociator,
+        MultisensorAssociationResult,
+        AssociationResult,
+        DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_MIN_TRAJECTORY_LENGTH,
+        DEFAULT_GM_WEIGHT_THRESHOLD, DEFAULT_MAX_GM_COMPONENTS,
+        DEFAULT_LMBM_MAX_HYPOTHESES, DEFAULT_LMBM_WEIGHT_THRESHOLD,
+        DEFAULT_MAX_TRAJECTORY_LENGTH, NUMERICAL_ZERO, UNDERFLOW_THRESHOLD,
+    };
+}
