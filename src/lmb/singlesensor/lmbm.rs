@@ -21,11 +21,11 @@ use nalgebra::DVector;
 
 use crate::association::AssociationBuilder;
 
-use super::config::{AssociationConfig, BirthModel, FilterParams, LmbmConfig, MotionModel, SensorModel};
-use super::output::{StateEstimate, Trajectory};
-use super::types::LmbmHypothesis;
-use super::errors::FilterError;
-use super::traits::{
+use super::super::config::{AssociationConfig, BirthModel, FilterParams, LmbmConfig, MotionModel, SensorModel};
+use super::super::output::{StateEstimate, Trajectory};
+use super::super::types::LmbmHypothesis;
+use super::super::errors::FilterError;
+use super::super::traits::{
     AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, Updater,
 };
 
@@ -107,8 +107,8 @@ impl LmbmFilter<GibbsAssociator> {
             lmbm_config,
             hypotheses: vec![initial_hypothesis],
             trajectories: Vec::new(),
-            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
-            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            existence_threshold: super::super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             associator: GibbsAssociator,
         }
     }
@@ -147,8 +147,8 @@ impl<A: Associator> LmbmFilter<A> {
             lmbm_config,
             hypotheses: vec![initial_hypothesis],
             trajectories: Vec::new(),
-            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
-            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            existence_threshold: super::super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             associator,
         }
     }
@@ -167,7 +167,7 @@ impl<A: Associator> LmbmFilter<A> {
 
     /// Predict all hypotheses forward in time.
     fn predict_hypotheses(&mut self, timestep: usize) {
-        super::common_ops::predict_all_hypotheses(
+        super::super::common_ops::predict_all_hypotheses(
             &mut self.hypotheses,
             &self.motion,
             &self.birth,
@@ -251,7 +251,7 @@ impl<A: Associator> LmbmFilter<A> {
 
     /// Normalize and gate hypotheses.
     fn normalize_and_gate_hypotheses(&mut self) {
-        super::common_ops::normalize_and_gate_hypotheses(
+        super::super::common_ops::normalize_and_gate_hypotheses(
             &mut self.hypotheses,
             self.lmbm_config.hypothesis_weight_threshold,
             self.lmbm_config.max_hypotheses,
@@ -260,7 +260,7 @@ impl<A: Associator> LmbmFilter<A> {
 
     /// Gate tracks by existence probability across all hypotheses.
     fn gate_tracks(&mut self) {
-        super::common_ops::gate_hypothesis_tracks(
+        super::super::common_ops::gate_hypothesis_tracks(
             &mut self.hypotheses,
             &mut self.trajectories,
             self.existence_threshold,
@@ -270,7 +270,7 @@ impl<A: Associator> LmbmFilter<A> {
 
     /// Extract state estimates from the hypothesis mixture.
     fn extract_estimates(&self, timestamp: usize) -> StateEstimate {
-        super::common_ops::extract_hypothesis_estimates(
+        super::super::common_ops::extract_hypothesis_estimates(
             &self.hypotheses,
             timestamp,
             self.lmbm_config.use_eap,
@@ -279,12 +279,12 @@ impl<A: Associator> LmbmFilter<A> {
 
     /// Update track trajectories after measurement update.
     fn update_trajectories(&mut self, timestamp: usize) {
-        super::common_ops::update_hypothesis_trajectories(&mut self.hypotheses, timestamp);
+        super::super::common_ops::update_hypothesis_trajectories(&mut self.hypotheses, timestamp);
     }
 
     /// Initialize trajectory recording for new birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        super::common_ops::init_hypothesis_birth_trajectories(&mut self.hypotheses, max_length);
+        super::super::common_ops::init_hypothesis_birth_trajectories(&mut self.hypotheses, max_length);
     }
 
     /// Build log-likelihood matrix for computing hypothesis weights.
@@ -303,7 +303,7 @@ impl<A: Associator> LmbmFilter<A> {
 
         for i in 0..n {
             // Miss column: log(phi_i)
-            log_likelihood[(i, 0)] = if matrices.phi[i] > super::UNDERFLOW_THRESHOLD {
+            log_likelihood[(i, 0)] = if matrices.phi[i] > super::super::UNDERFLOW_THRESHOLD {
                 matrices.phi[i].ln()
             } else {
                 LOG_UNDERFLOW
@@ -312,7 +312,7 @@ impl<A: Associator> LmbmFilter<A> {
             // Measurement columns: log(eta_i * psi_ij) = log(L_ij)
             for j in 0..m {
                 let likelihood_ij = matrices.eta[i] * matrices.psi[(i, j)];
-                log_likelihood[(i, j + 1)] = if likelihood_ij > super::UNDERFLOW_THRESHOLD {
+                log_likelihood[(i, j + 1)] = if likelihood_ij > super::super::UNDERFLOW_THRESHOLD {
                     likelihood_ij.ln()
                 } else {
                     LOG_UNDERFLOW
@@ -342,7 +342,7 @@ impl<A: Associator> Filter for LmbmFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         // STEP 2: Initialize trajectory recording for new birth tracks
         // ══════════════════════════════════════════════════════════════════════
-        self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+        self.init_birth_trajectories(super::super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 3: Measurement update - data association and track updates

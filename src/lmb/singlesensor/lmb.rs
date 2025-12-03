@@ -17,11 +17,11 @@ use nalgebra::DVector;
 use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
 
-use super::config::{AssociationConfig, BirthModel, FilterParams, MotionModel, SensorModel};
-use super::output::{StateEstimate, Trajectory};
-use super::types::Track;
-use super::errors::FilterError;
-use super::traits::{AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Updater};
+use super::super::config::{AssociationConfig, BirthModel, FilterParams, MotionModel, SensorModel};
+use super::super::output::{StateEstimate, Trajectory};
+use super::super::types::Track;
+use super::super::errors::FilterError;
+use super::super::traits::{AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Updater};
 
 /// Single-sensor LMB filter.
 ///
@@ -96,10 +96,10 @@ impl LmbFilter<LbpAssociator> {
             association_config,
             tracks: Vec::new(),
             trajectories: Vec::new(),
-            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
-            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
-            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
-            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
+            existence_threshold: super::super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
             associator: LbpAssociator,
             updater,
         }
@@ -137,10 +137,10 @@ impl<A: Associator> LmbFilter<A> {
             association_config,
             tracks: Vec::new(),
             trajectories: Vec::new(),
-            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
-            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
-            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
-            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
+            existence_threshold: super::super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
             associator,
             updater,
         }
@@ -168,7 +168,7 @@ impl<A: Associator> LmbFilter<A> {
 
     /// Gate tracks by existence probability.
     fn gate_tracks(&mut self) {
-        super::common_ops::gate_tracks(
+        super::super::common_ops::gate_tracks(
             &mut self.tracks,
             &mut self.trajectories,
             self.existence_threshold,
@@ -178,22 +178,22 @@ impl<A: Associator> LmbFilter<A> {
 
     /// Extract state estimates using MAP cardinality estimation.
     fn extract_estimates(&self, timestamp: usize) -> StateEstimate {
-        super::common_ops::extract_estimates(&self.tracks, timestamp)
+        super::super::common_ops::extract_estimates(&self.tracks, timestamp)
     }
 
     /// Update track trajectories after measurement update.
     fn update_trajectories(&mut self, timestamp: usize) {
-        super::common_ops::update_trajectories(&mut self.tracks, timestamp);
+        super::super::common_ops::update_trajectories(&mut self.tracks, timestamp);
     }
 
     /// Initialize trajectory recording for new birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        super::common_ops::init_birth_trajectories(&mut self.tracks, max_length);
+        super::super::common_ops::init_birth_trajectories(&mut self.tracks, max_length);
     }
 
     /// Update existence probabilities from association result.
     fn update_existence_from_association(&mut self, result: &AssociationResult) {
-        super::common_ops::update_existence_from_marginals(&mut self.tracks, result);
+        super::super::common_ops::update_existence_from_marginals(&mut self.tracks, result);
     }
 
     /// Update existence probabilities when no measurements are received.
@@ -224,7 +224,7 @@ impl<A: Associator> Filter for LmbFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         // STEP 2: Initialize trajectory recording for new birth tracks
         // ══════════════════════════════════════════════════════════════════════
-        self.init_birth_trajectories(super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+        self.init_birth_trajectories(super::super::DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 3: Measurement update - data association and track updates

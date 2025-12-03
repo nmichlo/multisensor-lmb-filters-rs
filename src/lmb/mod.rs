@@ -48,10 +48,7 @@ pub mod traits;
 pub mod common_ops;
 
 // Filter implementations
-pub mod lmb;
-pub mod lmbm;
-
-// Multi-sensor
+pub mod singlesensor;
 pub mod multisensor;
 
 // Utilities
@@ -110,8 +107,7 @@ pub use traits::{
 };
 
 // Single-sensor filters
-pub use lmb::LmbFilter;
-pub use lmbm::LmbmFilter;
+pub use singlesensor::{LmbFilter, LmbmFilter};
 
 // Multi-sensor filters and types
 pub use multisensor::{
