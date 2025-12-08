@@ -1,0 +1,499 @@
+//! Multi-sensor LMB (Labeled Multi-Bernoulli) filter.
+//!
+//! The multi-sensor LMB filter extends the single-sensor LMB to handle measurements
+//! from multiple sensors. The key challenge is fusing per-sensor posterior updates
+//! into a unified track estimate.
+//!
+//! # Fusion Strategies
+//!
+//! Four fusion strategies are supported via the [`Merger`] trait:
+//!
+//! - **Arithmetic Average (AA)**: Simple weighted combination of GM components.
+//!   Fast and robust, but doesn't account for correlation between sensors.
+//!
+//! - **Geometric Average (GA)**: Covariance intersection using canonical form.
+//!   Produces single-component result with conservative covariance.
+//!
+//! - **Parallel Update (PU)**: Information-form fusion with decorrelation.
+//!   Theoretically optimal for independent sensors.
+//!
+//! - **Iterated Corrector (IC)**: Sequential sensor updates (not truly parallel).
+//!   Simple but order-dependent.
+//!
+//! # Type Aliases
+//!
+//! For convenience, type aliases are provided:
+//! - [`AaLmbFilter`] - Arithmetic average fusion
+//! - [`GaLmbFilter`] - Geometric average fusion
+//! - [`PuLmbFilter`] - Parallel update fusion
+//! - [`IcLmbFilter`] - Iterated corrector
+
+use nalgebra::{DMatrix, DVector};
+
+use crate::association::AssociationBuilder;
+use crate::components::prediction::predict_tracks;
+
+use super::super::config::{AssociationConfig, BirthModel, MotionModel, MultisensorConfig};
+use super::super::output::{StateEstimate, Trajectory};
+use super::super::types::Track;
+use super::super::errors::FilterError;
+use super::super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
+use super::super::builder::{FilterBuilder, LmbFilterBuilder};
+
+// Re-export fusion strategies for backwards compatibility
+pub use super::fusion::{
+    ArithmeticAverageMerger,
+    GeometricAverageMerger,
+    IteratedCorrectorMerger,
+    ParallelUpdateMerger,
+};
+
+// ============================================================================
+// MultisensorLmbFilter
+// ============================================================================
+
+/// Multi-sensor LMB filter with configurable fusion strategy.
+///
+/// This filter processes measurements from multiple sensors and fuses the
+/// per-sensor updates using the provided [`Merger`] strategy.
+///
+/// The filter is generic over:
+/// - `A`: Data association algorithm (default: [`LbpAssociator`])
+/// - `M`: Fusion/merging strategy (implements [`Merger`])
+///
+/// # Example
+///
+/// ```ignore
+/// use prak::filter::{MultisensorLmbFilter, ArithmeticAverageMerger};
+///
+/// // Create AA-LMB filter for 2 sensors
+/// let merger = ArithmeticAverageMerger::uniform(2, 100);
+/// let filter = MultisensorLmbFilter::new(motion, sensors, birth, config, merger);
+/// ```
+pub struct MultisensorLmbFilter<A: Associator = LbpAssociator, M: Merger = ArithmeticAverageMerger>
+{
+    /// Motion model (dynamics, survival probability)
+    motion: MotionModel,
+    /// Per-sensor models
+    sensors: MultisensorConfig,
+    /// Birth model (where new objects can appear)
+    birth: BirthModel,
+    /// Association algorithm configuration
+    association_config: AssociationConfig,
+
+    /// Current tracks
+    tracks: Vec<Track>,
+    /// Complete trajectories for discarded tracks
+    trajectories: Vec<Trajectory>,
+
+    /// Existence probability threshold for gating
+    existence_threshold: f64,
+    /// Minimum trajectory length to keep
+    min_trajectory_length: usize,
+    /// GM component pruning parameters
+    gm_weight_threshold: f64,
+    max_gm_components: usize,
+
+    /// The associator to use
+    associator: A,
+    /// The merger/fusion strategy
+    merger: M,
+    /// The updater to use
+    updater: MarginalUpdater,
+}
+
+impl<M: Merger> MultisensorLmbFilter<LbpAssociator, M> {
+    /// Create a new multi-sensor LMB filter with default LBP associator.
+    pub fn new(
+        motion: MotionModel,
+        sensors: MultisensorConfig,
+        birth: BirthModel,
+        association_config: AssociationConfig,
+        merger: M,
+    ) -> Self {
+        Self {
+            motion,
+            sensors,
+            birth,
+            association_config,
+            tracks: Vec::new(),
+            trajectories: Vec::new(),
+            existence_threshold: super::super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            associator: LbpAssociator,
+            merger,
+            updater: MarginalUpdater::new(),
+        }
+    }
+}
+
+impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
+    /// Create with custom associator.
+    pub fn with_associator_type(
+        motion: MotionModel,
+        sensors: MultisensorConfig,
+        birth: BirthModel,
+        association_config: AssociationConfig,
+        merger: M,
+        associator: A,
+    ) -> Self {
+        Self {
+            motion,
+            sensors,
+            birth,
+            association_config,
+            tracks: Vec::new(),
+            trajectories: Vec::new(),
+            existence_threshold: super::super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            associator,
+            merger,
+            updater: MarginalUpdater::new(),
+        }
+    }
+
+    /// Number of sensors.
+    pub fn num_sensors(&self) -> usize {
+        self.sensors.num_sensors()
+    }
+
+    /// Set GM pruning parameters.
+    ///
+    /// This also updates the internal updater to use the new thresholds.
+    pub fn with_gm_pruning(mut self, weight_threshold: f64, max_components: usize) -> Self {
+        self.gm_weight_threshold = weight_threshold;
+        self.max_gm_components = max_components;
+        self.updater = MarginalUpdater::with_thresholds(weight_threshold, max_components);
+        self
+    }
+
+    /// Gate tracks by existence probability.
+    fn gate_tracks(&mut self) {
+        super::super::common_ops::gate_tracks(
+            &mut self.tracks,
+            &mut self.trajectories,
+            self.existence_threshold,
+            self.min_trajectory_length,
+        );
+    }
+
+    /// Extract state estimates using MAP cardinality estimation.
+    fn extract_estimates(&self, timestamp: usize) -> StateEstimate {
+        super::super::common_ops::extract_estimates(&self.tracks, timestamp)
+    }
+
+    /// Update track trajectories.
+    fn update_trajectories(&mut self, timestamp: usize) {
+        super::super::common_ops::update_trajectories(&mut self.tracks, timestamp);
+    }
+
+    /// Initialize trajectory recording for birth tracks.
+    fn init_birth_trajectories(&mut self, max_length: usize) {
+        super::super::common_ops::init_birth_trajectories(&mut self.tracks, max_length);
+    }
+
+    /// Update existence for missed detection (all sensors).
+    fn update_existence_no_measurements(&mut self) {
+        let detection_probs: Vec<f64> = self
+            .sensors
+            .sensors
+            .iter()
+            .map(|s| s.detection_probability)
+            .collect();
+        for track in &mut self.tracks {
+            track.existence = crate::components::update::update_existence_no_detection_multisensor(
+                track.existence,
+                &detection_probs,
+            );
+        }
+    }
+}
+
+/// Multi-sensor measurements: one measurement set per sensor.
+pub type MultisensorMeasurements = Vec<Vec<DVector<f64>>>;
+
+impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
+    type State = Vec<Track>;
+    type Measurements = MultisensorMeasurements;
+
+    fn step<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &Self::Measurements,
+        timestep: usize,
+    ) -> Result<StateEstimate, FilterError> {
+        let num_sensors = self.num_sensors();
+
+        // Validate measurements
+        if measurements.len() != num_sensors {
+            return Err(FilterError::InvalidInput(format!(
+                "Expected {} sensors, got {}",
+                num_sensors,
+                measurements.len()
+            )));
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction - propagate tracks forward and add birth components
+        // ══════════════════════════════════════════════════════════════════════
+        predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2: Initialize trajectory recording for new birth tracks
+        // ══════════════════════════════════════════════════════════════════════
+        self.init_birth_trajectories(super::super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 3: Measurement update - data association and track updates
+        // ══════════════════════════════════════════════════════════════════════
+        let has_any_measurements = measurements.iter().any(|m| !m.is_empty());
+
+        if has_any_measurements && !self.tracks.is_empty() {
+            // Store prior tracks for PU fusion if needed
+            let prior_tracks = self.tracks.clone();
+
+            // --- STEP 3a: Per-sensor measurement updates ---
+            let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
+
+            for s in 0..num_sensors {
+                let sensor = &self.sensors.sensors[s];
+                let sensor_measurements = &measurements[s];
+
+                // Clone prior tracks for this sensor's update
+                let mut sensor_tracks = prior_tracks.clone();
+
+                if !sensor_measurements.is_empty() {
+                    // Build association matrices for this sensor
+                    let mut builder = AssociationBuilder::new(&sensor_tracks, sensor);
+                    let matrices = builder.build(sensor_measurements);
+
+                    // Run data association
+                    let result = self
+                        .associator
+                        .associate(&matrices, &self.association_config, rng)
+                        .map_err(FilterError::Association)?;
+
+                    // Update tracks
+                    self.updater
+                        .update(&mut sensor_tracks, &result, &matrices.posteriors);
+
+                    // Update existence from association
+                    super::super::common_ops::update_existence_from_marginals(
+                        &mut sensor_tracks,
+                        &result,
+                    );
+                } else {
+                    // No measurements for this sensor - missed detection update
+                    let p_d = sensor.detection_probability;
+                    for track in &mut sensor_tracks {
+                        track.existence =
+                            crate::components::update::update_existence_no_detection(
+                                track.existence,
+                                p_d,
+                            );
+                    }
+                }
+
+                per_sensor_tracks.push(sensor_tracks);
+            }
+
+            // --- STEP 3b: Fuse per-sensor updates ---
+            self.tracks = self.merger.merge(&per_sensor_tracks, None);
+        } else if !has_any_measurements {
+            // No measurements from any sensor
+            self.update_existence_no_measurements();
+        }
+
+        // (STEP 4 skipped - hypothesis management is LMBM only)
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Track gating - prune low-existence tracks, archive trajectories
+        // ══════════════════════════════════════════════════════════════════════
+        self.gate_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Update trajectories - append current state to track histories
+        // ══════════════════════════════════════════════════════════════════════
+        self.update_trajectories(timestep);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract estimates - return current state estimate
+        // ══════════════════════════════════════════════════════════════════════
+        Ok(self.extract_estimates(timestep))
+    }
+
+    fn state(&self) -> &Self::State {
+        &self.tracks
+    }
+
+    fn reset(&mut self) {
+        self.tracks.clear();
+        self.trajectories.clear();
+    }
+
+    fn x_dim(&self) -> usize {
+        self.motion.x_dim()
+    }
+
+    fn z_dim(&self) -> usize {
+        self.sensors.z_dim()
+    }
+}
+
+// ============================================================================
+// Builder Trait Implementations
+// ============================================================================
+
+impl<A: Associator, M: Merger> FilterBuilder for MultisensorLmbFilter<A, M> {
+    fn existence_threshold_mut(&mut self) -> &mut f64 {
+        &mut self.existence_threshold
+    }
+
+    fn min_trajectory_length_mut(&mut self) -> &mut usize {
+        &mut self.min_trajectory_length
+    }
+}
+
+impl<A: Associator, M: Merger> LmbFilterBuilder for MultisensorLmbFilter<A, M> {
+    fn gm_weight_threshold_mut(&mut self) -> &mut f64 {
+        &mut self.gm_weight_threshold
+    }
+
+    fn max_gm_components_mut(&mut self) -> &mut usize {
+        &mut self.max_gm_components
+    }
+}
+
+// ============================================================================
+// Type Aliases
+// ============================================================================
+
+/// Arithmetic Average LMB filter (AA-LMB).
+pub type AaLmbFilter<A = LbpAssociator> = MultisensorLmbFilter<A, ArithmeticAverageMerger>;
+
+/// Geometric Average LMB filter (GA-LMB).
+pub type GaLmbFilter<A = LbpAssociator> = MultisensorLmbFilter<A, GeometricAverageMerger>;
+
+/// Parallel Update LMB filter (PU-LMB).
+pub type PuLmbFilter<A = LbpAssociator> = MultisensorLmbFilter<A, ParallelUpdateMerger>;
+
+/// Iterated Corrector LMB filter (IC-LMB).
+pub type IcLmbFilter<A = LbpAssociator> = MultisensorLmbFilter<A, IteratedCorrectorMerger>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lmb::{BirthLocation, SensorModel};
+    use nalgebra::DMatrix;
+
+    fn create_test_sensors() -> MultisensorConfig {
+        let sensor1 = SensorModel::position_sensor_2d(1.0, 0.9, 10.0, 100.0);
+        let sensor2 = SensorModel::position_sensor_2d(1.0, 0.85, 8.0, 100.0);
+        MultisensorConfig::new(vec![sensor1, sensor2])
+    }
+
+    fn create_test_filter() -> MultisensorLmbFilter<LbpAssociator, ArithmeticAverageMerger> {
+        let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
+        let sensors = create_test_sensors();
+
+        let birth_loc = BirthLocation::new(
+            0,
+            DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
+            DMatrix::identity(4, 4) * 100.0,
+        );
+        let birth = BirthModel::new(vec![birth_loc], 0.1, 0.01);
+
+        let association_config = AssociationConfig::default();
+        let merger = ArithmeticAverageMerger::uniform(2, 100);
+
+        MultisensorLmbFilter::new(motion, sensors, birth, association_config, merger)
+    }
+
+    #[test]
+    fn test_filter_creation() {
+        let filter = create_test_filter();
+        assert_eq!(filter.x_dim(), 4);
+        assert_eq!(filter.z_dim(), 2);
+        assert_eq!(filter.num_sensors(), 2);
+        assert!(filter.tracks.is_empty());
+    }
+
+    #[test]
+    fn test_filter_step_no_measurements() {
+        let mut filter = create_test_filter();
+        let mut rng = rand::thread_rng();
+
+        // Empty measurements for both sensors
+        let measurements = vec![vec![], vec![]];
+        let estimate = filter.step(&mut rng, &measurements, 0).unwrap();
+
+        assert_eq!(estimate.timestamp, 0);
+    }
+
+    #[test]
+    fn test_filter_step_with_measurements() {
+        let mut filter = create_test_filter();
+        let mut rng = rand::thread_rng();
+
+        // Measurements for each sensor
+        let measurements = vec![
+            vec![DVector::from_vec(vec![0.0, 0.0])], // sensor 1
+            vec![DVector::from_vec(vec![0.5, 0.5])], // sensor 2
+        ];
+
+        let estimate = filter.step(&mut rng, &measurements, 0).unwrap();
+        assert_eq!(estimate.timestamp, 0);
+    }
+
+    #[test]
+    fn test_filter_multiple_steps() {
+        let mut filter = create_test_filter();
+        let mut rng = rand::thread_rng();
+
+        for t in 0..5 {
+            let measurements = vec![
+                vec![DVector::from_vec(vec![t as f64, t as f64])],
+                vec![DVector::from_vec(vec![t as f64 + 0.1, t as f64 + 0.1])],
+            ];
+            let _estimate = filter.step(&mut rng, &measurements, t).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_filter_reset() {
+        let mut filter = create_test_filter();
+        let mut rng = rand::thread_rng();
+
+        let measurements = vec![vec![], vec![]];
+        let _ = filter.step(&mut rng, &measurements, 0);
+
+        filter.reset();
+
+        assert!(filter.tracks.is_empty());
+        assert!(filter.trajectories.is_empty());
+    }
+
+    #[test]
+    fn test_aa_merger() {
+        let merger = ArithmeticAverageMerger::uniform(2, 100);
+        assert_eq!(merger.sensor_weights, vec![0.5, 0.5]);
+        assert_eq!(merger.name(), "ArithmeticAverage");
+    }
+
+    #[test]
+    fn test_ga_merger() {
+        let merger = GeometricAverageMerger::uniform(2);
+        assert_eq!(merger.sensor_weights, vec![0.5, 0.5]);
+        assert_eq!(merger.name(), "GeometricAverage");
+    }
+
+    #[test]
+    fn test_ic_merger() {
+        let merger = IteratedCorrectorMerger::new();
+        assert_eq!(merger.name(), "IteratedCorrector");
+    }
+}

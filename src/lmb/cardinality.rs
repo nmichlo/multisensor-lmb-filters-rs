@@ -3,6 +3,8 @@
 //! Implements MAP cardinality estimation for LMB filters.
 //! Matches MATLAB lmbMapCardinalityEstimate.m and esf.m exactly.
 
+use crate::common::constants::{EPSILON_EXISTENCE, ESF_ADJUSTMENT};
+
 /// Elementary Symmetric Function (ESF)
 ///
 /// Calculates elementary symmetric function using Mahler's recursive formula.
@@ -20,6 +22,7 @@
 /// Matches MATLAB esf.m exactly using Mahler's recursive formula:
 /// - F(n,k) = F(n-1,k) + z(n)*F(n-1,k-1)
 /// - Uses two-row buffer to save memory
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn elementary_symmetric_function(z: &[f64]) -> Vec<f64> {
     if z.is_empty() {
         return vec![1.0];
@@ -73,6 +76,7 @@ pub fn elementary_symmetric_function(z: &[f64]) -> Vec<f64> {
 /// 2. Find maximum of rho
 /// 3. Cap to number of objects
 /// 4. Return indices of n_map largest existence probabilities
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
     if r.is_empty() {
         return (0, Vec::new());
@@ -115,7 +119,7 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
     //
     // SOLUTION: Clamp existence probabilities to [0,1] bounds
     // Existence probabilities are MATHEMATICALLY CONSTRAINED to the interval [0,1].
-    // Clamping values within machine epsilon (1e-15) of the boundaries is:
+    // Clamping values within machine epsilon (EPSILON_EXISTENCE) of the boundaries is:
     // 1. Mathematically sound (enforces the domain constraint)
     // 2. Numerically appropriate (handles accumulated errors near boundaries)
     // 3. Maintains algorithmic equivalence with MATLAB (both produce same sorting)
@@ -123,9 +127,9 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
     let r_clamped: Vec<f64> = r
         .iter()
         .map(|&ri| {
-            if ri > 1.0 - 1e-15 {
+            if ri > 1.0 - EPSILON_EXISTENCE {
                 1.0  // Clamp near-1.0 (e.g., 0.99999999999999989) to exactly 1.0
-            } else if ri < 1e-15 {
+            } else if ri < EPSILON_EXISTENCE {
                 0.0  // Clamp near-0.0 to exactly 0.0
             } else {
                 ri
@@ -135,7 +139,7 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
 
     // Adjust existence probabilities to avoid unit values
     // Matches MATLAB: r = r - 1e-6 (does not work with unit existence probabilities)
-    let r_adjusted: Vec<f64> = r_clamped.iter().map(|&ri| ri - 1e-6).collect();
+    let r_adjusted: Vec<f64> = r_clamped.iter().map(|&ri| ri - ESF_ADJUSTMENT).collect();
 
     // Compute rho = prod(1 - r)*esf(r/(1-r))
     let mut prod_1_minus_r = 1.0;

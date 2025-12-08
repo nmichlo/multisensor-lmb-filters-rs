@@ -27,79 +27,74 @@ pub struct AssociationMatrices {
     pub eta: DVector<f64>,
 }
 
-/// Loopy Belief Propagation with convergence check
+// ============================================================================
+// Shared helper functions (extracted to eliminate duplication)
+// ============================================================================
+
+/// Perform one iteration of LBP message passing
 ///
-/// Determines posterior existence probabilities and marginal association
-/// probabilities using loopy belief propagation.
-///
-/// # Arguments
-/// * `matrices` - Association matrices (Psi, phi, eta)
-/// * `epsilon` - Convergence tolerance
-/// * `max_iterations` - Maximum number of LBP iterations
-///
-/// # Returns
-/// LbpResult with posterior existence probabilities and association weights
-pub fn loopy_belief_propagation(
+/// Updates sigma_mt in place by:
+/// 1. Computing messages from objects to measurements (sigma_tm)
+/// 2. Computing messages from measurements to objects (sigma_mt)
+#[inline]
+fn lbp_message_passing_iteration(
     matrices: &AssociationMatrices,
-    epsilon: f64,
-    max_iterations: usize,
+    sigma_mt: &mut DMatrix<f64>,
+) {
+    let n_objects = matrices.psi.nrows();
+    let n_measurements = matrices.psi.ncols();
+
+    // Pass messages from object to measurement clusters
+    // B = Psi .* sigma_mt
+    let b = matrices.psi.component_mul(sigma_mt);
+
+    // sigma_tm = Psi ./ (-B + sum(B, 2) + 1)
+    let mut sigma_tm = DMatrix::zeros(n_objects, n_measurements);
+    for i in 0..n_objects {
+        let row_sum: f64 = b.row(i).sum();
+        for j in 0..n_measurements {
+            let denom = -b[(i, j)] + row_sum + 1.0;
+            sigma_tm[(i, j)] = if denom.abs() > 1e-15 {
+                matrices.psi[(i, j)] / denom
+            } else {
+                0.0
+            };
+        }
+    }
+
+    // Pass messages from measurement to object clusters
+    // sigma_mt = 1 ./ (-sigma_tm + sum(sigma_tm, 1) + 1)
+    let col_sums: Vec<f64> = (0..n_measurements)
+        .map(|j| sigma_tm.column(j).sum())
+        .collect();
+
+    for i in 0..n_objects {
+        for j in 0..n_measurements {
+            let denom = -sigma_tm[(i, j)] + col_sums[j] + 1.0;
+            sigma_mt[(i, j)] = if denom.abs() > 1e-15 {
+                1.0 / denom
+            } else {
+                0.0
+            };
+        }
+    }
+}
+
+/// Compute final LBP result from converged messages
+///
+/// Given the final sigma_mt messages, computes:
+/// - Existence probabilities r
+/// - Association weights W
+#[inline]
+fn compute_lbp_result(
+    matrices: &AssociationMatrices,
+    sigma_mt: &DMatrix<f64>,
 ) -> LbpResult {
     let n_objects = matrices.psi.nrows();
     let n_measurements = matrices.psi.ncols();
 
-    // Initialize messages
-    let mut sigma_mt = DMatrix::from_element(n_objects, n_measurements, 1.0);
-    let mut not_converged = true;
-    let mut counter = 0;
-
-    // Message passing loop
-    while not_converged {
-        // Cache previous iteration's messages
-        let sigma_mt_old = sigma_mt.clone();
-
-        // Pass messages from object to measurement clusters
-        let b = matrices.psi.component_mul(&sigma_mt);
-
-        // sigma_tm = Psi ./ (-B + sum(B, 2) + 1)
-        let mut sigma_tm = DMatrix::zeros(n_objects, n_measurements);
-        for i in 0..n_objects {
-            let row_sum: f64 = b.row(i).sum();
-            for j in 0..n_measurements {
-                let denom = -b[(i, j)] + row_sum + 1.0;
-                sigma_tm[(i, j)] = if denom.abs() > 1e-15 {
-                    matrices.psi[(i, j)] / denom
-                } else {
-                    0.0
-                };
-            }
-        }
-
-        // Pass messages from measurement to object clusters
-        // sigma_mt = 1 ./ (-sigma_tm + sum(sigma_tm, 1) + 1)
-        let col_sums: Vec<f64> = (0..n_measurements)
-            .map(|j| sigma_tm.column(j).sum())
-            .collect();
-
-        for i in 0..n_objects {
-            for j in 0..n_measurements {
-                let denom = -sigma_tm[(i, j)] + col_sums[j] + 1.0;
-                sigma_mt[(i, j)] = if denom.abs() > 1e-15 {
-                    1.0 / denom
-                } else {
-                    0.0
-                };
-            }
-        }
-
-        // Check for convergence
-        counter += 1;
-        let delta = (&sigma_mt - &sigma_mt_old).abs();
-        let max_delta = delta.iter().cloned().fold(0.0, f64::max);
-        not_converged = max_delta > epsilon && counter < max_iterations;
-    }
-
-    // Compute final results
-    let b = matrices.psi.component_mul(&sigma_mt);
+    // B = Psi .* sigma_mt
+    let b = matrices.psi.component_mul(sigma_mt);
 
     // Gamma = [phi, B .* eta]
     let mut gamma = DMatrix::zeros(n_objects, n_measurements + 1);
@@ -137,6 +132,55 @@ pub fn loopy_belief_propagation(
     LbpResult { r, w }
 }
 
+// ============================================================================
+// Public API
+// ============================================================================
+
+/// Loopy Belief Propagation with convergence check
+///
+/// Determines posterior existence probabilities and marginal association
+/// probabilities using loopy belief propagation.
+///
+/// # Arguments
+/// * `matrices` - Association matrices (Psi, phi, eta)
+/// * `epsilon` - Convergence tolerance
+/// * `max_iterations` - Maximum number of LBP iterations
+///
+/// # Returns
+/// LbpResult with posterior existence probabilities and association weights
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
+pub fn loopy_belief_propagation(
+    matrices: &AssociationMatrices,
+    epsilon: f64,
+    max_iterations: usize,
+) -> LbpResult {
+    let n_objects = matrices.psi.nrows();
+    let n_measurements = matrices.psi.ncols();
+
+    // Initialize messages
+    let mut sigma_mt = DMatrix::from_element(n_objects, n_measurements, 1.0);
+    let mut not_converged = true;
+    let mut counter = 0;
+
+    // Message passing loop with convergence check
+    while not_converged {
+        // Cache previous iteration's messages for convergence check
+        let sigma_mt_old = sigma_mt.clone();
+
+        // Perform one iteration of message passing
+        lbp_message_passing_iteration(matrices, &mut sigma_mt);
+
+        // Check for convergence
+        counter += 1;
+        let delta = (&sigma_mt - &sigma_mt_old).abs();
+        let max_delta = delta.iter().cloned().fold(0.0, f64::max);
+        not_converged = max_delta > epsilon && counter < max_iterations;
+    }
+
+    // Compute final results from converged messages
+    compute_lbp_result(matrices, &sigma_mt)
+}
+
 /// Fixed-iteration Loopy Belief Propagation
 ///
 /// Same as loopy_belief_propagation but runs for a fixed number of iterations
@@ -158,75 +202,13 @@ pub fn fixed_loopy_belief_propagation(
     // Initialize messages
     let mut sigma_mt = DMatrix::from_element(n_objects, n_measurements, 1.0);
 
-    // Fixed number of iterations
+    // Fixed number of iterations (no convergence check)
     for _ in 0..max_iterations {
-        // Pass messages from object to measurement clusters
-        let b = matrices.psi.component_mul(&sigma_mt);
-
-        // sigma_tm = Psi ./ (-B + sum(B, 2) + 1)
-        let mut sigma_tm = DMatrix::zeros(n_objects, n_measurements);
-        for i in 0..n_objects {
-            let row_sum: f64 = b.row(i).sum();
-            for j in 0..n_measurements {
-                let denom = -b[(i, j)] + row_sum + 1.0;
-                sigma_tm[(i, j)] = if denom.abs() > 1e-15 {
-                    matrices.psi[(i, j)] / denom
-                } else {
-                    0.0
-                };
-            }
-        }
-
-        // Pass messages from measurement to object clusters
-        let col_sums: Vec<f64> = (0..n_measurements)
-            .map(|j| sigma_tm.column(j).sum())
-            .collect();
-
-        for i in 0..n_objects {
-            for j in 0..n_measurements {
-                let denom = -sigma_tm[(i, j)] + col_sums[j] + 1.0;
-                sigma_mt[(i, j)] = if denom.abs() > 1e-15 {
-                    1.0 / denom
-                } else {
-                    0.0
-                };
-            }
-        }
+        lbp_message_passing_iteration(matrices, &mut sigma_mt);
     }
 
-    // Compute final results (same as converged version)
-    let b = matrices.psi.component_mul(&sigma_mt);
-
-    let mut gamma = DMatrix::zeros(n_objects, n_measurements + 1);
-    for i in 0..n_objects {
-        gamma[(i, 0)] = matrices.phi[i];
-        for j in 0..n_measurements {
-            gamma[(i, j + 1)] = b[(i, j)] * matrices.eta[i];
-        }
-    }
-
-    let q: Vec<f64> = (0..n_objects).map(|i| gamma.row(i).sum()).collect();
-
-    let mut w = DMatrix::zeros(n_objects, n_measurements + 1);
-    for i in 0..n_objects {
-        if q[i].abs() > 1e-15 {
-            for j in 0..(n_measurements + 1) {
-                w[(i, j)] = gamma[(i, j)] / q[i];
-            }
-        }
-    }
-
-    let mut r = DVector::zeros(n_objects);
-    for i in 0..n_objects {
-        let denom = matrices.eta[i] + q[i] - matrices.phi[i];
-        r[i] = if denom.abs() > 1e-15 {
-            q[i] / denom
-        } else {
-            0.0
-        };
-    }
-
-    LbpResult { r, w }
+    // Compute final results
+    compute_lbp_result(matrices, &sigma_mt)
 }
 
 #[cfg(test)]
