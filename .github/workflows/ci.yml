@@ -30,6 +30,18 @@ jobs:
       - name: Run tests
         run: cargo test --release
 
+  python-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v4
+      - name: Build and install
+        run: uv run maturin develop --release
+      - name: Run pytest
+        run: uv run pytest tests -v
+
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -37,4 +49,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: astral-sh/setup-uv@v4
       - uses: pre-commit/action@v3.0.1
