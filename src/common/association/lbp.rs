@@ -37,10 +37,7 @@ pub struct AssociationMatrices {
 /// 1. Computing messages from objects to measurements (sigma_tm)
 /// 2. Computing messages from measurements to objects (sigma_mt)
 #[inline]
-fn lbp_message_passing_iteration(
-    matrices: &AssociationMatrices,
-    sigma_mt: &mut DMatrix<f64>,
-) {
+fn lbp_message_passing_iteration(matrices: &AssociationMatrices, sigma_mt: &mut DMatrix<f64>) {
     let n_objects = matrices.psi.nrows();
     let n_measurements = matrices.psi.ncols();
 
@@ -86,10 +83,7 @@ fn lbp_message_passing_iteration(
 /// - Existence probabilities r
 /// - Association weights W
 #[inline]
-fn compute_lbp_result(
-    matrices: &AssociationMatrices,
-    sigma_mt: &DMatrix<f64>,
-) -> LbpResult {
+fn compute_lbp_result(matrices: &AssociationMatrices, sigma_mt: &DMatrix<f64>) -> LbpResult {
     let n_objects = matrices.psi.nrows();
     let n_measurements = matrices.psi.ncols();
 
@@ -218,10 +212,7 @@ mod tests {
     #[test]
     fn test_lbp_simple() {
         // Simple 2 objects, 3 measurements case
-        let psi = DMatrix::from_row_slice(2, 3, &[
-            0.8, 0.2, 0.1,
-            0.1, 0.7, 0.3,
-        ]);
+        let psi = DMatrix::from_row_slice(2, 3, &[0.8, 0.2, 0.1, 0.1, 0.7, 0.3]);
         let phi = DVector::from_vec(vec![0.05, 0.05]);
         let eta = DVector::from_vec(vec![0.95, 0.95]);
 

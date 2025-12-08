@@ -522,7 +522,11 @@ pub fn to_canonical_form(
     let det = sigma.determinant();
     let quad_term = -0.5 * mu.dot(&(&k * mu));
     let det_term = -0.5 * (2.0 * PI * det).ln();
-    let weight_term = if weight > 0.0 { weight.ln() } else { f64::NEG_INFINITY };
+    let weight_term = if weight > 0.0 {
+        weight.ln()
+    } else {
+        f64::NEG_INFINITY
+    };
     let g = quad_term + det_term + weight_term;
 
     Some(CanonicalGaussian { k, h, g })
@@ -549,9 +553,7 @@ pub fn from_canonical_form(
     let mu = &sigma * &canonical.h;
 
     let det = sigma.determinant();
-    let g_out = canonical.g
-        + 0.5 * mu.dot(&(&canonical.k * &mu))
-        + 0.5 * (2.0 * PI * det).ln();
+    let g_out = canonical.g + 0.5 * mu.dot(&(&canonical.k * &mu)) + 0.5 * (2.0 * PI * det).ln();
 
     Some((mu, sigma, g_out))
 }
@@ -770,12 +772,7 @@ mod tests {
     #[test]
     fn test_compute_kalman_updated_mean() {
         let mu = DVector::from_vec(vec![1.0, 2.0, 3.0, 4.0]);
-        let k = DMatrix::from_row_slice(4, 2, &[
-            0.5, 0.0,
-            0.0, 0.0,
-            0.0, 0.5,
-            0.0, 0.0,
-        ]);
+        let k = DMatrix::from_row_slice(4, 2, &[0.5, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0]);
         let measurement = DVector::from_vec(vec![2.0, 4.0]);
         let mu_z = DVector::from_vec(vec![1.0, 3.0]);
 

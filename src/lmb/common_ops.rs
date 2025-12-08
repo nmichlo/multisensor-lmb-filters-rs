@@ -8,8 +8,8 @@ use crate::components::prediction::predict_tracks;
 use super::cardinality::lmb_map_cardinality_estimate;
 use super::config::{BirthModel, MotionModel};
 use super::output::{EstimatedTrack, StateEstimate, Trajectory};
-use super::types::{GaussianComponent, LmbmHypothesis, Track};
 use super::traits::AssociationResult;
+use super::types::{GaussianComponent, LmbmHypothesis, Track};
 
 use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
@@ -40,7 +40,11 @@ pub fn prune_and_normalize_components(
     }
 
     // Sort by weight descending
-    components.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+    components.sort_by(|a, b| {
+        b.weight
+            .partial_cmp(&a.weight)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Find cutoff index
     let mut cutoff = components.len();
@@ -185,9 +189,7 @@ pub fn gate_tracks(
             if traj.length >= min_trajectory_length {
                 trajectories.push(Trajectory {
                     label: track.label,
-                    states: (0..traj.length)
-                        .filter_map(|i| traj.get_state(i))
-                        .collect(),
+                    states: (0..traj.length).filter_map(|i| traj.get_state(i)).collect(),
                     covariances: Vec::new(),
                     timestamps: traj.timestamps.clone(),
                 });
@@ -355,9 +357,7 @@ pub fn gate_hypothesis_tracks(
                 if traj.length >= min_trajectory_length {
                     trajectories.push(Trajectory {
                         label: track.label,
-                        states: (0..traj.length)
-                            .filter_map(|j| traj.get_state(j))
-                            .collect(),
+                        states: (0..traj.length).filter_map(|j| traj.get_state(j)).collect(),
                         covariances: Vec::new(),
                         timestamps: traj.timestamps.clone(),
                     });

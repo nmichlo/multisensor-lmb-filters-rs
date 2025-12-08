@@ -38,19 +38,19 @@
 //! - [`Merger`] - Multi-sensor track fusion strategies
 
 // Core types
-pub mod types;
 pub mod config;
 pub mod output;
+pub mod types;
 
 // Filter infrastructure
-pub mod errors;
-pub mod traits;
 pub mod builder;
 pub mod common_ops;
+pub mod errors;
+pub mod traits;
 
 // Filter implementations
-pub mod singlesensor;
 pub mod multisensor;
+pub mod singlesensor;
 
 // Utilities
 pub mod cardinality;
@@ -58,53 +58,25 @@ pub mod cardinality;
 // Re-export all public types from submodules
 
 // Types
-pub use types::{
-    GaussianComponent,
-    LmbmHypothesis,
-    Track,
-    TrackLabel,
-    TrajectoryHistory,
-};
+pub use types::{GaussianComponent, LmbmHypothesis, Track, TrackLabel, TrajectoryHistory};
 
 // Configuration
 pub use config::{
-    AssociationConfig,
-    BirthLocation,
-    BirthModel,
-    DataAssociationMethod,
-    FilterParams,
-    FilterParamsBuilder,
-    FilterThresholds,
-    LmbmConfig,
-    MotionModel,
-    MultisensorConfig,
-    SensorModel,
+    AssociationConfig, BirthLocation, BirthModel, DataAssociationMethod, FilterParams,
+    FilterParamsBuilder, FilterThresholds, LmbmConfig, MotionModel, MultisensorConfig, SensorModel,
     SensorVariant,
 };
 
 // Output
-pub use output::{
-    EstimatedTrack,
-    FilterOutput,
-    StateEstimate,
-    Trajectory,
-};
+pub use output::{EstimatedTrack, FilterOutput, StateEstimate, Trajectory};
 
 // Errors
 pub use errors::{AssociationError, FilterError};
 
 // Traits and implementations
 pub use traits::{
-    Associator,
-    AssociationResult,
-    Filter,
-    GibbsAssociator,
-    HardAssignmentUpdater,
-    LbpAssociator,
-    MarginalUpdater,
-    Merger,
-    MurtyAssociator,
-    Updater,
+    AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, LbpAssociator,
+    MarginalUpdater, Merger, MurtyAssociator, Updater,
 };
 
 // Builder traits
@@ -115,20 +87,10 @@ pub use singlesensor::{LmbFilter, LmbmFilter};
 
 // Multi-sensor filters and types
 pub use multisensor::{
-    AaLmbFilter,
-    ArithmeticAverageMerger,
-    GaLmbFilter,
-    GeometricAverageMerger,
-    IcLmbFilter,
-    IteratedCorrectorMerger,
-    MultisensorLmbFilter,
-    MultisensorLmbmFilter,
-    MultisensorMeasurements,
-    ParallelUpdateMerger,
-    PuLmbFilter,
-    MultisensorAssociationResult,
-    MultisensorAssociator,
-    MultisensorGibbsAssociator,
+    AaLmbFilter, ArithmeticAverageMerger, GaLmbFilter, GeometricAverageMerger, IcLmbFilter,
+    IteratedCorrectorMerger, MultisensorAssociationResult, MultisensorAssociator,
+    MultisensorGibbsAssociator, MultisensorLmbFilter, MultisensorLmbmFilter,
+    MultisensorMeasurements, ParallelUpdateMerger, PuLmbFilter,
 };
 
 // ============================================================================

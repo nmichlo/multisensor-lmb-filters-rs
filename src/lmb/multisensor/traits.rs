@@ -41,7 +41,10 @@ pub struct MultisensorAssociationResult {
 impl MultisensorAssociationResult {
     /// Create a new result with samples.
     pub fn new(samples: Vec<Vec<usize>>, iterations: usize) -> Self {
-        Self { samples, iterations }
+        Self {
+            samples,
+            iterations,
+        }
     }
 
     /// Create an empty result.
@@ -122,7 +125,7 @@ impl MultisensorGibbsAssociator {
             let zeta = remaining / page_sizes[j];
             let eta = remaining % page_sizes[j];
             u[j] = zeta + if eta != 0 { 1 } else { 0 };
-            remaining = remaining - page_sizes[j] * (zeta - if eta == 0 { 1 } else { 0 });
+            remaining -= page_sizes[j] * (zeta - if eta == 0 { 1 } else { 0 });
         }
 
         u
@@ -174,7 +177,8 @@ impl MultisensorGibbsAssociator {
                         let r_idx = Self::cartesian_to_linear(&u, dimensions);
 
                         // Sampling probability
-                        let p = 1.0 / ((log_likelihoods[r_idx] - log_likelihoods[q_idx]).exp() + 1.0);
+                        let p =
+                            1.0 / ((log_likelihoods[r_idx] - log_likelihoods[q_idx]).exp() + 1.0);
 
                         if rng.gen::<f64>() < p {
                             // Associate object i with measurement j

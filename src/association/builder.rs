@@ -172,7 +172,8 @@ impl<'a> AssociationBuilder<'a> {
         for (i, track) in self.tracks.iter().enumerate() {
             // For posteriors, we use the primary (highest weight) component
             // This is a simplification - full MATLAB stores posteriors for ALL components
-            let primary_idx = track.components
+            let primary_idx = track
+                .components
                 .iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.weight.partial_cmp(&b.weight).unwrap())
@@ -262,7 +263,7 @@ impl<'a> AssociationBuilder<'a> {
             // psi[i,j] = L[i,j] / eta[i]
             // Note: L already includes r (existence) in its computation
             for j in 0..m {
-                let l_val = log_likelihood_ratios[(i, j)].exp();  // L[i,j] already has r in it
+                let l_val = log_likelihood_ratios[(i, j)].exp(); // L[i,j] already has r in it
                 if eta[i].abs() > 1e-15 {
                     psi[(i, j)] = l_val / eta[i];
                 }
@@ -386,7 +387,12 @@ mod tests {
             let row_sum: f64 = (0..=matrices.num_measurements())
                 .map(|j| matrices.sampling_prob[(i, j)])
                 .sum();
-            assert!((row_sum - 1.0).abs() < 1e-10, "Row {} sums to {}", i, row_sum);
+            assert!(
+                (row_sum - 1.0).abs() < 1e-10,
+                "Row {} sums to {}",
+                i,
+                row_sum
+            );
         }
     }
 }

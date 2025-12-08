@@ -12,8 +12,8 @@
 
 use nalgebra::{DMatrix, DVector};
 
-use super::super::types::{GaussianComponent, Track};
 use super::super::traits::Merger;
+use super::super::types::{GaussianComponent, Track};
 
 // ============================================================================
 // Arithmetic Average Merger
@@ -92,8 +92,10 @@ impl Merger for ArithmeticAverageMerger {
             }
 
             // Merge, truncate, and normalize using shared helper
-            fused_tracks[i].components =
-                super::super::common_ops::merge_and_truncate_components(all_components, self.max_components);
+            fused_tracks[i].components = super::super::common_ops::merge_and_truncate_components(
+                all_components,
+                self.max_components,
+            );
         }
 
         fused_tracks
@@ -305,21 +307,19 @@ impl Merger for ParallelUpdateMerger {
             let mut h_fused = &prior_h * decorr_factor;
             let mut g_fused = 0.0;
 
-            for s in 0..num_sensors {
-                if i >= per_sensor_tracks[s].len() || per_sensor_tracks[s][i].components.is_empty()
-                {
+            for sensor_tracks in per_sensor_tracks.iter().take(num_sensors) {
+                if i >= sensor_tracks.len() || sensor_tracks[i].components.is_empty() {
                     continue;
                 }
 
-                let comp = &per_sensor_tracks[s][i].components[0];
+                let comp = &sensor_tracks[i].components[0];
                 if let Some(k_s) = comp.covariance.clone().try_inverse() {
                     let h_s = &k_s * &comp.mean;
 
                     // g for this component
-                    let det_2pi_sigma =
-                        (2.0 * std::f64::consts::PI).powi(dim as i32) * comp.covariance.determinant();
-                    let g_s = -0.5 * comp.mean.dot(&(&k_s * &comp.mean))
-                        - 0.5 * det_2pi_sigma.ln()
+                    let det_2pi_sigma = (2.0 * std::f64::consts::PI).powi(dim as i32)
+                        * comp.covariance.determinant();
+                    let g_s = -0.5 * comp.mean.dot(&(&k_s * &comp.mean)) - 0.5 * det_2pi_sigma.ln()
                         + comp.weight.ln();
 
                     k_fused += k_s;
@@ -338,10 +338,10 @@ impl Merger for ParallelUpdateMerger {
                 let mut r_num = eta * prior_r.powf(decorr_factor);
                 let mut r_den = (1.0 - prior_r).powf(decorr_factor);
 
-                for s in 0..num_sensors {
-                    if i < per_sensor_tracks[s].len() {
-                        r_num *= per_sensor_tracks[s][i].existence;
-                        r_den *= 1.0 - per_sensor_tracks[s][i].existence;
+                for sensor_tracks in per_sensor_tracks.iter().take(num_sensors) {
+                    if i < sensor_tracks.len() {
+                        r_num *= sensor_tracks[i].existence;
+                        r_den *= 1.0 - sensor_tracks[i].existence;
                     }
                 }
                 let r_fused = r_num / (r_num + r_den);

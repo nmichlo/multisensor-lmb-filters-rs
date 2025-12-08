@@ -21,14 +21,16 @@ use nalgebra::DVector;
 
 use crate::association::AssociationBuilder;
 
-use super::super::config::{AssociationConfig, BirthModel, FilterParams, LmbmConfig, MotionModel, SensorModel};
-use super::super::output::{StateEstimate, Trajectory};
-use super::super::types::LmbmHypothesis;
+use super::super::builder::FilterBuilder;
+use super::super::config::{
+    AssociationConfig, BirthModel, FilterParams, LmbmConfig, MotionModel, SensorModel,
+};
 use super::super::errors::FilterError;
+use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{
     AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, Updater,
 };
-use super::super::builder::FilterBuilder;
+use super::super::types::LmbmHypothesis;
 
 /// Log-likelihood floor to prevent underflow when computing ln(x) for very small x.
 /// Approximately ln(UNDERFLOW_THRESHOLD), used when likelihood values are below f64 precision.
@@ -211,13 +213,11 @@ impl<A: Associator> LmbmFilter<A> {
 
                 // Update existence probabilities for detected tracks
                 for (track_idx, &meas_assignment) in assignments.iter().enumerate() {
-                    if track_idx < new_hyp.tracks.len() {
-                        if meas_assignment >= 0 {
-                            // Detected - existence is certain
-                            new_hyp.tracks[track_idx].existence = 1.0;
-                        }
-                        // Miss case: existence already updated by the standard LMB formula
+                    if track_idx < new_hyp.tracks.len() && meas_assignment >= 0 {
+                        // Detected - existence is certain
+                        new_hyp.tracks[track_idx].existence = 1.0;
                     }
+                    // Miss case: existence already updated by the standard LMB formula
                 }
 
                 new_hypotheses.push(new_hyp);
@@ -273,7 +273,10 @@ impl<A: Associator> LmbmFilter<A> {
 
     /// Initialize trajectory recording for new birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        super::super::common_ops::init_hypothesis_birth_trajectories(&mut self.hypotheses, max_length);
+        super::super::common_ops::init_hypothesis_birth_trajectories(
+            &mut self.hypotheses,
+            max_length,
+        );
     }
 
     /// Build log-likelihood matrix for computing hypothesis weights.
@@ -392,8 +395,7 @@ impl<A: Associator> Filter for LmbmFilter<A> {
 
     fn reset(&mut self) {
         self.hypotheses.clear();
-        self.hypotheses
-            .push(LmbmHypothesis::new(0.0, Vec::new()));
+        self.hypotheses.push(LmbmHypothesis::new(0.0, Vec::new()));
         self.trajectories.clear();
     }
 

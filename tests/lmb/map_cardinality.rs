@@ -1,13 +1,15 @@
 //! Test MAP cardinality estimation against MATLAB values
-use multisensor_lmb_filters_rs::lmb::cardinality::{elementary_symmetric_function, lmb_map_cardinality_estimate};
+use multisensor_lmb_filters_rs::lmb::cardinality::{
+    elementary_symmetric_function, lmb_map_cardinality_estimate,
+};
 
 #[test]
 fn test_map_cardinality_seed42_t64() {
     // These are the actual r values from debug output at seed 42, t=64
     // MATLAB has 10 objects with these existence probabilities
     let r_matlab = vec![
-        0.999629, 0.999640, 0.999613, 0.999623, 0.999569,
-        0.999589, 0.997505, 0.999208, 0.998461, 0.997084,
+        0.999629, 0.999640, 0.999613, 0.999623, 0.999569, 0.999589, 0.997505, 0.999208, 0.998461,
+        0.997084,
     ];
 
     println!("\n=== Testing MAP Cardinality for Seed 42, t=64 ===");

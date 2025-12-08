@@ -56,8 +56,8 @@ pub fn initialize_gibbs_association_vectors(c: &DMatrix<f64>) -> (Vec<usize>, Ve
     // Extract v from assignments (first and only assignment)
     // In Rust, assignments is (k x n) matrix where k=1
     let mut v = vec![0; n];
-    for j in 0..n {
-        v[j] = murtys_result.assignments[(0, j)];
+    for (j, v_j) in v.iter_mut().enumerate() {
+        *v_j = murtys_result.assignments[(0, j)];
     }
 
     // Determine w from v (matching MATLAB lines 26-29)
@@ -304,27 +304,15 @@ mod tests {
         use crate::common::rng::SimpleRng;
 
         // Simple 2 objects, 2 measurements
-        let p = DMatrix::from_row_slice(2, 2, &[
-            0.7, 0.3,
-            0.4, 0.6,
-        ]);
+        let p = DMatrix::from_row_slice(2, 2, &[0.7, 0.3, 0.4, 0.6]);
 
         // L = [eta, L1, L2]
-        let l = DMatrix::from_row_slice(2, 3, &[
-            0.05, 0.8, 0.15,
-            0.05, 0.3, 0.65,
-        ]);
+        let l = DMatrix::from_row_slice(2, 3, &[0.05, 0.8, 0.15, 0.05, 0.3, 0.65]);
 
         // R = [phi/eta, 1, 1]
-        let r = DMatrix::from_row_slice(2, 3, &[
-            0.05, 1.0, 1.0,
-            0.05, 1.0, 1.0,
-        ]);
+        let r = DMatrix::from_row_slice(2, 3, &[0.05, 1.0, 1.0, 0.05, 1.0, 1.0]);
 
-        let c = DMatrix::from_row_slice(2, 2, &[
-            1.0, 3.0,
-            3.0, 1.0,
-        ]);
+        let c = DMatrix::from_row_slice(2, 2, &[1.0, 3.0, 3.0, 1.0]);
 
         let matrices = GibbsAssociationMatrices { p, l, r, c };
 
@@ -353,27 +341,15 @@ mod tests {
         use crate::common::rng::SimpleRng;
 
         // Simple 2 objects, 2 measurements
-        let p = DMatrix::from_row_slice(2, 2, &[
-            0.7, 0.3,
-            0.4, 0.6,
-        ]);
+        let p = DMatrix::from_row_slice(2, 2, &[0.7, 0.3, 0.4, 0.6]);
 
         // L = [eta, L1, L2]
-        let l = DMatrix::from_row_slice(2, 3, &[
-            0.05, 0.8, 0.15,
-            0.05, 0.3, 0.65,
-        ]);
+        let l = DMatrix::from_row_slice(2, 3, &[0.05, 0.8, 0.15, 0.05, 0.3, 0.65]);
 
         // R = [phi/eta, 1, 1]
-        let r = DMatrix::from_row_slice(2, 3, &[
-            0.05, 1.0, 1.0,
-            0.05, 1.0, 1.0,
-        ]);
+        let r = DMatrix::from_row_slice(2, 3, &[0.05, 1.0, 1.0, 0.05, 1.0, 1.0]);
 
-        let c = DMatrix::from_row_slice(2, 2, &[
-            1.0, 3.0,
-            3.0, 1.0,
-        ]);
+        let c = DMatrix::from_row_slice(2, 2, &[1.0, 3.0, 3.0, 1.0]);
 
         let matrices = GibbsAssociationMatrices { p, l, r, c };
 
@@ -393,15 +369,24 @@ mod tests {
 
         // Verify existence probabilities are in [0, 1]
         for i in 0..2 {
-            assert!(result.r[i] >= 0.0 && result.r[i] <= 1.0,
-                "Existence probability out of range for object {}: {}", i, result.r[i]);
+            assert!(
+                result.r[i] >= 0.0 && result.r[i] <= 1.0,
+                "Existence probability out of range for object {}: {}",
+                i,
+                result.r[i]
+            );
         }
 
         // Verify association weights are non-negative and sum to 1
         for i in 0..2 {
             for j in 0..result.w.ncols() {
-                assert!(result.w[(i, j)] >= 0.0,
-                    "Negative association weight at ({}, {}): {}", i, j, result.w[(i, j)]);
+                assert!(
+                    result.w[(i, j)] >= 0.0,
+                    "Negative association weight at ({}, {}): {}",
+                    i,
+                    j,
+                    result.w[(i, j)]
+                );
             }
         }
 
@@ -430,25 +415,13 @@ mod tests {
 
         // Test cross-language equivalence with Octave testGibbsFrequency.m
         // Simple 2 objects, 2 measurements matching Octave test
-        let p = DMatrix::from_row_slice(2, 2, &[
-            0.7, 0.3,
-            0.4, 0.6,
-        ]);
+        let p = DMatrix::from_row_slice(2, 2, &[0.7, 0.3, 0.4, 0.6]);
 
-        let l = DMatrix::from_row_slice(2, 3, &[
-            0.05, 0.8, 0.15,
-            0.05, 0.3, 0.65,
-        ]);
+        let l = DMatrix::from_row_slice(2, 3, &[0.05, 0.8, 0.15, 0.05, 0.3, 0.65]);
 
-        let r = DMatrix::from_row_slice(2, 3, &[
-            0.05, 1.0, 1.0,
-            0.05, 1.0, 1.0,
-        ]);
+        let r = DMatrix::from_row_slice(2, 3, &[0.05, 1.0, 1.0, 0.05, 1.0, 1.0]);
 
-        let c = DMatrix::from_row_slice(2, 2, &[
-            1.0, 3.0,
-            3.0, 1.0,
-        ]);
+        let c = DMatrix::from_row_slice(2, 2, &[1.0, 3.0, 3.0, 1.0]);
 
         let matrices = GibbsAssociationMatrices { p, l, r, c };
 
@@ -462,21 +435,59 @@ mod tests {
         //      [0.029612, 0.165638, 0.804750]]
 
         // Verify exact match (deterministic with SimpleRng)
-        assert!((result.r[0] - 0.6922).abs() < 1e-10, "r[0] mismatch: {}", result.r[0]);
-        assert!((result.r[1] - 0.6399500000).abs() < 1e-10, "r[1] mismatch: {}", result.r[1]);
+        assert!(
+            (result.r[0] - 0.6922).abs() < 1e-10,
+            "r[0] mismatch: {}",
+            result.r[0]
+        );
+        assert!(
+            (result.r[1] - 0.6399500000).abs() < 1e-10,
+            "r[1] mismatch: {}",
+            result.r[1]
+        );
 
-        assert!((result.w[(0, 0)] - 0.023404).abs() < 1e-6, "W[0,0] mismatch: {}", result.w[(0, 0)]);
-        assert!((result.w[(0, 1)] - 0.869691).abs() < 1e-6, "W[0,1] mismatch: {}", result.w[(0, 1)]);
-        assert!((result.w[(0, 2)] - 0.106906).abs() < 1e-6, "W[0,2] mismatch: {}", result.w[(0, 2)]);
+        assert!(
+            (result.w[(0, 0)] - 0.023404).abs() < 1e-6,
+            "W[0,0] mismatch: {}",
+            result.w[(0, 0)]
+        );
+        assert!(
+            (result.w[(0, 1)] - 0.869691).abs() < 1e-6,
+            "W[0,1] mismatch: {}",
+            result.w[(0, 1)]
+        );
+        assert!(
+            (result.w[(0, 2)] - 0.106906).abs() < 1e-6,
+            "W[0,2] mismatch: {}",
+            result.w[(0, 2)]
+        );
 
-        assert!((result.w[(1, 0)] - 0.029612).abs() < 1e-6, "W[1,0] mismatch: {}", result.w[(1, 0)]);
-        assert!((result.w[(1, 1)] - 0.165638).abs() < 1e-6, "W[1,1] mismatch: {}", result.w[(1, 1)]);
-        assert!((result.w[(1, 2)] - 0.804750).abs() < 1e-6, "W[1,2] mismatch: {}", result.w[(1, 2)]);
+        assert!(
+            (result.w[(1, 0)] - 0.029612).abs() < 1e-6,
+            "W[1,0] mismatch: {}",
+            result.w[(1, 0)]
+        );
+        assert!(
+            (result.w[(1, 1)] - 0.165638).abs() < 1e-6,
+            "W[1,1] mismatch: {}",
+            result.w[(1, 1)]
+        );
+        assert!(
+            (result.w[(1, 2)] - 0.804750).abs() < 1e-6,
+            "W[1,2] mismatch: {}",
+            result.w[(1, 2)]
+        );
 
         println!("Cross-language equivalence verified!");
         println!("Rust r: [{}, {}]", result.r[0], result.r[1]);
-        println!("Rust W: [[{}, {}, {}], [{}, {}, {}]]",
-            result.w[(0, 0)], result.w[(0, 1)], result.w[(0, 2)],
-            result.w[(1, 0)], result.w[(1, 1)], result.w[(1, 2)]);
+        println!(
+            "Rust W: [[{}, {}, {}], [{}, {}, {}]]",
+            result.w[(0, 0)],
+            result.w[(0, 1)],
+            result.w[(0, 2)],
+            result.w[(1, 0)],
+            result.w[(1, 1)],
+            result.w[(1, 2)]
+        );
     }
 }

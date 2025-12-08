@@ -63,7 +63,11 @@ pub fn prune_gaussian_mixture(
     indexed_weights.sort_by(|a, b| {
         let diff = (b.0 - a.0).abs();
         let max_val = b.0.abs().max(a.0.abs());
-        let relative_diff = if max_val > 1e-15 { diff / max_val } else { diff };
+        let relative_diff = if max_val > 1e-15 {
+            diff / max_val
+        } else {
+            diff
+        };
 
         if relative_diff < 1e-12 {
             // Weights are effectively equal - use stable sort (lower index first)
@@ -88,10 +92,8 @@ pub fn prune_gaussian_mixture(
     };
 
     // Cap to maximum number of components
-    let final_components: Vec<(f64, usize)> = significant
-        .into_iter()
-        .take(max_components)
-        .collect();
+    let final_components: Vec<(f64, usize)> =
+        significant.into_iter().take(max_components).collect();
 
     // Extract weights and indices
     let final_weights: Vec<f64> = final_components.iter().map(|(w, _)| *w).collect();
@@ -144,10 +146,7 @@ pub fn update_existence_missed_detection(r: f64, detection_probability: f64) -> 
 ///
 /// # Returns
 /// Vector of booleans indicating which objects to keep
-pub fn gate_objects_by_existence(
-    existence_probs: &[f64],
-    existence_threshold: f64,
-) -> Vec<bool> {
+pub fn gate_objects_by_existence(existence_probs: &[f64], existence_threshold: f64) -> Vec<bool> {
     existence_probs
         .iter()
         .map(|&r| r > existence_threshold)
@@ -174,7 +173,10 @@ pub fn prune_hypotheses(
     max_hypotheses: usize,
 ) -> (Vec<f64>, Vec<usize>) {
     // Normalize log-weights using log-sum-exp
-    let max_log_w = log_weights.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let max_log_w = log_weights
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
     let exp_shifted: Vec<f64> = log_weights.iter().map(|w| (w - max_log_w).exp()).collect();
     let sum_exp: f64 = exp_shifted.iter().sum();
     let weights: Vec<f64> = exp_shifted.iter().map(|w| w / sum_exp).collect();
@@ -209,10 +211,7 @@ pub fn prune_hypotheses(
     sorted.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
 
     // Cap to maximum number of hypotheses
-    let final_hyps: Vec<(f64, usize)> = sorted
-        .into_iter()
-        .take(max_hypotheses)
-        .collect();
+    let final_hyps: Vec<(f64, usize)> = sorted.into_iter().take(max_hypotheses).collect();
 
     // Extract and renormalize
     let final_weights: Vec<f64> = final_hyps.iter().map(|(w, _)| *w).collect();
@@ -307,7 +306,7 @@ mod tests {
 
         // Should be sorted by weight descending
         for i in 1..weights.len() {
-            assert!(weights[i-1] >= weights[i]);
+            assert!(weights[i - 1] >= weights[i]);
         }
     }
 

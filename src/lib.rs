@@ -73,42 +73,35 @@ pub mod common;
 
 // Core types
 pub use lmb::{
-    Track, TrackLabel, GaussianComponent, LmbmHypothesis,
-    MotionModel, SensorModel, FilterParams, BirthModel, BirthLocation,
-    StateEstimate, EstimatedTrack, FilterOutput, Trajectory,
-    AssociationConfig, FilterThresholds, LmbmConfig,
-    MultisensorConfig, SensorVariant,
+    AssociationConfig, BirthLocation, BirthModel, EstimatedTrack, FilterOutput, FilterParams,
+    FilterThresholds, GaussianComponent, LmbmConfig, LmbmHypothesis, MotionModel,
+    MultisensorConfig, SensorModel, SensorVariant, StateEstimate, Track, TrackLabel, Trajectory,
 };
 
 // Errors
-pub use lmb::{FilterError, AssociationError};
+pub use lmb::{AssociationError, FilterError};
 
 // Traits
-pub use lmb::{Filter, Associator, Merger, Updater};
+pub use lmb::{Associator, Filter, Merger, Updater};
 
 // Associator implementations
-pub use lmb::{LbpAssociator, GibbsAssociator, MurtyAssociator};
+pub use lmb::{GibbsAssociator, LbpAssociator, MurtyAssociator};
 
 // Updater implementations
-pub use lmb::{MarginalUpdater, HardAssignmentUpdater};
+pub use lmb::{HardAssignmentUpdater, MarginalUpdater};
 
 // Single-sensor filters
 pub use lmb::{LmbFilter, LmbmFilter};
 
 // Multi-sensor filters
 pub use lmb::{
-    MultisensorLmbFilter, MultisensorLmbmFilter,
-    AaLmbFilter, GaLmbFilter, PuLmbFilter, IcLmbFilter,
-    ArithmeticAverageMerger, GeometricAverageMerger,
-    ParallelUpdateMerger, IteratedCorrectorMerger,
-    MultisensorMeasurements,
+    AaLmbFilter, ArithmeticAverageMerger, GaLmbFilter, GeometricAverageMerger, IcLmbFilter,
+    IteratedCorrectorMerger, MultisensorLmbFilter, MultisensorLmbmFilter, MultisensorMeasurements,
+    ParallelUpdateMerger, PuLmbFilter,
 };
 
 // Multi-sensor association
-pub use lmb::{
-    MultisensorAssociator, MultisensorGibbsAssociator,
-    MultisensorAssociationResult,
-};
+pub use lmb::{MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator};
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

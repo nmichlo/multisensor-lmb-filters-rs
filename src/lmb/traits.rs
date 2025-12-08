@@ -19,9 +19,9 @@ use crate::common::association::murtys as legacy_murtys;
 use crate::common::rng as legacy_rng;
 
 use super::config::AssociationConfig;
+use super::errors::{AssociationError, FilterError};
 use super::output::StateEstimate;
 use super::types::Track;
-use super::errors::{AssociationError, FilterError};
 
 /// Adapter to bridge `rand::Rng` to the legacy `common::rng::Rng` trait.
 ///
@@ -222,12 +222,7 @@ pub trait Updater: Send + Sync {
     ///
     /// Modifies tracks in-place, updating their Gaussian mixture components
     /// using the posterior parameters for each (track, measurement) pair.
-    fn update(
-        &self,
-        tracks: &mut [Track],
-        result: &AssociationResult,
-        posteriors: &PosteriorGrid,
-    );
+    fn update(&self, tracks: &mut [Track], result: &AssociationResult, posteriors: &PosteriorGrid);
 
     /// Updater name for logging and debugging.
     fn name(&self) -> &'static str;
@@ -368,19 +363,17 @@ impl Associator for GibbsAssociator {
         // C: cost matrix (n x m) - use negative log-likelihood
         let c = matrices.cost.clone();
 
-        let gibbs_matrices = legacy_gibbs::GibbsAssociationMatrices {
-            p,
-            l,
-            r: r_mat,
-            c,
-        };
+        let gibbs_matrices = legacy_gibbs::GibbsAssociationMatrices { p, l, r: r_mat, c };
 
         // Wrap RNG for legacy interface
         let mut rng_adapter = RngAdapter(rng);
 
         // Call legacy Gibbs sampling
-        let gibbs_result =
-            legacy_gibbs::lmb_gibbs_sampling(&mut rng_adapter, &gibbs_matrices, config.gibbs_samples);
+        let gibbs_result = legacy_gibbs::lmb_gibbs_sampling(
+            &mut rng_adapter,
+            &gibbs_matrices,
+            config.gibbs_samples,
+        );
 
         // Convert result: legacy W is (n x (m+1)) where first col is miss probability
         let miss_weights = gibbs_result.w.column(0).into_owned();
@@ -467,11 +460,8 @@ impl Associator for MurtyAssociator {
         // Convert assignments to marginal probabilities
         // Each assignment has a cost; compute weights as exp(-cost)
         let num_assignments = murty_result.assignments.nrows();
-        let mut assignment_weights: Vec<f64> = murty_result
-            .costs
-            .iter()
-            .map(|&c| (-c).exp())
-            .collect();
+        let mut assignment_weights: Vec<f64> =
+            murty_result.costs.iter().map(|&c| (-c).exp()).collect();
 
         // Normalize weights
         let total_weight: f64 = assignment_weights.iter().sum();
@@ -586,17 +576,10 @@ impl MarginalUpdater {
 }
 
 impl Updater for MarginalUpdater {
-    fn update(
-        &self,
-        tracks: &mut [Track],
-        result: &AssociationResult,
-        posteriors: &PosteriorGrid,
-    ) {
-        let n = tracks.len();
+    fn update(&self, tracks: &mut [Track], result: &AssociationResult, posteriors: &PosteriorGrid) {
         let m = result.marginal_weights.ncols();
 
-        for i in 0..n {
-            let track = &mut tracks[i];
+        for (i, track) in tracks.iter_mut().enumerate() {
             let num_prior_components = track.components.len();
 
             // Build new components: for each (measurement, prior_component) pair
@@ -623,10 +606,9 @@ impl Updater for MarginalUpdater {
 
                 // For each prior component, create a posterior component
                 for comp_idx in 0..num_prior_components {
-                    if let (Some(post_mean), Some(post_cov)) = (
-                        posteriors.get_mean(i, j),
-                        posteriors.get_covariance(i, j),
-                    ) {
+                    if let (Some(post_mean), Some(post_cov)) =
+                        (posteriors.get_mean(i, j), posteriors.get_covariance(i, j))
+                    {
                         let prior_weight = track.components[comp_idx].weight;
                         new_weights.push(meas_prob * prior_weight);
                         new_means.push(post_mean.clone());
@@ -695,12 +677,7 @@ impl HardAssignmentUpdater {
 }
 
 impl Updater for HardAssignmentUpdater {
-    fn update(
-        &self,
-        tracks: &mut [Track],
-        result: &AssociationResult,
-        posteriors: &PosteriorGrid,
-    ) {
+    fn update(&self, tracks: &mut [Track], result: &AssociationResult, posteriors: &PosteriorGrid) {
         let n = tracks.len();
 
         // Get the association sample to use
@@ -712,17 +689,15 @@ impl Updater for HardAssignmentUpdater {
             _ => {
                 // Fall back to best association if no samples available
                 // Apply best associations directly
-                for i in 0..n {
-                    let track = &mut tracks[i];
+                for (i, track) in tracks.iter_mut().enumerate().take(n) {
                     let meas_idx = result.best_association(i);
 
                     match meas_idx {
                         Some(j) => {
                             // Track associated with measurement j
-                            if let (Some(post_mean), Some(post_cov)) = (
-                                posteriors.get_mean(i, j),
-                                posteriors.get_covariance(i, j),
-                            ) {
+                            if let (Some(post_mean), Some(post_cov)) =
+                                (posteriors.get_mean(i, j), posteriors.get_covariance(i, j))
+                            {
                                 // Replace all components with single posterior
                                 track.components.clear();
                                 track.components.push(super::types::GaussianComponent::new(
@@ -753,17 +728,15 @@ impl Updater for HardAssignmentUpdater {
         };
 
         // Apply sampled assignments
-        for i in 0..n {
-            let track = &mut tracks[i];
+        for (i, track) in tracks.iter_mut().enumerate().take(n) {
             let assigned_meas = assignments.get(i).copied().unwrap_or(-1);
 
             if assigned_meas >= 0 {
                 // Track associated with measurement
                 let j = assigned_meas as usize;
-                if let (Some(post_mean), Some(post_cov)) = (
-                    posteriors.get_mean(i, j),
-                    posteriors.get_covariance(i, j),
-                ) {
+                if let (Some(post_mean), Some(post_cov)) =
+                    (posteriors.get_mean(i, j), posteriors.get_covariance(i, j))
+                {
                     // Replace all components with single posterior
                     track.components.clear();
                     track.components.push(super::types::GaussianComponent::new(

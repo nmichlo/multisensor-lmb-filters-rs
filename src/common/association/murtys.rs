@@ -4,8 +4,8 @@
 //! Matches MATLAB murtysAlgorithm.m and murtysAlgorithmWrapper.m exactly.
 
 use nalgebra::DMatrix;
-use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 
 /// Result from Murty's algorithm
 #[derive(Debug, Clone)]
@@ -35,13 +35,17 @@ impl Eq for QueueEntry {}
 
 impl PartialOrd for QueueEntry {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        other.cost.partial_cmp(&self.cost) // Reverse for min-heap
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for QueueEntry {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap_or(Ordering::Equal)
+        // Reverse comparison for min-heap behavior in BinaryHeap
+        other
+            .cost
+            .partial_cmp(&self.cost)
+            .unwrap_or(Ordering::Equal)
     }
 }
 
@@ -123,10 +127,10 @@ fn murtys_algorithm(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
     // Find optimal solution
     let initial = super::hungarian::hungarian(p0);
     let mut s0 = vec![0; num_rows];
-    for i in 0..num_rows {
+    for (i, s0_val) in s0.iter_mut().enumerate() {
         for j in 0..num_cols {
             if initial.matching[(i, j)] == 1.0 {
-                s0[i] = j + 1; // 1-indexed
+                *s0_val = j + 1; // 1-indexed
                 break;
             }
         }
@@ -185,10 +189,10 @@ fn murtys_algorithm(p0: &DMatrix<f64>, m: usize) -> MurtysResult {
 
                 let result_tmp = super::hungarian::hungarian(&p_tmp);
                 let mut s_tmp = vec![0; num_rows];
-                for i in 0..num_rows {
+                for (i, s_tmp_val) in s_tmp.iter_mut().enumerate() {
                     for j in 0..num_cols {
                         if result_tmp.matching[(i, j)] == 1.0 {
-                            s_tmp[i] = j + 1;
+                            *s_tmp_val = j + 1;
                             break;
                         }
                     }
@@ -237,11 +241,7 @@ mod tests {
 
     #[test]
     fn test_murtys_simple() {
-        let p0 = DMatrix::from_row_slice(3, 3, &[
-            1.0, 2.0, 3.0,
-            2.0, 4.0, 6.0,
-            3.0, 6.0, 9.0,
-        ]);
+        let p0 = DMatrix::from_row_slice(3, 3, &[1.0, 2.0, 3.0, 2.0, 4.0, 6.0, 3.0, 6.0, 9.0]);
 
         let result = murtys_algorithm_wrapper(&p0, 3);
 
@@ -256,10 +256,7 @@ mod tests {
 
     #[test]
     fn test_murtys_single() {
-        let p0 = DMatrix::from_row_slice(2, 2, &[
-            1.0, 3.0,
-            3.0, 1.0,
-        ]);
+        let p0 = DMatrix::from_row_slice(2, 2, &[1.0, 3.0, 3.0, 1.0]);
 
         let result = murtys_algorithm_wrapper(&p0, 1);
 

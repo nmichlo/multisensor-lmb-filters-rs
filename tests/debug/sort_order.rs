@@ -33,7 +33,9 @@ fn debug_sort_order() {
 
     // Check if r=1.0 values are truly equal after adjustment
     println!("\nObjects with r=1.0:");
-    let ones: Vec<usize> = r.iter().enumerate()
+    let ones: Vec<usize> = r
+        .iter()
+        .enumerate()
         .filter(|(_, &ri)| ri == 1.0)
         .map(|(i, _)| i)
         .collect();
@@ -41,16 +43,23 @@ fn debug_sort_order() {
 
     println!("\nAdjusted values for r=1.0 objects:");
     for &i in &ones {
-        println!("  r_adj[{}] = {:.15} (bits: {:064b})", i, r_adjusted[i], r_adjusted[i].to_bits());
+        println!(
+            "  r_adj[{}] = {:.15} (bits: {:064b})",
+            i,
+            r_adjusted[i],
+            r_adjusted[i].to_bits()
+        );
     }
 
     // Sort with stable secondary key
-    let mut indexed_r: Vec<(usize, f64)> = r_adjusted.iter().enumerate().map(|(i, &val)| (i, val)).collect();
-    indexed_r.sort_by(|(i_a, a), (i_b, b)| {
-        match b.partial_cmp(a).unwrap() {
-            std::cmp::Ordering::Equal => i_a.cmp(i_b),
-            other => other,
-        }
+    let mut indexed_r: Vec<(usize, f64)> = r_adjusted
+        .iter()
+        .enumerate()
+        .map(|(i, &val)| (i, val))
+        .collect();
+    indexed_r.sort_by(|(i_a, a), (i_b, b)| match b.partial_cmp(a).unwrap() {
+        std::cmp::Ordering::Equal => i_a.cmp(i_b),
+        other => other,
     });
 
     println!("\nSorted indices:");

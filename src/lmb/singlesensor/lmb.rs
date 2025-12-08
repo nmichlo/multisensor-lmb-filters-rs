@@ -17,12 +17,14 @@ use nalgebra::DVector;
 use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
 
-use super::super::config::{AssociationConfig, BirthModel, FilterParams, MotionModel, SensorModel};
-use super::super::output::{StateEstimate, Trajectory};
-use super::super::types::Track;
-use super::super::errors::FilterError;
-use super::super::traits::{AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Updater};
 use super::super::builder::{FilterBuilder, LmbFilterBuilder};
+use super::super::config::{AssociationConfig, BirthModel, FilterParams, MotionModel, SensorModel};
+use super::super::errors::FilterError;
+use super::super::output::{StateEstimate, Trajectory};
+use super::super::traits::{
+    AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Updater,
+};
+use super::super::types::Track;
 
 /// Single-sensor LMB filter.
 ///

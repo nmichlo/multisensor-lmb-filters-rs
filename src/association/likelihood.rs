@@ -145,7 +145,8 @@ pub fn compute_likelihood(
         .unwrap_or_else(|| {
             // Fallback: add small regularization
             let reg = &workspace.innovation_cov + DMatrix::identity(z_dim, z_dim) * 1e-10;
-            reg.try_inverse().unwrap_or_else(|| DMatrix::identity(z_dim, z_dim))
+            reg.try_inverse()
+                .unwrap_or_else(|| DMatrix::identity(z_dim, z_dim))
         });
 
     // Innovation: ν = z - C × μ
@@ -289,8 +290,13 @@ mod tests {
 
         // Close measurement
         let close_measurement = DVector::from_vec(vec![0.1, 0.1]);
-        let close_result =
-            compute_likelihood(&prior_mean, &prior_cov, &close_measurement, &sensor, &mut ws);
+        let close_result = compute_likelihood(
+            &prior_mean,
+            &prior_cov,
+            &close_measurement,
+            &sensor,
+            &mut ws,
+        );
 
         // Far measurement
         let far_measurement = DVector::from_vec(vec![100.0, 100.0]);

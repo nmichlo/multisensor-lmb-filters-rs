@@ -36,10 +36,7 @@ pub fn update_existence_no_detection(existence: f64, detection_prob: f64) -> f64
 /// Applies the no-detection update sequentially for each sensor. This is
 /// correct because the sensors are assumed conditionally independent given
 /// the track state.
-pub fn update_existence_no_detection_multisensor(
-    existence: f64,
-    detection_probs: &[f64],
-) -> f64 {
+pub fn update_existence_no_detection_multisensor(existence: f64, detection_probs: &[f64]) -> f64 {
     detection_probs
         .iter()
         .fold(existence, |r, &p_d| update_existence_no_detection(r, p_d))
@@ -100,10 +97,7 @@ mod tests {
         assert!(r < r_single);
 
         // Sequential application
-        let r_seq = update_existence_no_detection(
-            update_existence_no_detection(0.9, 0.8),
-            0.8,
-        );
+        let r_seq = update_existence_no_detection(update_existence_no_detection(0.9, 0.8), 0.8);
         assert!((r - r_seq).abs() < 1e-10);
     }
 

@@ -119,10 +119,7 @@ impl Track {
     /// Get state dimension from first component
     #[inline]
     pub fn x_dim(&self) -> usize {
-        self.components
-            .first()
-            .map(|c| c.x_dim())
-            .unwrap_or(0)
+        self.components.first().map(|c| c.x_dim()).unwrap_or(0)
     }
 
     /// Get the number of Gaussian mixture components

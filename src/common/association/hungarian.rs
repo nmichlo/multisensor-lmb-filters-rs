@@ -194,7 +194,7 @@ fn step2(p_cond: &DMatrix<f64>) -> (Vec<usize>, Vec<usize>, DMatrix<f64>) {
 }
 
 /// Step 3: Cover columns with starred zeros
-fn step3(m: &DMatrix<f64>, p_size: usize, c_cov: &mut Vec<usize>) -> usize {
+fn step3(m: &DMatrix<f64>, p_size: usize, c_cov: &mut [usize]) -> usize {
     for j in 0..p_size {
         for i in 0..p_size {
             if m[(i, j)] == 1.0 {
@@ -216,8 +216,8 @@ fn step3(m: &DMatrix<f64>, p_size: usize, c_cov: &mut Vec<usize>) -> usize {
 /// Step 4: Find uncovered zeros and prime them
 fn step4(
     p_cond: &DMatrix<f64>,
-    r_cov: &mut Vec<usize>,
-    c_cov: &mut Vec<usize>,
+    r_cov: &mut [usize],
+    c_cov: &mut [usize],
     m: &mut DMatrix<f64>,
 ) -> (usize, usize, usize) {
     let p_size = p_cond.nrows();
@@ -277,8 +277,8 @@ fn step5(
     m: &mut DMatrix<f64>,
     z_r: usize,
     z_c: usize,
-    r_cov: &mut Vec<usize>,
-    c_cov: &mut Vec<usize>,
+    r_cov: &mut [usize],
+    c_cov: &mut [usize],
 ) -> usize {
     let p_size = m.nrows();
     let mut path_r = vec![z_r];
@@ -345,7 +345,7 @@ fn step5(
 }
 
 /// Step 6: Add minimum to covered rows, subtract from uncovered columns
-fn step6(p_cond: &mut DMatrix<f64>, r_cov: &Vec<usize>, c_cov: &Vec<usize>) -> usize {
+fn step6(p_cond: &mut DMatrix<f64>, r_cov: &[usize], c_cov: &[usize]) -> usize {
     let p_size = p_cond.nrows();
 
     // Find minimum uncovered value

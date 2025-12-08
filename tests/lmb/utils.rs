@@ -3,8 +3,8 @@
 //! Implements helper functions for comparing LBP/Gibbs approximations
 //! against exact Murty's algorithm marginals.
 
-use nalgebra::{DMatrix, DVector};
 use multisensor_lmb_filters_rs::common::rng::Rng;
+use nalgebra::{DMatrix, DVector};
 
 /// Calculate the total number of association events for n objects and m measurements
 ///
@@ -81,8 +81,16 @@ fn binomial_coefficient(n: usize, k: usize) -> usize {
 /// # Returns
 /// Average KL divergence across rows
 pub fn average_kullback_leibler_divergence(p: &DMatrix<f64>, q: &DMatrix<f64>) -> f64 {
-    assert_eq!(p.nrows(), q.nrows(), "p and q must have same number of rows");
-    assert_eq!(p.ncols(), q.ncols(), "p and q must have same number of columns");
+    assert_eq!(
+        p.nrows(),
+        q.nrows(),
+        "p and q must have same number of rows"
+    );
+    assert_eq!(
+        p.ncols(),
+        q.ncols(),
+        "p and q must have same number of columns"
+    );
 
     let mut kl_sum = 0.0;
 
@@ -122,8 +130,16 @@ pub fn average_kullback_leibler_divergence(p: &DMatrix<f64>, q: &DMatrix<f64>) -
 /// # Returns
 /// Average Hellinger distance across rows
 pub fn average_hellinger_distance(p: &DMatrix<f64>, q: &DMatrix<f64>) -> f64 {
-    assert_eq!(p.nrows(), q.nrows(), "p and q must have same number of rows");
-    assert_eq!(p.ncols(), q.ncols(), "p and q must have same number of columns");
+    assert_eq!(
+        p.nrows(),
+        q.nrows(),
+        "p and q must have same number of rows"
+    );
+    assert_eq!(
+        p.ncols(),
+        q.ncols(),
+        "p and q must have same number of columns"
+    );
 
     let mut h_sum = 0.0;
 
@@ -213,11 +229,16 @@ pub fn generate_simplified_model(
 
     // Clutter parameters
     let observation_space_limits = vec![(0.0, 2.0), (0.0, 2.0)];
-    let obs_volume: f64 = observation_space_limits.iter()
+    let obs_volume: f64 = observation_space_limits
+        .iter()
         .map(|(low, high)| high - low)
         .product();
 
-    let expected_clutter = if clutter_rate == 0.0 { clutter_rate } else { clutter_rate };
+    let expected_clutter = if clutter_rate == 0.0 {
+        clutter_rate
+    } else {
+        clutter_rate
+    };
     let clutter_density = if clutter_rate == 0.0 {
         1.0 / obs_volume
     } else {
@@ -248,11 +269,11 @@ pub struct SimplifiedModel {
     pub x_dim: usize,
     pub z_dim: usize,
     pub num_objects: usize,
-    pub r: Vec<f64>, // Existence probabilities
-    pub mu: Vec<DVector<f64>>, // Means
+    pub r: Vec<f64>,              // Existence probabilities
+    pub mu: Vec<DVector<f64>>,    // Means
     pub sigma: Vec<DMatrix<f64>>, // Covariances
-    pub c: DMatrix<f64>, // Measurement matrix
-    pub q: DMatrix<f64>, // Measurement noise
+    pub c: DMatrix<f64>,          // Measurement matrix
+    pub q: DMatrix<f64>,          // Measurement noise
     pub detection_prob: f64,
     pub clutter_density: f64,
     pub expected_clutter: f64,
@@ -331,7 +352,7 @@ pub fn generate_association_matrices(
         let mut z = DVector::zeros(model.z_dim);
         for d in 0..model.z_dim {
             z[d] = model.observation_space_limits[d].0
-                 + 2.0 * model.observation_space_limits[d].1 * rng.rand();
+                + 2.0 * model.observation_space_limits[d].1 * rng.rand();
         }
         measurements.push(z);
     }
@@ -369,16 +390,17 @@ pub fn generate_association_matrices(
         for j in 0..m {
             let nu = &measurements[j] - &mu_pred;
             let mahalanobis = nu.dot(&(&k * &nu));
-            l_mat[(i, j)] = model.r[i] * model.detection_prob * normalizing_constant
-                          * (-0.5 * mahalanobis).exp() / model.clutter_density;
+            l_mat[(i, j)] = model.r[i]
+                * model.detection_prob
+                * normalizing_constant
+                * (-0.5 * mahalanobis).exp()
+                / model.clutter_density;
         }
     }
 
     // LBP association matrices
-    let eta = DVector::from_iterator(n,
-        model.r.iter().map(|&r| 1.0 - model.detection_prob * r));
-    let phi = DVector::from_iterator(n,
-        model.r.iter().map(|&r| (1.0 - model.detection_prob) * r));
+    let eta = DVector::from_iterator(n, model.r.iter().map(|&r| 1.0 - model.detection_prob * r));
+    let phi = DVector::from_iterator(n, model.r.iter().map(|&r| (1.0 - model.detection_prob) * r));
 
     let mut psi = DMatrix::zeros(n, m);
     for i in 0..n {
@@ -471,14 +493,20 @@ mod tests {
     fn test_kl_divergence_identical() {
         let p = DMatrix::from_row_slice(2, 3, &[0.3, 0.4, 0.3, 0.5, 0.3, 0.2]);
         let kl = average_kullback_leibler_divergence(&p, &p);
-        assert!(kl.abs() < 1e-10, "KL divergence of identical distributions should be 0");
+        assert!(
+            kl.abs() < 1e-10,
+            "KL divergence of identical distributions should be 0"
+        );
     }
 
     #[test]
     fn test_hellinger_distance_identical() {
         let p = DMatrix::from_row_slice(2, 3, &[0.3, 0.4, 0.3, 0.5, 0.3, 0.2]);
         let h = average_hellinger_distance(&p, &p);
-        assert!(h.abs() < 1e-10, "Hellinger distance of identical distributions should be 0");
+        assert!(
+            h.abs() < 1e-10,
+            "Hellinger distance of identical distributions should be 0"
+        );
     }
 
     #[test]

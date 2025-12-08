@@ -1,34 +1,20 @@
-use nalgebra::DMatrix;
-use multisensor_lmb_filters_rs::common::association::gibbs::{lmb_gibbs_frequency_sampling, GibbsAssociationMatrices};
+use multisensor_lmb_filters_rs::common::association::gibbs::{
+    lmb_gibbs_frequency_sampling, GibbsAssociationMatrices,
+};
 use multisensor_lmb_filters_rs::common::rng::SimpleRng;
+use nalgebra::DMatrix;
 
 #[test]
 fn test_gibbs_frequency_cross_language_equivalence() {
     // Test cross-language equivalence with Octave testGibbsFrequency.m
     // Simple 2 objects, 2 measurements matching Octave test
-    let p = DMatrix::from_row_slice(
-        2,
-        2,
-        &[0.7, 0.3, 0.4, 0.6],
-    );
+    let p = DMatrix::from_row_slice(2, 2, &[0.7, 0.3, 0.4, 0.6]);
 
-    let l = DMatrix::from_row_slice(
-        2,
-        3,
-        &[0.05, 0.8, 0.15, 0.05, 0.3, 0.65],
-    );
+    let l = DMatrix::from_row_slice(2, 3, &[0.05, 0.8, 0.15, 0.05, 0.3, 0.65]);
 
-    let r = DMatrix::from_row_slice(
-        2,
-        3,
-        &[0.05, 1.0, 1.0, 0.05, 1.0, 1.0],
-    );
+    let r = DMatrix::from_row_slice(2, 3, &[0.05, 1.0, 1.0, 0.05, 1.0, 1.0]);
 
-    let c = DMatrix::from_row_slice(
-        2,
-        2,
-        &[1.0, 3.0, 3.0, 1.0],
-    );
+    let c = DMatrix::from_row_slice(2, 2, &[1.0, 3.0, 3.0, 1.0]);
 
     let matrices = GibbsAssociationMatrices { p, l, r, c };
 
@@ -36,8 +22,8 @@ fn test_gibbs_frequency_cross_language_equivalence() {
     let mut rng = SimpleRng::new(42);
 
     // Debug: manually run first 5 iterations to compare with Octave
-    use multisensor_lmb_filters_rs::common::association::gibbs::initialize_gibbs_association_vectors;
     use multisensor_lmb_filters_rs::common::association::gibbs::generate_gibbs_sample;
+    use multisensor_lmb_filters_rs::common::association::gibbs::initialize_gibbs_association_vectors;
 
     let (mut v_debug, mut w_debug) = initialize_gibbs_association_vectors(&matrices.c);
     println!("Initial v: [{}, {}]", v_debug[0], v_debug[1]);

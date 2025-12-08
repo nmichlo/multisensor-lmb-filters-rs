@@ -26,10 +26,9 @@ pub fn predict_component(component: &mut GaussianComponent, motion: &MotionModel
     component.mean = &motion.transition_matrix * &component.mean + &motion.control_input;
 
     // Covariance prediction: Σ' = A × Σ × Aᵀ + R
-    component.covariance = &motion.transition_matrix
-        * &component.covariance
-        * motion.transition_matrix.transpose()
-        + &motion.process_noise;
+    component.covariance =
+        &motion.transition_matrix * &component.covariance * motion.transition_matrix.transpose()
+            + &motion.process_noise;
 }
 
 /// Predict a single track forward in time.
@@ -97,7 +96,7 @@ pub fn predict_tracks(
 /// possible association history. This function predicts all tracks within each
 /// hypothesis and adds birth tracks to all of them.
 pub fn predict_hypotheses(
-    hypotheses: &mut Vec<crate::lmb::LmbmHypothesis>,
+    hypotheses: &mut [crate::lmb::LmbmHypothesis],
     motion: &MotionModel,
     birth: &BirthModel,
     timestep: usize,

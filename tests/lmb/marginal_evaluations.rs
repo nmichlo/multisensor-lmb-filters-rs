@@ -15,10 +15,12 @@ use super::utils::{
     generate_simplified_model,
 };
 
-use nalgebra::DMatrix;
-use multisensor_lmb_filters_rs::common::association::lbp::{loopy_belief_propagation, AssociationMatrices};
+use multisensor_lmb_filters_rs::common::association::lbp::{
+    loopy_belief_propagation, AssociationMatrices,
+};
 use multisensor_lmb_filters_rs::common::association::murtys::murtys_algorithm_wrapper;
 use multisensor_lmb_filters_rs::common::rng::SimpleRng;
+use nalgebra::DMatrix;
 
 /// Convert test association matrices to LBP association matrices format
 fn convert_to_lbp_matrices(
@@ -194,10 +196,7 @@ fn compute_approximate_marginals_lbp(
 ///
 /// # Returns
 /// (r_kl, w_kl, r_h, w_h) - KL divergence and Hellinger distance errors
-fn run_marginal_evaluation_trial(
-    rng: &mut SimpleRng,
-    n: usize,
-) -> (f64, f64, f64, f64) {
+fn run_marginal_evaluation_trial(rng: &mut SimpleRng, n: usize) -> (f64, f64, f64, f64) {
     // Generate simplified model and association matrices
     let model = generate_simplified_model(rng, n, 0.95, 0.0);
     let test_matrices = generate_association_matrices(rng, &model);
@@ -255,8 +254,10 @@ mod tests {
         let r_h_avg = r_h_sum / num_trials as f64;
         let w_h_avg = w_h_sum / num_trials as f64;
 
-        println!("n=1: r_KL={:.6}, w_KL={:.6}, r_H={:.6}, w_H={:.6}",
-                 r_kl_avg, w_kl_avg, r_h_avg, w_h_avg);
+        println!(
+            "n=1: r_KL={:.6}, w_KL={:.6}, r_H={:.6}, w_H={:.6}",
+            r_kl_avg, w_kl_avg, r_h_avg, w_h_avg
+        );
 
         // For n=1, LBP should be very accurate
         assert!(r_kl_avg < 0.1, "r_KL too large: {}", r_kl_avg);
@@ -352,8 +353,18 @@ mod tests {
             // Errors should be bounded (looser bounds for larger n)
             let max_kl = 0.1 + 0.1 * n as f64;
             let max_h = 0.1 + 0.1 * n as f64;
-            assert!(r_kl_avg < max_kl, "r_KL too large for n={}: {}", n, r_kl_avg);
-            assert!(w_kl_avg < max_kl, "w_KL too large for n={}: {}", n, w_kl_avg);
+            assert!(
+                r_kl_avg < max_kl,
+                "r_KL too large for n={}: {}",
+                n,
+                r_kl_avg
+            );
+            assert!(
+                w_kl_avg < max_kl,
+                "w_KL too large for n={}: {}",
+                n,
+                w_kl_avg
+            );
             assert!(r_h_avg < max_h, "r_H too large for n={}: {}", n, r_h_avg);
             assert!(w_h_avg < max_h, "w_H too large for n={}: {}", n, w_h_avg);
         }

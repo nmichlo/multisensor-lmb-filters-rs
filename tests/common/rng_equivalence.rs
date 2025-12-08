@@ -36,7 +36,6 @@
 ///     fprintf('  %d: %d\n', i-1, val);
 /// end
 /// ```
-
 use multisensor_lmb_filters_rs::common::rng::{Rng, SimpleRng};
 
 #[test]
@@ -96,7 +95,10 @@ fn test_rng_multiple_seeds() {
         let val1 = rng.next_u64();
         let val2 = rng.next_u64();
         let val3 = rng.next_u64();
-        println!("Seed {}: first 3 values = {}, {}, {}", seed, val1, val2, val3);
+        println!(
+            "Seed {}: first 3 values = {}, {}, {}",
+            seed, val1, val2, val3
+        );
     }
 }
 
@@ -107,7 +109,11 @@ fn test_rng_deterministic() {
     let mut rng2 = SimpleRng::new(42);
 
     for _ in 0..10000 {
-        assert_eq!(rng1.next_u64(), rng2.next_u64(), "Same seed should produce identical sequences");
+        assert_eq!(
+            rng1.next_u64(),
+            rng2.next_u64(),
+            "Same seed should produce identical sequences"
+        );
     }
 }
 
@@ -118,6 +124,10 @@ fn test_rng_seed_zero_handling() {
     let mut rng1 = SimpleRng::new(1);
 
     for _ in 0..100 {
-        assert_eq!(rng0.next_u64(), rng1.next_u64(), "Seed 0 should be equivalent to seed 1");
+        assert_eq!(
+            rng0.next_u64(),
+            rng1.next_u64(),
+            "Seed 0 should be equivalent to seed 1"
+        );
     }
 }

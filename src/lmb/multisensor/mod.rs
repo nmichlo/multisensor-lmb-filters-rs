@@ -28,19 +28,12 @@ pub mod traits;
 
 // Re-export fusion strategies
 pub use fusion::{
-    ArithmeticAverageMerger,
-    GeometricAverageMerger,
-    IteratedCorrectorMerger,
-    ParallelUpdateMerger,
+    ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger, ParallelUpdateMerger,
 };
 
 // Re-export from lmb.rs
 pub use lmb::{
-    AaLmbFilter,
-    GaLmbFilter,
-    IcLmbFilter,
-    MultisensorLmbFilter,
-    MultisensorMeasurements,
+    AaLmbFilter, GaLmbFilter, IcLmbFilter, MultisensorLmbFilter, MultisensorMeasurements,
     PuLmbFilter,
 };
 
@@ -48,8 +41,4 @@ pub use lmb::{
 pub use lmbm::MultisensorLmbmFilter;
 
 // Re-export from traits.rs
-pub use traits::{
-    MultisensorAssociationResult,
-    MultisensorAssociator,
-    MultisensorGibbsAssociator,
-};
+pub use traits::{MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator};

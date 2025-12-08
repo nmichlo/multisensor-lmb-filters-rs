@@ -28,24 +28,21 @@
 //! - [`PuLmbFilter`] - Parallel update fusion
 //! - [`IcLmbFilter`] - Iterated corrector
 
-use nalgebra::{DMatrix, DVector};
+use nalgebra::DVector;
 
 use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
 
-use super::super::config::{AssociationConfig, BirthModel, MotionModel, MultisensorConfig};
-use super::super::output::{StateEstimate, Trajectory};
-use super::super::types::Track;
-use super::super::errors::FilterError;
-use super::super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
 use super::super::builder::{FilterBuilder, LmbFilterBuilder};
+use super::super::config::{AssociationConfig, BirthModel, MotionModel, MultisensorConfig};
+use super::super::errors::FilterError;
+use super::super::output::{StateEstimate, Trajectory};
+use super::super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
+use super::super::types::Track;
 
 // Re-export fusion strategies for backwards compatibility
 pub use super::fusion::{
-    ArithmeticAverageMerger,
-    GeometricAverageMerger,
-    IteratedCorrectorMerger,
-    ParallelUpdateMerger,
+    ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger, ParallelUpdateMerger,
 };
 
 // ============================================================================
@@ -259,10 +256,9 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
             // --- STEP 3a: Per-sensor measurement updates ---
             let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
 
-            for s in 0..num_sensors {
-                let sensor = &self.sensors.sensors[s];
-                let sensor_measurements = &measurements[s];
-
+            for (sensor, sensor_measurements) in
+                self.sensors.sensors.iter().zip(measurements.iter())
+            {
                 // Clone prior tracks for this sensor's update
                 let mut sensor_tracks = prior_tracks.clone();
 
@@ -290,11 +286,10 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
                     // No measurements for this sensor - missed detection update
                     let p_d = sensor.detection_probability;
                     for track in &mut sensor_tracks {
-                        track.existence =
-                            crate::components::update::update_existence_no_detection(
-                                track.existence,
-                                p_d,
-                            );
+                        track.existence = crate::components::update::update_existence_no_detection(
+                            track.existence,
+                            p_d,
+                        );
                     }
                 }
 

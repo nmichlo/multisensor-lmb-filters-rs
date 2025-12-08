@@ -18,9 +18,8 @@ use std::fs;
 use multisensor_lmb_filters_rs::association::AssociationBuilder;
 use multisensor_lmb_filters_rs::components::prediction::{predict_track, predict_tracks};
 use multisensor_lmb_filters_rs::lmb::{
-    Associator, LbpAssociator,
-    AssociationConfig, BirthModel, DataAssociationMethod,
-    GaussianComponent, MotionModel, SensorModel, Track, TrackLabel,
+    AssociationConfig, Associator, BirthModel, DataAssociationMethod, GaussianComponent,
+    LbpAssociator, MotionModel, SensorModel, Track, TrackLabel,
 };
 
 const TOLERANCE: f64 = 1e-10;
@@ -378,16 +377,18 @@ where
 
             if let Some(first) = seq.next_element::<serde_json::Value>()? {
                 if first.is_array() {
-                    let first_row: Vec<f64> = serde_json::from_value(first)
-                        .map_err(|e| de::Error::custom(format!("Failed to parse first row: {}", e)))?;
+                    let first_row: Vec<f64> = serde_json::from_value(first).map_err(|e| {
+                        de::Error::custom(format!("Failed to parse first row: {}", e))
+                    })?;
                     result.push(first_row);
 
                     while let Some(row) = seq.next_element::<Vec<f64>>()? {
                         result.push(row);
                     }
                 } else {
-                    let first_val: f64 = serde_json::from_value(first)
-                        .map_err(|e| de::Error::custom(format!("Failed to parse first value: {}", e)))?;
+                    let first_val: f64 = serde_json::from_value(first).map_err(|e| {
+                        de::Error::custom(format!("Failed to parse first value: {}", e))
+                    })?;
                     let mut row = vec![first_val];
 
                     while let Some(val) = seq.next_element::<f64>()? {
@@ -411,8 +412,16 @@ where
 /// Convert MATLAB ObjectData to new API Track
 fn object_data_to_track(obj: &ObjectData) -> Track {
     let label = TrackLabel {
-        birth_time: if obj.label.len() >= 2 { obj.label[1] } else { 0 },
-        birth_location: if !obj.label.is_empty() { obj.label[0] } else { 0 },
+        birth_time: if obj.label.len() >= 2 {
+            obj.label[1]
+        } else {
+            0
+        },
+        birth_location: if !obj.label.is_empty() {
+            obj.label[0]
+        } else {
+            0
+        },
     };
 
     let components: SmallVec<[GaussianComponent; 4]> = obj
@@ -427,7 +436,11 @@ fn object_data_to_track(obj: &ObjectData) -> Track {
             let cov = DMatrix::from_row_slice(
                 n,
                 m,
-                &sigma.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>(),
+                &sigma
+                    .iter()
+                    .flat_map(|row| row.iter())
+                    .copied()
+                    .collect::<Vec<_>>(),
             );
             GaussianComponent {
                 weight: w,
@@ -451,12 +464,22 @@ fn model_to_motion(model: &ModelData) -> MotionModel {
     let a = DMatrix::from_row_slice(
         x_dim,
         x_dim,
-        &model.a.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>(),
+        &model
+            .a
+            .iter()
+            .flat_map(|row| row.iter())
+            .copied()
+            .collect::<Vec<_>>(),
     );
     let r = DMatrix::from_row_slice(
         x_dim,
         x_dim,
-        &model.r.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>(),
+        &model
+            .r
+            .iter()
+            .flat_map(|row| row.iter())
+            .copied()
+            .collect::<Vec<_>>(),
     );
     let u = DVector::zeros(x_dim);
 
@@ -470,12 +493,22 @@ fn model_to_sensor(model: &ModelData) -> SensorModel {
     let c = DMatrix::from_row_slice(
         z_dim,
         x_dim,
-        &model.c.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>(),
+        &model
+            .c
+            .iter()
+            .flat_map(|row| row.iter())
+            .copied()
+            .collect::<Vec<_>>(),
     );
     let q = DMatrix::from_row_slice(
         z_dim,
         z_dim,
-        &model.q.iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>(),
+        &model
+            .q
+            .iter()
+            .flat_map(|row| row.iter())
+            .copied()
+            .collect::<Vec<_>>(),
     );
 
     // MATLAB uses clutter_per_unit_volume directly
@@ -488,7 +521,10 @@ fn model_to_sensor(model: &ModelData) -> SensorModel {
 
 /// Convert measurements to DVector
 fn measurements_to_dvectors(measurements: &[Vec<f64>]) -> Vec<DVector<f64>> {
-    measurements.iter().map(|m| DVector::from_vec(m.clone())).collect()
+    measurements
+        .iter()
+        .map(|m| DVector::from_vec(m.clone()))
+        .collect()
 }
 
 //=============================================================================
@@ -496,7 +532,14 @@ fn measurements_to_dvectors(measurements: &[Vec<f64>]) -> Vec<DVector<f64>> {
 //=============================================================================
 
 fn assert_vec_close(a: &[f64], b: &[f64], tolerance: f64, msg: &str) {
-    assert_eq!(a.len(), b.len(), "{}: length mismatch ({} vs {})", msg, a.len(), b.len());
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "{}: length mismatch ({} vs {})",
+        msg,
+        a.len(),
+        b.len()
+    );
     for (i, (av, bv)) in a.iter().zip(b.iter()).enumerate() {
         if av.is_infinite() && bv.is_infinite() && av.signum() == bv.signum() {
             continue;
@@ -593,7 +636,11 @@ fn test_new_api_prediction_component_equivalence() {
     let prior_cov = DMatrix::from_row_slice(
         n,
         n,
-        &prior.sigma[0].iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>(),
+        &prior.sigma[0]
+            .iter()
+            .flat_map(|row| row.iter())
+            .copied()
+            .collect::<Vec<_>>(),
     );
     let mut predicted_comp = GaussianComponent {
         weight: prior.w[0],
@@ -609,7 +656,11 @@ fn test_new_api_prediction_component_equivalence() {
     let expected_cov = DMatrix::from_row_slice(
         n,
         n,
-        &expected.sigma[0].iter().flat_map(|row| row.iter()).copied().collect::<Vec<_>>(),
+        &expected.sigma[0]
+            .iter()
+            .flat_map(|row| row.iter())
+            .copied()
+            .collect::<Vec<_>>(),
     );
 
     assert_dvector_close(
@@ -716,11 +767,7 @@ fn test_new_api_prediction_all_tracks_equivalence() {
     predict_tracks(&mut tracks, &motion, &birth, fixture.timestep, false);
 
     // Should have same number of tracks as prior (no births since empty birth model)
-    assert_eq!(
-        tracks.len(),
-        num_prior,
-        "Track count changed unexpectedly"
-    );
+    assert_eq!(tracks.len(), num_prior, "Track count changed unexpectedly");
 
     // Compare each track with MATLAB output
     for (i, (track, expected)) in tracks
@@ -841,9 +888,20 @@ fn test_new_api_association_matrices_cost_equivalence() {
     // Compare cost matrix against MATLAB
     let expected_cost = &fixture.step2_association.output.c;
 
-    println!("  Cost matrix dimensions: {} x {}", matrices.cost.nrows(), matrices.cost.ncols());
-    println!("  Expected dimensions: {} x {}", expected_cost.len(),
-             if expected_cost.is_empty() { 0 } else { expected_cost[0].len() });
+    println!(
+        "  Cost matrix dimensions: {} x {}",
+        matrices.cost.nrows(),
+        matrices.cost.ncols()
+    );
+    println!(
+        "  Expected dimensions: {} x {}",
+        expected_cost.len(),
+        if expected_cost.is_empty() {
+            0
+        } else {
+            expected_cost[0].len()
+        }
+    );
 
     for (i, expected_row) in expected_cost.iter().enumerate() {
         for (j, &expected_val) in expected_row.iter().enumerate() {
@@ -858,7 +916,11 @@ fn test_new_api_association_matrices_cost_equivalence() {
             assert!(
                 diff <= TOLERANCE,
                 "cost[{},{}]: {} vs MATLAB {} (diff: {:.2e})",
-                i, j, rust_val, expected_val, diff
+                i,
+                j,
+                rust_val,
+                expected_val,
+                diff
             );
         }
     }
@@ -953,8 +1015,15 @@ fn test_new_api_lbp_runs_on_matlab_fixture() {
     }
 
     // Verify algorithm converged (or ran to max iterations)
-    println!("  ✓ LbpAssociator completed in {} iterations", result.iterations);
-    println!("    - {} tracks, {} measurements", tracks.len(), measurements.len());
+    println!(
+        "  ✓ LbpAssociator completed in {} iterations",
+        result.iterations
+    );
+    println!(
+        "    - {} tracks, {} measurements",
+        tracks.len(),
+        measurements.len()
+    );
 }
 
 /// Test that the new API's psi/phi/eta matrices match MATLAB fixture directly.
@@ -990,17 +1059,26 @@ fn test_new_api_psi_phi_eta_vs_matlab() {
 
     // Compare eta with MATLAB
     let expected_eta = &fixture.step3a_lbp.input.eta;
-    println!("  Comparing eta vectors ({} elements)...", expected_eta.len());
+    println!(
+        "  Comparing eta vectors ({} elements)...",
+        expected_eta.len()
+    );
     for (i, &expected_val) in expected_eta.iter().enumerate() {
         let new_val = new_matrices.eta[i];
         let diff = (new_val - expected_val).abs();
         if diff > TOLERANCE {
-            println!("    eta[{}]: new {} vs MATLAB {} (diff: {:.2e})", i, new_val, expected_val, diff);
+            println!(
+                "    eta[{}]: new {} vs MATLAB {} (diff: {:.2e})",
+                i, new_val, expected_val, diff
+            );
         }
         assert!(
             diff <= TOLERANCE,
             "eta[{}]: new {} vs MATLAB {} (diff: {:.2e})",
-            i, new_val, expected_val, diff
+            i,
+            new_val,
+            expected_val,
+            diff
         );
     }
     println!("    ✓ eta matches MATLAB");
@@ -1010,8 +1088,14 @@ fn test_new_api_psi_phi_eta_vs_matlab() {
     // Our L is just [L1, L2, ...] without eta column
     let expected_l = &fixture.step3a_lbp.input.l;
     println!("  Comparing L (likelihood) matrices...");
-    println!("    MATLAB L format: [eta, L1, L2, ...] with {} columns", expected_l[0].len());
-    println!("    New L format: [L1, L2, ...] with {} columns", new_matrices.log_likelihood_ratios.ncols());
+    println!(
+        "    MATLAB L format: [eta, L1, L2, ...] with {} columns",
+        expected_l[0].len()
+    );
+    println!(
+        "    New L format: [L1, L2, ...] with {} columns",
+        new_matrices.log_likelihood_ratios.ncols()
+    );
 
     // Verify MATLAB first column matches eta
     println!("  Verifying MATLAB L[:,0] == eta...");
@@ -1020,7 +1104,10 @@ fn test_new_api_psi_phi_eta_vs_matlab() {
         let our_eta = new_matrices.eta[i];
         let diff = (matlab_l0 - our_eta).abs();
         if diff > TOLERANCE {
-            println!("    MATLAB L[{},0]={} vs our eta[{}]={} (diff: {:.2e})", i, matlab_l0, i, our_eta, diff);
+            println!(
+                "    MATLAB L[{},0]={} vs our eta[{}]={} (diff: {:.2e})",
+                i, matlab_l0, i, our_eta, diff
+            );
         }
     }
 
@@ -1031,12 +1118,17 @@ fn test_new_api_psi_phi_eta_vs_matlab() {
     for (i, expected_row) in expected_l.iter().enumerate() {
         // Skip first column of MATLAB (it's eta)
         for (j, &expected_val) in expected_row.iter().skip(1).enumerate() {
-            if i < new_matrices.log_likelihood_ratios.nrows() && j < new_matrices.log_likelihood_ratios.ncols() {
+            if i < new_matrices.log_likelihood_ratios.nrows()
+                && j < new_matrices.log_likelihood_ratios.ncols()
+            {
                 let new_l = new_matrices.log_likelihood_ratios[(i, j)].exp();
                 let diff = (new_l - expected_val).abs();
                 max_l_diff = max_l_diff.max(diff);
                 if diff > 0.01 {
-                    println!("    L[{},{}]: new {} vs MATLAB {} (diff: {:.2e})", i, j, new_l, expected_val, diff);
+                    println!(
+                        "    L[{},{}]: new {} vs MATLAB {} (diff: {:.2e})",
+                        i, j, new_l, expected_val, diff
+                    );
                     l_match = false;
                 }
             }
@@ -1049,41 +1141,71 @@ fn test_new_api_psi_phi_eta_vs_matlab() {
     // Compare with MATLAB's R matrix (which should be related to phi or existence ratios)
     let expected_r = &fixture.step3a_lbp.input.r;
     println!("  Checking MATLAB R matrix vs our phi...");
-    println!("    MATLAB R dimensions: {}x{}", expected_r.len(), if expected_r.is_empty() { 0 } else { expected_r[0].len() });
+    println!(
+        "    MATLAB R dimensions: {}x{}",
+        expected_r.len(),
+        if expected_r.is_empty() {
+            0
+        } else {
+            expected_r[0].len()
+        }
+    );
     println!("    Our phi length: {}", new_matrices.phi.len());
 
     // Print sample values to understand the relationship
     println!("  Sample R vs phi values:");
     for i in 0..expected_r.len().min(3) {
         if !expected_r[i].is_empty() {
-            println!("    MATLAB R[{},0]={:.6} | our phi[{}]={:.6} | our eta[{}]={:.6}",
-                     i, expected_r[i][0], i, new_matrices.phi[i], i, new_matrices.eta[i]);
+            println!(
+                "    MATLAB R[{},0]={:.6} | our phi[{}]={:.6} | our eta[{}]={:.6}",
+                i, expected_r[i][0], i, new_matrices.phi[i], i, new_matrices.eta[i]
+            );
         }
     }
 
     // Legacy LBP uses: psi = L/eta, phi = r*(1-pd)/eta
     // Let's verify our phi formula
     let p_d = fixture.model.p_d;
-    println!("  Verifying phi formula (phi = r*(1-p_d)/eta where p_d={})...", p_d);
-    for (i, obj) in fixture.step2_association.input.predicted_objects.iter().enumerate().take(3) {
+    println!(
+        "  Verifying phi formula (phi = r*(1-p_d)/eta where p_d={})...",
+        p_d
+    );
+    for (i, obj) in fixture
+        .step2_association
+        .input
+        .predicted_objects
+        .iter()
+        .enumerate()
+        .take(3)
+    {
         let r = obj.r;
         let expected_phi = r * (1.0 - p_d) / new_matrices.eta[i];
         let actual_phi = new_matrices.phi[i];
-        println!("    Track {}: r={:.6}, expected_phi={:.6}, actual_phi={:.6}, diff={:.2e}",
-                 i, r, expected_phi, actual_phi, (expected_phi - actual_phi).abs());
+        println!(
+            "    Track {}: r={:.6}, expected_phi={:.6}, actual_phi={:.6}, diff={:.2e}",
+            i,
+            r,
+            expected_phi,
+            actual_phi,
+            (expected_phi - actual_phi).abs()
+        );
     }
 
     // Verify psi = L/eta
     println!("  Verifying psi = L/eta...");
     let mut psi_match = true;
     for (i, expected_row) in expected_l.iter().enumerate() {
-        for (j, &l_val) in expected_row.iter().skip(1).enumerate() {  // skip eta column
+        for (j, &l_val) in expected_row.iter().skip(1).enumerate() {
+            // skip eta column
             if i < new_matrices.psi.nrows() && j < new_matrices.psi.ncols() {
                 let expected_psi = l_val / expected_eta[i];
                 let actual_psi = new_matrices.psi[(i, j)];
                 let diff = (expected_psi - actual_psi).abs();
                 if diff > TOLERANCE {
-                    println!("    psi[{},{}]: actual {} vs expected {} (diff: {:.2e})", i, j, actual_psi, expected_psi, diff);
+                    println!(
+                        "    psi[{},{}]: actual {} vs expected {} (diff: {:.2e})",
+                        i, j, actual_psi, expected_psi, diff
+                    );
                     psi_match = false;
                 }
             }
@@ -1137,15 +1259,23 @@ fn test_new_api_lbp_marginals_equivalence() {
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
     // Debug: Print W dimensions
-    println!("  Result dimensions: miss_weights={}, marginal_weights={}x{}",
-             result.miss_weights.len(),
-             result.marginal_weights.nrows(),
-             result.marginal_weights.ncols());
+    println!(
+        "  Result dimensions: miss_weights={}, marginal_weights={}x{}",
+        result.miss_weights.len(),
+        result.marginal_weights.nrows(),
+        result.marginal_weights.ncols()
+    );
 
     let expected_w = &fixture.step3a_lbp.output.w;
-    println!("  MATLAB W dimensions: {}x{}",
-             expected_w.len(),
-             if expected_w.is_empty() { 0 } else { expected_w[0].len() });
+    println!(
+        "  MATLAB W dimensions: {}x{}",
+        expected_w.len(),
+        if expected_w.is_empty() {
+            0
+        } else {
+            expected_w[0].len()
+        }
+    );
 
     // Debug: Print first few values
     println!("  Sample values:");
@@ -1164,13 +1294,17 @@ fn test_new_api_lbp_marginals_equivalence() {
 
     // Check miss weights (first column of MATLAB W)
     for (i, expected_row) in expected_w.iter().enumerate() {
-        let expected_miss = expected_row[0];  // First column is miss probability
+        let expected_miss = expected_row[0]; // First column is miss probability
         let rust_val = result.miss_weights[i];
         let diff = (rust_val - expected_miss).abs();
         assert!(
             diff <= TOLERANCE,
             "miss_weights[{}]: {} vs MATLAB W[{},0]={} (diff: {:.2e})",
-            i, rust_val, i, expected_miss, diff
+            i,
+            rust_val,
+            i,
+            expected_miss,
+            diff
         );
     }
 
@@ -1182,16 +1316,24 @@ fn test_new_api_lbp_marginals_equivalence() {
             assert!(
                 diff <= TOLERANCE,
                 "marginal_weights[{},{}]: {} vs MATLAB W[{},{}]={} (diff: {:.2e})",
-                i, j, rust_val, i, j + 1, expected_val, diff
+                i,
+                j,
+                rust_val,
+                i,
+                j + 1,
+                expected_val,
+                diff
             );
         }
     }
 
     println!("  ✓ LBP marginal weights match MATLAB exactly!");
-    println!("    - {} miss weights, {} x {} marginal weights",
-             result.miss_weights.len(),
-             result.marginal_weights.nrows(),
-             result.marginal_weights.ncols());
+    println!(
+        "    - {} miss weights, {} x {} marginal weights",
+        result.miss_weights.len(),
+        result.marginal_weights.nrows(),
+        result.marginal_weights.ncols()
+    );
 }
 
 //=============================================================================

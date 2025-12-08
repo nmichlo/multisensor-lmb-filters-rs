@@ -20,12 +20,14 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
 
-use super::super::config::{AssociationConfig, BirthModel, FilterParams, LmbmConfig, MotionModel, MultisensorConfig};
-use super::super::output::{StateEstimate, Trajectory};
-use super::super::types::{GaussianComponent, LmbmHypothesis, Track};
-use super::super::errors::FilterError;
-use super::super::traits::Filter;
 use super::super::builder::FilterBuilder;
+use super::super::config::{
+    AssociationConfig, BirthModel, FilterParams, LmbmConfig, MotionModel, MultisensorConfig,
+};
+use super::super::errors::FilterError;
+use super::super::output::{StateEstimate, Trajectory};
+use super::super::traits::Filter;
+use super::super::types::{GaussianComponent, LmbmHypothesis, Track};
 use super::lmb::MultisensorMeasurements;
 use super::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
 
@@ -104,7 +106,7 @@ impl MultisensorLmbmFilter<MultisensorGibbsAssociator> {
             birth,
             association_config,
             lmbm_config,
-            MultisensorGibbsAssociator::default(),
+            MultisensorGibbsAssociator,
         )
     }
 
@@ -256,7 +258,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             let zeta = ell / page_sizes[j];
             let eta = ell % page_sizes[j];
             u[j] = zeta + if eta != 0 { 1 } else { 0 };
-            ell = ell - page_sizes[j] * (zeta - if eta == 0 { 1 } else { 0 });
+            ell -= page_sizes[j] * (zeta - if eta == 0 { 1 } else { 0 });
         }
 
         u
@@ -339,7 +341,8 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             let mut q = DMatrix::zeros(z_dim_total, z_dim_total);
             let mut offset = 0;
             for q_block in &q_blocks {
-                q.view_mut((offset, offset), (z_dim, z_dim)).copy_from(q_block);
+                q.view_mut((offset, offset), (z_dim, z_dim))
+                    .copy_from(q_block);
                 offset += z_dim;
             }
 
@@ -369,9 +372,9 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
             // Detection probability product (log)
             let mut log_pd = 0.0;
-            for s in 0..num_sensors {
-                let p_d = self.sensors.sensors[s].detection_probability;
-                log_pd += if detecting[s] {
+            for (sensor, &is_detecting) in self.sensors.sensors.iter().zip(detecting.iter()) {
+                let p_d = sensor.detection_probability;
+                log_pd += if is_detecting {
                     p_d.ln()
                 } else {
                     (1.0 - p_d).ln()
@@ -524,7 +527,10 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
     /// Initialize trajectory recording for birth tracks.
     fn init_birth_trajectories(&mut self, max_length: usize) {
-        super::super::common_ops::init_hypothesis_birth_trajectories(&mut self.hypotheses, max_length);
+        super::super::common_ops::init_hypothesis_birth_trajectories(
+            &mut self.hypotheses,
+            max_length,
+        );
     }
 }
 
@@ -693,7 +699,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         let measurements = vec![
-            vec![DVector::from_vec(vec![0.0, 0.0])],  // Sensor 1
+            vec![DVector::from_vec(vec![0.0, 0.0])], // Sensor 1
             vec![DVector::from_vec(vec![0.5, 0.5])], // Sensor 2
         ];
 

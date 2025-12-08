@@ -47,10 +47,7 @@ impl MotionModel {
             4,
             4,
             &[
-                1.0, dt, 0.0, 0.0,
-                0.0, 1.0, 0.0, 0.0,
-                0.0, 0.0, 1.0, dt,
-                0.0, 0.0, 0.0, 1.0,
+                1.0, dt, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, dt, 0.0, 0.0, 0.0, 1.0,
             ],
         );
 
@@ -60,10 +57,22 @@ impl MotionModel {
             4,
             4,
             &[
-                q * dt.powi(3) / 3.0, q * dt.powi(2) / 2.0, 0.0, 0.0,
-                q * dt.powi(2) / 2.0, q * dt, 0.0, 0.0,
-                0.0, 0.0, q * dt.powi(3) / 3.0, q * dt.powi(2) / 2.0,
-                0.0, 0.0, q * dt.powi(2) / 2.0, q * dt,
+                q * dt.powi(3) / 3.0,
+                q * dt.powi(2) / 2.0,
+                0.0,
+                0.0,
+                q * dt.powi(2) / 2.0,
+                q * dt,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                q * dt.powi(3) / 3.0,
+                q * dt.powi(2) / 2.0,
+                0.0,
+                0.0,
+                q * dt.powi(2) / 2.0,
+                q * dt,
             ],
         );
 
@@ -132,14 +141,7 @@ impl SensorModel {
         clutter_rate: f64,
         obs_volume: f64,
     ) -> Self {
-        let c = DMatrix::from_row_slice(
-            2,
-            4,
-            &[
-                1.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 1.0, 0.0,
-            ],
-        );
+        let c = DMatrix::from_row_slice(2, 4, &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
 
         let q_var = measurement_noise_std * measurement_noise_std;
         let q = DMatrix::from_diagonal(&DVector::from_vec(vec![q_var, q_var]));

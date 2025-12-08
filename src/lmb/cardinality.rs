@@ -34,17 +34,17 @@ pub fn elementary_symmetric_function(z: &[f64]) -> Vec<f64> {
     let mut i_n = 0;
     let mut i_nminus = 1;
 
-    for n in 0..n_z {
+    for (n, &z_n) in z.iter().enumerate() {
         // F(i_n,0) = F(i_nminus,0) + Z(n)
-        f[i_n][0] = f[i_nminus][0] + z[n];
+        f[i_n][0] = f[i_nminus][0] + z_n;
 
         for k in 1..=n {
             if k == n {
                 // F(i_n,k) = Z(n)*F(i_nminus,k-1)
-                f[i_n][k] = z[n] * f[i_nminus][k - 1];
+                f[i_n][k] = z_n * f[i_nminus][k - 1];
             } else {
                 // F(i_n,k) = F(i_nminus,k) + Z(n)*F(i_nminus,k-1)
-                f[i_n][k] = f[i_nminus][k] + z[n] * f[i_nminus][k - 1];
+                f[i_n][k] = f[i_nminus][k] + z_n * f[i_nminus][k - 1];
             }
         }
 
@@ -128,9 +128,9 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
         .iter()
         .map(|&ri| {
             if ri > 1.0 - EPSILON_EXISTENCE {
-                1.0  // Clamp near-1.0 (e.g., 0.99999999999999989) to exactly 1.0
+                1.0 // Clamp near-1.0 (e.g., 0.99999999999999989) to exactly 1.0
             } else if ri < EPSILON_EXISTENCE {
-                0.0  // Clamp near-0.0 to exactly 0.0
+                0.0 // Clamp near-0.0 to exactly 0.0
             } else {
                 ri
             }
@@ -170,7 +170,11 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
     // IMPORTANT: Must sort the ADJUSTED values (not original r) to match MATLAB's behavior
     // MATLAB does: r = r - 1e-6; [~, sortedIndices] = sort(-r);
     // This ensures objects with r=1.0 are sorted consistently after adjustment
-    let mut indexed_r: Vec<(usize, f64)> = r_adjusted.iter().enumerate().map(|(i, &val)| (i, val)).collect();
+    let mut indexed_r: Vec<(usize, f64)> = r_adjusted
+        .iter()
+        .enumerate()
+        .map(|(i, &val)| (i, val))
+        .collect();
     indexed_r.sort_by(|(i_a, a), (i_b, b)| {
         // Primary: sort by value descending
         match b.partial_cmp(a).unwrap() {
