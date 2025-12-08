@@ -30,7 +30,7 @@ use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{
     AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, Updater,
 };
-use super::super::types::LmbmHypothesis;
+use super::super::types::{CardinalityEstimate, LmbmHypothesis, StepDetailedOutput, Track};
 
 /// Log-likelihood floor to prevent underflow when computing ln(x) for very small x.
 /// Approximately ln(UNDERFLOW_THRESHOLD), used when likelihood values are below f64 precision.
@@ -313,6 +313,105 @@ impl<A: Associator> LmbmFilter<A> {
         }
 
         log_likelihood
+    }
+
+    // ========================================================================
+    // Testing/Fixture Validation Methods
+    // ========================================================================
+
+    /// Set the internal hypotheses directly (for fixture testing).
+    pub fn set_hypotheses(&mut self, hypotheses: Vec<LmbmHypothesis>) {
+        self.hypotheses = hypotheses;
+    }
+
+    /// Get the current hypotheses (for fixture testing).
+    pub fn get_hypotheses(&self) -> Vec<LmbmHypothesis> {
+        self.hypotheses.clone()
+    }
+
+    /// Get tracks from highest-weight hypothesis (for fixture testing).
+    pub fn get_tracks(&self) -> Vec<Track> {
+        if self.hypotheses.is_empty() {
+            return Vec::new();
+        }
+        // Return tracks from the highest-weight hypothesis
+        self.hypotheses
+            .iter()
+            .max_by(|a, b| a.log_weight.partial_cmp(&b.log_weight).unwrap())
+            .map(|h| h.tracks.clone())
+            .unwrap_or_default()
+    }
+
+    /// Detailed step that returns all intermediate data for fixture validation.
+    ///
+    /// Note: LMBM doesn't expose association matrices directly since it uses
+    /// hypothesis-level processing. Returns tracks from the highest-weight hypothesis.
+    pub fn step_detailed<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &[DVector<f64>],
+        timestep: usize,
+    ) -> Result<StepDetailedOutput, FilterError> {
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction
+        // ══════════════════════════════════════════════════════════════════════
+        self.predict_hypotheses(timestep);
+        let predicted_tracks = self.get_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2-3: Association and posterior hypothesis generation
+        // ══════════════════════════════════════════════════════════════════════
+        if !measurements.is_empty()
+            && !self.hypotheses.is_empty()
+            && !self.hypotheses[0].tracks.is_empty()
+        {
+            let tracks = &self.hypotheses[0].tracks;
+            let mut builder = AssociationBuilder::new(tracks, &self.sensor);
+            let matrices = builder.build(measurements);
+            let log_likelihood = self.build_log_likelihood_matrix(&matrices);
+
+            let result = self
+                .associator
+                .associate(&matrices, &self.association_config, rng)
+                .map_err(FilterError::Association)?;
+
+            self.generate_posterior_hypotheses(&result, &matrices.posteriors, &log_likelihood);
+        } else if measurements.is_empty() {
+            self.update_existence_no_measurements();
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 4: Hypothesis management
+        // ══════════════════════════════════════════════════════════════════════
+        self.normalize_and_gate_hypotheses();
+        let updated_tracks = self.get_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Cardinality extraction (from highest-weight hypothesis)
+        // ══════════════════════════════════════════════════════════════════════
+        let existences: Vec<f64> = updated_tracks.iter().map(|t| t.existence).collect();
+        let (n_estimated, map_indices) =
+            super::super::cardinality::lmb_map_cardinality_estimate(&existences);
+        let cardinality = CardinalityEstimate::new(n_estimated, map_indices);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Track gating
+        // ══════════════════════════════════════════════════════════════════════
+        self.gate_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract final estimate
+        // ══════════════════════════════════════════════════════════════════════
+        let final_estimate = self.extract_estimates(timestep);
+
+        Ok(StepDetailedOutput {
+            predicted_tracks,
+            association_matrices: None, // LMBM doesn't expose this
+            association_result: None,   // LMBM doesn't expose this
+            updated_tracks,
+            cardinality,
+            final_estimate,
+        })
     }
 }
 

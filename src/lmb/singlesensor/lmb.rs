@@ -24,7 +24,7 @@ use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{
     AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Updater,
 };
-use super::super::types::Track;
+use super::super::types::{CardinalityEstimate, StepDetailedOutput, Track};
 
 /// Single-sensor LMB filter.
 ///
@@ -196,6 +196,108 @@ impl<A: Associator> LmbFilter<A> {
             track.existence =
                 crate::components::update::update_existence_no_detection(track.existence, p_d);
         }
+    }
+
+    // ========================================================================
+    // Testing/Fixture Validation Methods
+    // ========================================================================
+
+    /// Set the internal tracks directly (for fixture testing).
+    ///
+    /// This allows tests to initialize the filter with a known prior state
+    /// from fixture data, enabling comparison of intermediate outputs.
+    pub fn set_tracks(&mut self, tracks: Vec<Track>) {
+        self.tracks = tracks;
+    }
+
+    /// Get the current tracks (for fixture testing).
+    ///
+    /// Returns a clone of all internal tracks with full Gaussian mixture data.
+    pub fn get_tracks(&self) -> Vec<Track> {
+        self.tracks.clone()
+    }
+
+    /// Detailed step that returns all intermediate data for fixture validation.
+    ///
+    /// Unlike `step()`, this method returns the state after each major step:
+    /// 1. Predicted tracks (after motion model + birth)
+    /// 2. Association matrices (likelihood ratios, costs, etc.)
+    /// 3. Association result (marginal weights)
+    /// 4. Updated tracks (after measurement update)
+    /// 5. Cardinality estimate (MAP extraction)
+    /// 6. Final state estimate
+    ///
+    /// This is useful for step-by-step validation against MATLAB fixture outputs.
+    pub fn step_detailed<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &[DVector<f64>],
+        timestep: usize,
+    ) -> Result<StepDetailedOutput, FilterError> {
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction - propagate tracks forward and add birth components
+        // ══════════════════════════════════════════════════════════════════════
+        predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
+        let predicted_tracks = self.tracks.clone();
+
+        // (Skip trajectory init for detailed output - not needed for comparison)
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2-3: Association - build matrices and run data association
+        // ══════════════════════════════════════════════════════════════════════
+        let (association_matrices, association_result) = if !measurements.is_empty() {
+            let mut builder = AssociationBuilder::new(&self.tracks, &self.sensor);
+            let matrices = builder.build(measurements);
+
+            let result = self
+                .associator
+                .associate(&matrices, &self.association_config, rng)
+                .map_err(FilterError::Association)?;
+
+            (Some(matrices), Some(result))
+        } else {
+            (None, None)
+        };
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 4: Update - update existence and spatial distributions
+        // ══════════════════════════════════════════════════════════════════════
+        if let (Some(ref result), Some(ref matrices)) = (&association_result, &association_matrices)
+        {
+            self.update_existence_from_association(result);
+            self.updater
+                .update(&mut self.tracks, result, &matrices.posteriors);
+        } else {
+            self.update_existence_no_measurements();
+        }
+        let updated_tracks = self.tracks.clone();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Cardinality extraction (before gating)
+        // ══════════════════════════════════════════════════════════════════════
+        let existences: Vec<f64> = self.tracks.iter().map(|t| t.existence).collect();
+        let (n_estimated, map_indices) =
+            super::super::cardinality::lmb_map_cardinality_estimate(&existences);
+        let cardinality = CardinalityEstimate::new(n_estimated, map_indices);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Gating - prune low-existence tracks
+        // ══════════════════════════════════════════════════════════════════════
+        self.gate_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract final state estimate
+        // ══════════════════════════════════════════════════════════════════════
+        let final_estimate = self.extract_estimates(timestep);
+
+        Ok(StepDetailedOutput {
+            predicted_tracks,
+            association_matrices,
+            association_result,
+            updated_tracks,
+            cardinality,
+            final_estimate,
+        })
     }
 }
 

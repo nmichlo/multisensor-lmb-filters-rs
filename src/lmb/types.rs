@@ -233,6 +233,63 @@ impl TrajectoryHistory {
     }
 }
 
+/// Cardinality estimation result from MAP cardinality extraction.
+///
+/// This is the result of applying the LMB cardinality estimation algorithm,
+/// which determines how many objects exist and which tracks represent them.
+#[derive(Debug, Clone)]
+pub struct CardinalityEstimate {
+    /// MAP estimate of the number of objects.
+    pub n_estimated: usize,
+    /// Indices of the tracks selected for the MAP estimate.
+    pub map_indices: Vec<usize>,
+}
+
+impl CardinalityEstimate {
+    /// Create a new cardinality estimate.
+    pub fn new(n_estimated: usize, map_indices: Vec<usize>) -> Self {
+        Self {
+            n_estimated,
+            map_indices,
+        }
+    }
+
+    /// Create an empty cardinality estimate.
+    pub fn empty() -> Self {
+        Self {
+            n_estimated: 0,
+            map_indices: Vec::new(),
+        }
+    }
+}
+
+/// Detailed output from a single filter step, exposing all intermediate data.
+///
+/// This is used for fixture validation and testing. It contains the state
+/// after each major step of the filter algorithm:
+///
+/// 1. **Predicted tracks** - after prediction step (motion model + birth)
+/// 2. **Association matrices** - likelihood ratios, costs, sampling probs
+/// 3. **Association result** - marginal weights from data association
+/// 4. **Updated tracks** - after measurement update step
+/// 5. **Cardinality estimate** - MAP cardinality extraction
+/// 6. **Final estimate** - extracted state estimates
+#[derive(Debug, Clone)]
+pub struct StepDetailedOutput {
+    /// Tracks after prediction step (before measurement update).
+    pub predicted_tracks: Vec<Track>,
+    /// Association matrices from the association builder (None if no measurements).
+    pub association_matrices: Option<crate::association::AssociationMatrices>,
+    /// Association result from the data association algorithm (None if no measurements).
+    pub association_result: Option<super::traits::AssociationResult>,
+    /// Tracks after measurement update step.
+    pub updated_tracks: Vec<Track>,
+    /// Cardinality estimation result.
+    pub cardinality: CardinalityEstimate,
+    /// Final state estimate after gating.
+    pub final_estimate: super::output::StateEstimate,
+}
+
 /// LMBM Hypothesis - represents a single hypothesis in LMBM filter
 ///
 /// Unlike LMB which maintains a single track set with Gaussian mixtures,

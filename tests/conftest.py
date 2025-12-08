@@ -229,3 +229,164 @@ def measurements_to_numpy(measurements: list) -> list:
 def nested_measurements_to_numpy(measurements: list) -> list:
     """Convert nested fixture measurements to list of lists of numpy arrays."""
     return [[np.array(m, dtype=np.float64) for m in sensor_meas] for sensor_meas in measurements]
+
+
+# =============================================================================
+# Track Data Loading and Comparison (for fixture validation)
+# =============================================================================
+
+
+def make_track_data(obj: dict):
+    """Convert fixture object to _TrackData for setting filter state.
+
+    Args:
+        obj: Fixture object dict with keys: label, r, mu, Sigma, w
+
+    Returns:
+        _TrackData instance that can be passed to filter.set_tracks()
+    """
+    from multisensor_lmb_filters_rs import _TrackData
+
+    # Parse label
+    label = obj.get("label", [0, 0])
+    if isinstance(label, list):
+        label_tuple = (label[0], label[1])
+    else:
+        label_tuple = (0, label)
+
+    # Parse weights (can be scalar or list)
+    weights = obj["w"]
+    if not isinstance(weights, list):
+        weights = [weights]
+
+    return _TrackData(
+        label=label_tuple,
+        existence=obj["r"],
+        means=obj["mu"],
+        covariances=obj["Sigma"],
+        weights=weights,
+    )
+
+
+def load_prior_tracks(fixture: dict) -> list:
+    """Load prior tracks from fixture for filter initialization.
+
+    Returns list of _TrackData objects from fixture['step1_prediction']['input']['prior_objects'].
+    """
+    prior_objects = fixture["step1_prediction"]["input"]["prior_objects"]
+    return [make_track_data(obj) for obj in prior_objects]
+
+
+def make_birth_model_empty():
+    """Create empty birth model (no birth locations)."""
+    from multisensor_lmb_filters_rs import BirthModel
+
+    return BirthModel(locations=[], lmb_existence=0.0, lmbm_existence=0.0)
+
+
+def make_birth_model_from_fixture(fixture: dict):
+    """Create BirthModel by extracting birth tracks from fixture predicted output.
+
+    MATLAB fixtures include birth tracks in the predicted output. This function
+    extracts those tracks and creates a matching birth model.
+    """
+    from multisensor_lmb_filters_rs import BirthLocation, BirthModel
+
+    timestep = fixture["timestep"]
+    predicted_objects = fixture["step1_prediction"]["output"]["predicted_objects"]
+
+    # Find birth tracks (label[0] == timestep means they were born this step)
+    birth_tracks = [obj for obj in predicted_objects if obj["label"][0] == timestep]
+
+    if not birth_tracks:
+        return make_birth_model_empty()
+
+    # Get existence probability from first birth track
+    lmb_existence = birth_tracks[0]["r"]
+
+    locations = []
+    for obj in birth_tracks:
+        label = obj["label"]
+        locations.append(
+            BirthLocation(
+                label=label[1],  # birth_location index
+                mean=np.array(obj["mu"][0], dtype=np.float64),
+                covariance=np.array(obj["Sigma"][0], dtype=np.float64),
+            )
+        )
+
+    return BirthModel(
+        locations=locations,
+        lmb_existence=lmb_existence,
+        lmbm_existence=lmb_existence / 10,  # LMBM uses lower existence
+    )
+
+
+def compare_tracks(name: str, expected: list, actual: list, tol: float = TOLERANCE):
+    """Compare full track data (GM components, existence, labels).
+
+    Args:
+        name: Name for error messages
+        expected: List of fixture dicts with keys: label, r, mu, Sigma, w
+        actual: List of _TrackData objects from filter
+        tol: Numerical tolerance
+
+    Raises:
+        AssertionError: On first mismatch with detailed error message
+    """
+    if len(expected) != len(actual):
+        raise AssertionError(
+            f"{name}: track count mismatch - expected {len(expected)}, got {len(actual)}"
+        )
+
+    for i, (exp, act) in enumerate(zip(expected, actual)):
+        prefix = f"{name}[{i}]"
+
+        # Compare label
+        exp_label = exp.get("label", [0, 0])
+        if isinstance(exp_label, list):
+            exp_label_tuple = (exp_label[0], exp_label[1])
+        else:
+            exp_label_tuple = (0, exp_label)
+
+        if act.label != exp_label_tuple:
+            raise AssertionError(f"{prefix}.label: expected {exp_label}, got {act.label}")
+
+        # Compare existence (r)
+        compare_scalar(f"{prefix}.existence", exp["r"], act.existence, tol)
+
+        # Compare GM weights
+        exp_w = exp["w"] if isinstance(exp["w"], list) else [exp["w"]]
+        compare_array(f"{prefix}.w", exp_w, act.w, tol)
+
+        # Compare GM means
+        compare_array(f"{prefix}.mu", exp["mu"], act.mu, tol)
+
+        # Compare GM covariances
+        compare_array(f"{prefix}.sigma", exp["Sigma"], act.sigma, tol)
+
+
+def compare_association_matrices(name: str, expected: dict, actual, tol: float = TOLERANCE):
+    """Compare association matrices from fixture against actual output.
+
+    Args:
+        name: Name for error messages
+        expected: Fixture dict with keys: C, L, R, P, eta, posteriorParameters
+        actual: _AssociationMatrices object from filter
+        tol: Numerical tolerance
+    """
+    # Compare cost matrix
+    if "C" in expected:
+        compare_array(f"{name}.cost", expected["C"], actual.cost, tol)
+
+    # Compare likelihood matrix
+    if "L" in expected:
+        compare_array(f"{name}.likelihood", expected["L"], actual.likelihood, tol)
+
+    # Compare sampling probabilities
+    if "P" in expected:
+        compare_array(f"{name}.sampling_prob", expected["P"], actual.sampling_prob, tol)
+
+    # Compare eta normalization factors
+    if "eta" in expected:
+        compare_array(f"{name}.eta", expected["eta"], actual.eta, tol)

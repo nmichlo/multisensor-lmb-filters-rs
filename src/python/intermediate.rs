@@ -7,9 +7,12 @@ use numpy::ndarray::{Array2, Array3};
 use numpy::{PyArray1, PyArray2, PyArray3, ToPyArray};
 use pyo3::prelude::*;
 
+use nalgebra::{DMatrix, DVector};
+use smallvec::SmallVec;
+
 use crate::association::AssociationMatrices;
 use crate::lmb::traits::AssociationResult;
-use crate::lmb::types::Track;
+use crate::lmb::types::{GaussianComponent, Track, TrackLabel};
 
 // =============================================================================
 // _TrackData - Full track data matching fixture format
@@ -37,6 +40,32 @@ pub struct PyTrackData {
 
 #[pymethods]
 impl PyTrackData {
+    /// Create a new track from Python data.
+    ///
+    /// Args:
+    ///     label: Tuple of (birth_time, birth_location)
+    ///     existence: Existence probability (r in fixtures)
+    ///     means: List of mean vectors [n_components x state_dim]
+    ///     covariances: List of covariance matrices [n_components x state_dim x state_dim]
+    ///     weights: List of GM component weights [n_components]
+    #[new]
+    #[pyo3(signature = (label, existence, means, covariances, weights))]
+    fn new(
+        label: (usize, usize),
+        existence: f64,
+        means: Vec<Vec<f64>>,
+        covariances: Vec<Vec<Vec<f64>>>,
+        weights: Vec<f64>,
+    ) -> Self {
+        Self {
+            label,
+            existence,
+            means,
+            covariances,
+            weights,
+        }
+    }
+
     #[getter]
     fn mu<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         let n_components = self.means.len();
@@ -112,6 +141,39 @@ impl PyTrackData {
             means,
             covariances,
             weights,
+        }
+    }
+
+    /// Convert this PyTrackData back to a Rust Track.
+    pub fn to_track(&self) -> Track {
+        let label = TrackLabel {
+            birth_time: self.label.0,
+            birth_location: self.label.1,
+        };
+
+        let components: SmallVec<[GaussianComponent; 4]> = self
+            .means
+            .iter()
+            .zip(self.covariances.iter())
+            .zip(self.weights.iter())
+            .map(|((mean, cov), &weight)| {
+                let mean_vec = DVector::from_vec(mean.clone());
+                let n = cov.len();
+                let cov_flat: Vec<f64> = cov.iter().flatten().copied().collect();
+                let covariance = DMatrix::from_row_slice(n, n, &cov_flat);
+                GaussianComponent {
+                    weight,
+                    mean: mean_vec,
+                    covariance,
+                }
+            })
+            .collect();
+
+        Track {
+            label,
+            existence: self.existence,
+            components,
+            trajectory: None,
         }
     }
 }
@@ -353,13 +415,13 @@ pub struct PyStepOutput {
     #[pyo3(get)]
     pub predicted_tracks: Vec<Py<PyTrackData>>,
 
-    /// Association matrices (after step 2)
+    /// Association matrices (after step 2) - None for multi-sensor/LMBM filters
     #[pyo3(get)]
-    pub association_matrices: Py<PyAssociationMatrices>,
+    pub association_matrices: Option<Py<PyAssociationMatrices>>,
 
-    /// Association result (after step 3)
+    /// Association result (after step 3) - None for multi-sensor/LMBM filters
     #[pyo3(get)]
-    pub association_result: Py<PyAssociationResult>,
+    pub association_result: Option<Py<PyAssociationResult>>,
 
     /// Updated tracks (after step 4)
     #[pyo3(get)]

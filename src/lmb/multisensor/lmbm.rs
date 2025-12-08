@@ -27,7 +27,9 @@ use super::super::config::{
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::Filter;
-use super::super::types::{GaussianComponent, LmbmHypothesis, Track};
+use super::super::types::{
+    CardinalityEstimate, GaussianComponent, LmbmHypothesis, StepDetailedOutput, Track,
+};
 use super::lmb::MultisensorMeasurements;
 use super::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
 
@@ -531,6 +533,116 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             &mut self.hypotheses,
             max_length,
         );
+    }
+
+    // ========================================================================
+    // Testing/Fixture Validation Methods
+    // ========================================================================
+
+    /// Set the internal hypotheses directly (for fixture testing).
+    pub fn set_hypotheses(&mut self, hypotheses: Vec<LmbmHypothesis>) {
+        self.hypotheses = hypotheses;
+    }
+
+    /// Get the current hypotheses (for fixture testing).
+    pub fn get_hypotheses(&self) -> Vec<LmbmHypothesis> {
+        self.hypotheses.clone()
+    }
+
+    /// Get tracks from highest-weight hypothesis (for fixture testing).
+    pub fn get_tracks(&self) -> Vec<Track> {
+        if self.hypotheses.is_empty() {
+            return Vec::new();
+        }
+        self.hypotheses
+            .iter()
+            .max_by(|a, b| a.log_weight.partial_cmp(&b.log_weight).unwrap())
+            .map(|h| h.tracks.clone())
+            .unwrap_or_default()
+    }
+
+    /// Detailed step for fixture validation.
+    ///
+    /// Note: Multi-sensor LMBM uses joint association matrices across all sensors,
+    /// which are too complex to expose. Returns tracks from the highest-weight hypothesis.
+    pub fn step_detailed<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &MultisensorMeasurements,
+        timestep: usize,
+    ) -> Result<StepDetailedOutput, FilterError> {
+        // Validate measurements
+        if measurements.len() != self.num_sensors() {
+            return Err(FilterError::InvalidInput(format!(
+                "Expected {} sensors, got {}",
+                self.num_sensors(),
+                measurements.len()
+            )));
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction
+        // ══════════════════════════════════════════════════════════════════════
+        self.predict_hypotheses(timestep);
+        let predicted_tracks = self.get_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2-3: Association and posterior hypothesis generation
+        // ══════════════════════════════════════════════════════════════════════
+        let has_measurements = measurements.iter().any(|m| !m.is_empty());
+
+        if has_measurements && !self.hypotheses.is_empty() && !self.hypotheses[0].tracks.is_empty()
+        {
+            let (log_likelihoods, posteriors, dimensions) =
+                self.generate_association_matrices(&self.hypotheses[0].tracks, measurements);
+
+            let association_result = self
+                .associator
+                .associate(rng, &log_likelihoods, &dimensions, &self.association_config)
+                .map_err(FilterError::Association)?;
+
+            self.generate_posterior_hypotheses(
+                &association_result.samples,
+                &log_likelihoods,
+                &posteriors,
+                &dimensions,
+            );
+        } else if !has_measurements {
+            self.update_existence_no_measurements();
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 4: Hypothesis management
+        // ══════════════════════════════════════════════════════════════════════
+        self.normalize_and_gate_hypotheses();
+        let updated_tracks = self.get_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Cardinality extraction
+        // ══════════════════════════════════════════════════════════════════════
+        let existences: Vec<f64> = updated_tracks.iter().map(|t| t.existence).collect();
+        let (n_estimated, map_indices) =
+            super::super::cardinality::lmb_map_cardinality_estimate(&existences);
+        let cardinality = CardinalityEstimate::new(n_estimated, map_indices);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Track gating
+        // ══════════════════════════════════════════════════════════════════════
+        self.gate_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract final estimate
+        // ══════════════════════════════════════════════════════════════════════
+        let final_estimate = self.extract_estimates(timestep);
+
+        Ok(StepDetailedOutput {
+            predicted_tracks,
+            association_matrices: None,
+            association_result: None,
+            updated_tracks,
+            cardinality,
+            final_estimate,
+        })
     }
 }
 

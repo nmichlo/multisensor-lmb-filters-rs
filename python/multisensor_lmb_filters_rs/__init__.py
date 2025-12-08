@@ -32,16 +32,12 @@ Output Types:
 """
 
 from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
-    # Configuration
     AssociatorConfig,
     BirthLocation,
-    # Birth
     BirthModel,
-    # Filters - Multi-sensor
     FilterAaLmb,
     FilterGaLmb,
     FilterIcLmb,
-    # Filters - Single-sensor
     FilterLmb,
     FilterLmbm,
     FilterLmbmConfig,
@@ -49,17 +45,30 @@ from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
     FilterPuLmb,
     FilterThresholds,
     GaussianComponent,
-    # Models
     MotionModel,
     SensorConfigMulti,
     SensorModel,
     StateEstimate,
-    # Output
     TrackEstimate,
-    # Types
     TrackLabel,
-    # Version
     __version__,
+)
+
+# redundant alias supresses F401
+from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
+    _AssociationMatrices as _AssociationMatrices,
+)
+from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
+    _AssociationResult as _AssociationResult,
+)
+from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
+    _CardinalityEstimate as _CardinalityEstimate,
+)
+from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
+    _StepOutput as _StepOutput,
+)
+from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
+    _TrackData as _TrackData,
 )
 
 __all__ = [
@@ -92,3 +101,6 @@ __all__ = [
     # Version
     "__version__",
 ]
+
+# Note: Internal types (_TrackData, _AssociationMatrices, etc.) are imported
+# but not in __all__. They are accessible via direct import for testing.
