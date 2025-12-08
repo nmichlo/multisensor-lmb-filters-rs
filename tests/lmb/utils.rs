@@ -4,7 +4,7 @@
 //! against exact Murty's algorithm marginals.
 
 use nalgebra::{DMatrix, DVector};
-use prak::common::rng::Rng;
+use multisensor_lmb_filters_rs::common::rng::Rng;
 
 /// Calculate the total number of association events for n objects and m measurements
 ///
@@ -439,7 +439,7 @@ pub fn generate_association_matrices(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prak::common::rng::SimpleRng;
+    use multisensor_lmb_filters_rs::common::rng::SimpleRng;
 
     #[test]
     fn test_calculate_number_of_association_events() {

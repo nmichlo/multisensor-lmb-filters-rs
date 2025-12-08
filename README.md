@@ -32,7 +32,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-prak = { git = "https://github.com/yourname/prak" }
+multisensor-lmb-filters-rs = { git = "https://github.com/nmichlo/multisensor-lmb-filters-rs" }
 nalgebra = "0.32"
 rand = "0.8"
 ```
@@ -40,8 +40,8 @@ rand = "0.8"
 ### Basic LMB Filter
 
 ```rust
-use prak::filter::{Filter, LmbFilter};
-use prak::types::{MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
+use multisensor_lmb_filters_rs::filter::{Filter, LmbFilter};
+use multisensor_lmb_filters_rs::types::{MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
 use nalgebra::{DVector, DMatrix};
 
 fn main() {
@@ -90,8 +90,8 @@ fn main() {
 ### Multi-Sensor Fusion
 
 ```rust
-use prak::filter::{Filter, AaLmbFilter, ArithmeticAverageMerger};
-use prak::types::{MotionModel, SensorModel, MultisensorConfig, BirthModel, AssociationConfig};
+use multisensor_lmb_filters_rs::filter::{Filter, AaLmbFilter, ArithmeticAverageMerger};
+use multisensor_lmb_filters_rs::types::{MotionModel, SensorModel, MultisensorConfig, BirthModel, AssociationConfig};
 
 fn main() {
     let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
@@ -184,8 +184,8 @@ src/
 ### Custom Associator
 
 ```rust
-use prak::filter::{Associator, AssociationResult};
-use prak::association::AssociationMatrices;
+use multisensor_lmb_filters_rs::filter::{Associator, AssociationResult};
+use multisensor_lmb_filters_rs::association::AssociationMatrices;
 
 struct MyAssociator;
 
@@ -207,7 +207,7 @@ let filter = LmbFilter::with_associator_type::<MyAssociator>(motion, sensor, bir
 ### Custom Merger (Multi-Sensor)
 
 ```rust
-use prak::filter::Merger;
+use multisensor_lmb_filters_rs::filter::Merger;
 
 struct MyMerger;
 

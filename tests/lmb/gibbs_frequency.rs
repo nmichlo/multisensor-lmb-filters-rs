@@ -1,6 +1,6 @@
 use nalgebra::DMatrix;
-use prak::common::association::gibbs::{lmb_gibbs_frequency_sampling, GibbsAssociationMatrices};
-use prak::common::rng::SimpleRng;
+use multisensor_lmb_filters_rs::common::association::gibbs::{lmb_gibbs_frequency_sampling, GibbsAssociationMatrices};
+use multisensor_lmb_filters_rs::common::rng::SimpleRng;
 
 #[test]
 fn test_gibbs_frequency_cross_language_equivalence() {
@@ -36,8 +36,8 @@ fn test_gibbs_frequency_cross_language_equivalence() {
     let mut rng = SimpleRng::new(42);
 
     // Debug: manually run first 5 iterations to compare with Octave
-    use prak::common::association::gibbs::initialize_gibbs_association_vectors;
-    use prak::common::association::gibbs::generate_gibbs_sample;
+    use multisensor_lmb_filters_rs::common::association::gibbs::initialize_gibbs_association_vectors;
+    use multisensor_lmb_filters_rs::common::association::gibbs::generate_gibbs_sample;
 
     let (mut v_debug, mut w_debug) = initialize_gibbs_association_vectors(&matrices.c);
     println!("Initial v: [{}, {}]", v_debug[0], v_debug[1]);

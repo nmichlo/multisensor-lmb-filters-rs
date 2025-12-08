@@ -20,7 +20,7 @@ Labelled Multi-Bernoulli (LMB) filters and their variants.
 ## Example
 
 ```rust,no_run
-use prak::lmb::{Filter, LmbFilter, MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
+use multisensor_lmb_filters_rs::lmb::{Filter, LmbFilter, MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
 use nalgebra::{DVector, DMatrix};
 
 // Create filter configuration

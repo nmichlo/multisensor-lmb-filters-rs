@@ -37,7 +37,7 @@
 /// end
 /// ```
 
-use prak::common::rng::{Rng, SimpleRng};
+use multisensor_lmb_filters_rs::common::rng::{Rng, SimpleRng};
 
 #[test]
 fn test_rng_next_u64_seed_42() {

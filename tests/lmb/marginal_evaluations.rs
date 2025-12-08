@@ -16,9 +16,9 @@ use super::utils::{
 };
 
 use nalgebra::DMatrix;
-use prak::common::association::lbp::{loopy_belief_propagation, AssociationMatrices};
-use prak::common::association::murtys::murtys_algorithm_wrapper;
-use prak::common::rng::SimpleRng;
+use multisensor_lmb_filters_rs::common::association::lbp::{loopy_belief_propagation, AssociationMatrices};
+use multisensor_lmb_filters_rs::common::association::murtys::murtys_algorithm_wrapper;
+use multisensor_lmb_filters_rs::common::rng::SimpleRng;
 
 /// Convert test association matrices to LBP association matrices format
 fn convert_to_lbp_matrices(

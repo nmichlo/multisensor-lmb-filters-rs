@@ -1,5 +1,5 @@
 [package]
-name = "prak"
+name = "multisensor-lmb-filters-rs"
 version = "0.0.1"
 edition = "2021"
 description = "Multi-object tracking library - Rust port of multisensor-lmb-filters"
@@ -8,7 +8,7 @@ license = "MIT"
 readme = "README.md"
 
 [lib]
-name = "prak"
+name = "multisensor_lmb_filters_rs"
 crate-type = ["rlib"]
 
 [dependencies]

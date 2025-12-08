@@ -64,7 +64,7 @@ pub use super::fusion::{
 /// # Example
 ///
 /// ```ignore
-/// use prak::filter::{MultisensorLmbFilter, ArithmeticAverageMerger};
+/// use multisensor_lmb_filters_rs::filter::{MultisensorLmbFilter, ArithmeticAverageMerger};
 ///
 /// // Create AA-LMB filter for 2 sensors
 /// let merger = ArithmeticAverageMerger::uniform(2, 100);

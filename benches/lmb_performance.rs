@@ -5,14 +5,14 @@
 //! Compare against baseline: cargo bench -- --save-baseline main
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use prak::common::{
+use multisensor_lmb_filters_rs::common::{
     association::lbp::{loopy_belief_propagation, AssociationMatrices},
     ground_truth::generate_ground_truth,
     model::generate_model,
     types::{DataAssociationMethod, ScenarioType},
     rng::{Rng, SimpleRng},
 };
-use prak::lmb::{
+use multisensor_lmb_filters_rs::lmb::{
     association::generate_lmb_association_matrices,
     cardinality::elementary_symmetric_function,
     filter::run_lmb_filter,
@@ -21,7 +21,7 @@ use prak::lmb::{
 use nalgebra::{DMatrix, DVector};
 
 /// Create test data for benchmarks
-fn create_test_objects(rng: &mut SimpleRng, n_objects: usize, n_gm: usize) -> Vec<prak::common::types::Object> {
+fn create_test_objects(rng: &mut SimpleRng, n_objects: usize, n_gm: usize) -> Vec<multisensor_lmb_filters_rs::common::types::Object> {
     let model = generate_model(rng, 5.0, 0.9, DataAssociationMethod::LBP, ScenarioType::Fixed, None);
     let mut objects = model.birth_parameters.clone();
 

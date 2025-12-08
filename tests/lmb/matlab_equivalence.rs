@@ -15,9 +15,9 @@ use smallvec::SmallVec;
 use std::fs;
 
 // New API imports
-use prak::association::AssociationBuilder;
-use prak::components::prediction::{predict_track, predict_tracks};
-use prak::lmb::{
+use multisensor_lmb_filters_rs::association::AssociationBuilder;
+use multisensor_lmb_filters_rs::components::prediction::{predict_track, predict_tracks};
+use multisensor_lmb_filters_rs::lmb::{
     Associator, LbpAssociator,
     AssociationConfig, BirthModel, DataAssociationMethod,
     GaussianComponent, MotionModel, SensorModel, Track, TrackLabel,
@@ -572,7 +572,7 @@ fn assert_dvector_close(a: &DVector<f64>, b: &DVector<f64>, tolerance: f64, msg:
 /// Test that new API prediction produces MATLAB-equivalent results for single component
 #[test]
 fn test_new_api_prediction_component_equivalence() {
-    use prak::components::prediction::predict_component;
+    use multisensor_lmb_filters_rs::components::prediction::predict_component;
 
     let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
@@ -1201,7 +1201,7 @@ fn test_new_api_lbp_marginals_equivalence() {
 /// Test a complete filter step against MATLAB
 #[test]
 fn test_new_api_lmb_filter_step() {
-    use prak::lmb::{Filter, FilterBuilder, LmbFilter, LmbFilterBuilder};
+    use multisensor_lmb_filters_rs::lmb::{Filter, FilterBuilder, LmbFilter, LmbFilterBuilder};
 
     let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
