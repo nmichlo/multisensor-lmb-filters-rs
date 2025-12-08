@@ -24,7 +24,7 @@ use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{
     AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Updater,
 };
-use super::super::types::{CardinalityEstimate, StepDetailedOutput, Track};
+use super::super::types::{StepDetailedOutput, Track};
 
 /// Single-sensor LMB filter.
 ///
@@ -275,10 +275,7 @@ impl<A: Associator> LmbFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         // STEP 5: Cardinality extraction (before gating)
         // ══════════════════════════════════════════════════════════════════════
-        let existences: Vec<f64> = self.tracks.iter().map(|t| t.existence).collect();
-        let (n_estimated, map_indices) =
-            super::super::cardinality::lmb_map_cardinality_estimate(&existences);
-        let cardinality = CardinalityEstimate::new(n_estimated, map_indices);
+        let cardinality = super::super::common_ops::compute_cardinality(&self.tracks);
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 6: Gating - prune low-existence tracks

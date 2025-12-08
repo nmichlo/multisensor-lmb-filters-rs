@@ -30,7 +30,7 @@ use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{
     AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, Updater,
 };
-use super::super::types::{CardinalityEstimate, LmbmHypothesis, StepDetailedOutput, Track};
+use super::super::types::{LmbmHypothesis, StepDetailedOutput, Track};
 
 /// Log-likelihood floor to prevent underflow when computing ln(x) for very small x.
 /// Approximately ln(UNDERFLOW_THRESHOLD), used when likelihood values are below f64 precision.
@@ -389,10 +389,7 @@ impl<A: Associator> LmbmFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         // STEP 5: Cardinality extraction (from highest-weight hypothesis)
         // ══════════════════════════════════════════════════════════════════════
-        let existences: Vec<f64> = updated_tracks.iter().map(|t| t.existence).collect();
-        let (n_estimated, map_indices) =
-            super::super::cardinality::lmb_map_cardinality_estimate(&existences);
-        let cardinality = CardinalityEstimate::new(n_estimated, map_indices);
+        let cardinality = super::super::common_ops::compute_cardinality(&updated_tracks);
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 6: Track gating

@@ -1,6 +1,6 @@
 //! Python wrappers for filter implementations.
 //!
-//! Uses macros to reduce boilerplate across the 7 filter types.
+//! Uses helper functions and macros to reduce boilerplate across the 7 filter types.
 
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
@@ -8,6 +8,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use crate::lmb::config::{AssociationConfig, DataAssociationMethod, FilterThresholds, LmbmConfig};
+use crate::lmb::errors::FilterError;
 use crate::lmb::multisensor::fusion::{
     ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger, ParallelUpdateMerger,
 };
@@ -16,6 +17,7 @@ use crate::lmb::multisensor::lmbm::MultisensorLmbmFilter;
 use crate::lmb::singlesensor::lmb::LmbFilter;
 use crate::lmb::singlesensor::lmbm::LmbmFilter;
 use crate::lmb::traits::Filter;
+use crate::lmb::types::{StepDetailedOutput, Track};
 use crate::lmb::LbpAssociator;
 
 use super::birth::PyBirthModel;
@@ -25,6 +27,185 @@ use super::intermediate::{
 };
 use super::models::{PyMotionModel, PySensorConfigMulti, PySensorModel};
 use super::output::PyStateEstimate;
+
+// =============================================================================
+// Shared Helper Functions
+// =============================================================================
+
+/// Convert filter error to PyO3 RuntimeError
+fn filter_error_to_py(e: FilterError) -> PyErr {
+    pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e))
+}
+
+/// Convert Track slice to Python list of PyTrackData
+fn tracks_to_py(py: Python<'_>, tracks: &[Track]) -> PyResult<Vec<Py<PyTrackData>>> {
+    tracks
+        .iter()
+        .map(|t| Py::new(py, PyTrackData::from_track(t)))
+        .collect()
+}
+
+/// Convert StepDetailedOutput to PyStepOutput
+fn step_output_to_py(
+    py: Python<'_>,
+    output: StepDetailedOutput,
+    include_association: bool,
+) -> PyResult<Py<PyStepOutput>> {
+    let predicted = tracks_to_py(py, &output.predicted_tracks)?;
+    let updated = tracks_to_py(py, &output.updated_tracks)?;
+
+    let matrices = if include_association {
+        output
+            .association_matrices
+            .map(|m| Py::new(py, PyAssociationMatrices::from_matrices(&m)))
+            .transpose()?
+    } else {
+        None
+    };
+
+    let result = if include_association {
+        output
+            .association_result
+            .map(|r| Py::new(py, PyAssociationResult::from_result(&r)))
+            .transpose()?
+    } else {
+        None
+    };
+
+    let cardinality = Py::new(
+        py,
+        PyCardinalityEstimate {
+            n_estimated: output.cardinality.n_estimated,
+            map_indices: output.cardinality.map_indices,
+        },
+    )?;
+
+    Py::new(
+        py,
+        PyStepOutput {
+            predicted_tracks: predicted,
+            association_matrices: matrices,
+            association_result: result,
+            updated_tracks: updated,
+            cardinality,
+        },
+    )
+}
+
+// =============================================================================
+// Macros for Reducing Filter Boilerplate
+// =============================================================================
+
+/// Implement reset method for all filters
+macro_rules! impl_filter_reset {
+    ($filter:ty) => {
+        #[pymethods]
+        impl $filter {
+            fn reset(&mut self) {
+                self.inner.reset();
+            }
+        }
+    };
+}
+
+/// Implement step and step_detailed for single-sensor filters
+macro_rules! impl_singlesensor_step {
+    ($filter:ty, $include_association:expr) => {
+        #[pymethods]
+        impl $filter {
+            fn step(
+                &mut self,
+                measurements: Vec<PyReadonlyArray1<'_, f64>>,
+                timestep: usize,
+            ) -> PyResult<PyStateEstimate> {
+                let meas = numpy_list_to_measurements(measurements);
+                let estimate = self
+                    .inner
+                    .step(&mut self.rng, &meas, timestep)
+                    .map_err(filter_error_to_py)?;
+                Ok(PyStateEstimate::from_inner(estimate))
+            }
+
+            fn step_detailed(
+                &mut self,
+                py: Python<'_>,
+                measurements: Vec<PyReadonlyArray1<'_, f64>>,
+                timestep: usize,
+            ) -> PyResult<Py<PyStepOutput>> {
+                let meas = numpy_list_to_measurements(measurements);
+                let output = self
+                    .inner
+                    .step_detailed(&mut self.rng, &meas, timestep)
+                    .map_err(filter_error_to_py)?;
+                step_output_to_py(py, output, $include_association)
+            }
+        }
+    };
+}
+
+/// Implement step and step_detailed for multi-sensor filters
+macro_rules! impl_multisensor_step {
+    ($filter:ty, $include_association:expr) => {
+        #[pymethods]
+        impl $filter {
+            fn step(
+                &mut self,
+                measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
+                timestep: usize,
+            ) -> PyResult<PyStateEstimate> {
+                let meas = numpy_nested_to_measurements(measurements);
+                let estimate = self
+                    .inner
+                    .step(&mut self.rng, &meas, timestep)
+                    .map_err(filter_error_to_py)?;
+                Ok(PyStateEstimate::from_inner(estimate))
+            }
+
+            fn step_detailed(
+                &mut self,
+                py: Python<'_>,
+                measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
+                timestep: usize,
+            ) -> PyResult<Py<PyStepOutput>> {
+                let meas = numpy_nested_to_measurements(measurements);
+                let output = self
+                    .inner
+                    .step_detailed(&mut self.rng, &meas, timestep)
+                    .map_err(filter_error_to_py)?;
+                step_output_to_py(py, output, $include_association)
+            }
+        }
+    };
+}
+
+/// Implement set_tracks and get_tracks for LMB-style filters (not LMBM)
+macro_rules! impl_lmb_track_access {
+    ($filter:ty) => {
+        #[pymethods]
+        impl $filter {
+            fn set_tracks(&mut self, tracks: Vec<PyRef<PyTrackData>>) {
+                let rust_tracks: Vec<_> = tracks.iter().map(|t| t.to_track()).collect();
+                self.inner.set_tracks(rust_tracks);
+            }
+
+            fn get_tracks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyTrackData>>> {
+                tracks_to_py(py, &self.inner.get_tracks())
+            }
+        }
+    };
+}
+
+/// Implement get_tracks for LMBM-style filters (read-only, from best hypothesis)
+macro_rules! impl_lmbm_track_access {
+    ($filter:ty) => {
+        #[pymethods]
+        impl $filter {
+            fn get_tracks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyTrackData>>> {
+                tracks_to_py(py, &self.inner.get_tracks())
+            }
+        }
+    };
+}
 
 // =============================================================================
 // AssociatorConfig
@@ -223,23 +404,6 @@ impl PyFilterLmb {
         })
     }
 
-    fn step(
-        &mut self,
-        measurements: Vec<PyReadonlyArray1<'_, f64>>,
-        timestep: usize,
-    ) -> PyResult<PyStateEstimate> {
-        let meas = numpy_list_to_measurements(measurements);
-        let estimate = self
-            .inner
-            .step(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-        Ok(PyStateEstimate::from_inner(estimate))
-    }
-
-    fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     #[getter]
     fn num_tracks(&self) -> usize {
         self.inner.state().len()
@@ -248,86 +412,11 @@ impl PyFilterLmb {
     fn __repr__(&self) -> String {
         format!("FilterLmb(num_tracks={})", self.num_tracks())
     }
-
-    // =========================================================================
-    // Testing/Fixture Validation Methods
-    // =========================================================================
-
-    /// Set internal tracks from PyTrackData list (for fixture testing).
-    fn set_tracks(&mut self, tracks: Vec<PyRef<PyTrackData>>) {
-        let rust_tracks: Vec<_> = tracks.iter().map(|t| t.to_track()).collect();
-        self.inner.set_tracks(rust_tracks);
-    }
-
-    /// Get current tracks as PyTrackData list (for fixture testing).
-    fn get_tracks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyTrackData>>> {
-        self.inner
-            .get_tracks()
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect()
-    }
-
-    /// Run a detailed step returning all intermediate data (for fixture testing).
-    fn step_detailed(
-        &mut self,
-        py: Python<'_>,
-        measurements: Vec<PyReadonlyArray1<'_, f64>>,
-        timestep: usize,
-    ) -> PyResult<Py<PyStepOutput>> {
-        let meas = numpy_list_to_measurements(measurements);
-        let output = self
-            .inner
-            .step_detailed(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-
-        // Convert predicted tracks
-        let predicted: Vec<Py<PyTrackData>> = output
-            .predicted_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-
-        // Convert association matrices (if present)
-        let matrices = output
-            .association_matrices
-            .map(|m| Py::new(py, PyAssociationMatrices::from_matrices(&m)))
-            .transpose()?;
-
-        // Convert association result (if present)
-        let result = output
-            .association_result
-            .map(|r| Py::new(py, PyAssociationResult::from_result(&r)))
-            .transpose()?;
-
-        // Convert updated tracks
-        let updated: Vec<Py<PyTrackData>> = output
-            .updated_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-
-        // Convert cardinality
-        let cardinality = Py::new(
-            py,
-            PyCardinalityEstimate {
-                n_estimated: output.cardinality.n_estimated,
-                map_indices: output.cardinality.map_indices,
-            },
-        )?;
-
-        Py::new(
-            py,
-            PyStepOutput {
-                predicted_tracks: predicted,
-                association_matrices: matrices,
-                association_result: result,
-                updated_tracks: updated,
-                cardinality,
-            },
-        )
-    }
 }
+
+impl_filter_reset!(PyFilterLmb);
+impl_singlesensor_step!(PyFilterLmb, true);
+impl_lmb_track_access!(PyFilterLmb);
 
 // =============================================================================
 // FilterLmbm - Single-sensor LMBM filter
@@ -373,23 +462,6 @@ impl PyFilterLmbm {
         })
     }
 
-    fn step(
-        &mut self,
-        measurements: Vec<PyReadonlyArray1<'_, f64>>,
-        timestep: usize,
-    ) -> PyResult<PyStateEstimate> {
-        let meas = numpy_list_to_measurements(measurements);
-        let estimate = self
-            .inner
-            .step(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-        Ok(PyStateEstimate::from_inner(estimate))
-    }
-
-    fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     #[getter]
     fn num_tracks(&self) -> usize {
         self.inner
@@ -412,65 +484,11 @@ impl PyFilterLmbm {
             self.num_tracks()
         )
     }
-
-    // =========================================================================
-    // Testing/Fixture Validation Methods
-    // =========================================================================
-
-    /// Get tracks from highest-weight hypothesis as PyTrackData list (for fixture testing).
-    fn get_tracks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyTrackData>>> {
-        self.inner
-            .get_tracks()
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect()
-    }
-
-    /// Run a detailed step returning all intermediate data (for fixture testing).
-    fn step_detailed(
-        &mut self,
-        py: Python<'_>,
-        measurements: Vec<PyReadonlyArray1<'_, f64>>,
-        timestep: usize,
-    ) -> PyResult<Py<PyStepOutput>> {
-        let meas = numpy_list_to_measurements(measurements);
-        let output = self
-            .inner
-            .step_detailed(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-
-        let predicted: Vec<Py<PyTrackData>> = output
-            .predicted_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-
-        let updated: Vec<Py<PyTrackData>> = output
-            .updated_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-
-        let cardinality = Py::new(
-            py,
-            PyCardinalityEstimate {
-                n_estimated: output.cardinality.n_estimated,
-                map_indices: output.cardinality.map_indices,
-            },
-        )?;
-
-        Py::new(
-            py,
-            PyStepOutput {
-                predicted_tracks: predicted,
-                association_matrices: None, // LMBM doesn't expose this
-                association_result: None,   // LMBM doesn't expose this
-                updated_tracks: updated,
-                cardinality,
-            },
-        )
-    }
 }
+
+impl_filter_reset!(PyFilterLmbm);
+impl_singlesensor_step!(PyFilterLmbm, false);
+impl_lmbm_track_access!(PyFilterLmbm);
 
 // =============================================================================
 // FilterAaLmb - Arithmetic Average multi-sensor LMB filter
@@ -515,23 +533,6 @@ impl PyFilterAaLmb {
         })
     }
 
-    fn step(
-        &mut self,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<PyStateEstimate> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let estimate = self
-            .inner
-            .step(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-        Ok(PyStateEstimate::from_inner(estimate))
-    }
-
-    fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     #[getter]
     fn num_tracks(&self) -> usize {
         self.inner.state().len()
@@ -540,63 +541,11 @@ impl PyFilterAaLmb {
     fn __repr__(&self) -> String {
         format!("FilterAaLmb(num_tracks={})", self.num_tracks())
     }
-
-    // Testing methods
-    fn set_tracks(&mut self, tracks: Vec<PyRef<PyTrackData>>) {
-        let rust_tracks: Vec<_> = tracks.iter().map(|t| t.to_track()).collect();
-        self.inner.set_tracks(rust_tracks);
-    }
-
-    fn get_tracks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyTrackData>>> {
-        self.inner
-            .get_tracks()
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect()
-    }
-
-    fn step_detailed(
-        &mut self,
-        py: Python<'_>,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<Py<PyStepOutput>> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let output = self
-            .inner
-            .step_detailed(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-
-        let predicted: Vec<Py<PyTrackData>> = output
-            .predicted_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let updated: Vec<Py<PyTrackData>> = output
-            .updated_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let cardinality = Py::new(
-            py,
-            PyCardinalityEstimate {
-                n_estimated: output.cardinality.n_estimated,
-                map_indices: output.cardinality.map_indices,
-            },
-        )?;
-
-        Py::new(
-            py,
-            PyStepOutput {
-                predicted_tracks: predicted,
-                association_matrices: None,
-                association_result: None,
-                updated_tracks: updated,
-                cardinality,
-            },
-        )
-    }
 }
+
+impl_filter_reset!(PyFilterAaLmb);
+impl_multisensor_step!(PyFilterAaLmb, false);
+impl_lmb_track_access!(PyFilterAaLmb);
 
 // =============================================================================
 // FilterGaLmb - Geometric Average multi-sensor LMB filter
@@ -641,23 +590,6 @@ impl PyFilterGaLmb {
         })
     }
 
-    fn step(
-        &mut self,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<PyStateEstimate> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let estimate = self
-            .inner
-            .step(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-        Ok(PyStateEstimate::from_inner(estimate))
-    }
-
-    fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     #[getter]
     fn num_tracks(&self) -> usize {
         self.inner.state().len()
@@ -666,63 +598,11 @@ impl PyFilterGaLmb {
     fn __repr__(&self) -> String {
         format!("FilterGaLmb(num_tracks={})", self.num_tracks())
     }
-
-    // Testing methods
-    fn set_tracks(&mut self, tracks: Vec<PyRef<PyTrackData>>) {
-        let rust_tracks: Vec<_> = tracks.iter().map(|t| t.to_track()).collect();
-        self.inner.set_tracks(rust_tracks);
-    }
-
-    fn get_tracks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyTrackData>>> {
-        self.inner
-            .get_tracks()
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect()
-    }
-
-    fn step_detailed(
-        &mut self,
-        py: Python<'_>,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<Py<PyStepOutput>> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let output = self
-            .inner
-            .step_detailed(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-
-        let predicted: Vec<Py<PyTrackData>> = output
-            .predicted_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let updated: Vec<Py<PyTrackData>> = output
-            .updated_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let cardinality = Py::new(
-            py,
-            PyCardinalityEstimate {
-                n_estimated: output.cardinality.n_estimated,
-                map_indices: output.cardinality.map_indices,
-            },
-        )?;
-
-        Py::new(
-            py,
-            PyStepOutput {
-                predicted_tracks: predicted,
-                association_matrices: None,
-                association_result: None,
-                updated_tracks: updated,
-                cardinality,
-            },
-        )
-    }
 }
+
+impl_filter_reset!(PyFilterGaLmb);
+impl_multisensor_step!(PyFilterGaLmb, false);
+impl_lmb_track_access!(PyFilterGaLmb);
 
 // =============================================================================
 // FilterPuLmb - Parallel Update multi-sensor LMB filter
@@ -767,23 +647,6 @@ impl PyFilterPuLmb {
         })
     }
 
-    fn step(
-        &mut self,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<PyStateEstimate> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let estimate = self
-            .inner
-            .step(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-        Ok(PyStateEstimate::from_inner(estimate))
-    }
-
-    fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     #[getter]
     fn num_tracks(&self) -> usize {
         self.inner.state().len()
@@ -792,63 +655,11 @@ impl PyFilterPuLmb {
     fn __repr__(&self) -> String {
         format!("FilterPuLmb(num_tracks={})", self.num_tracks())
     }
-
-    // Testing methods
-    fn set_tracks(&mut self, tracks: Vec<PyRef<PyTrackData>>) {
-        let rust_tracks: Vec<_> = tracks.iter().map(|t| t.to_track()).collect();
-        self.inner.set_tracks(rust_tracks);
-    }
-
-    fn get_tracks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyTrackData>>> {
-        self.inner
-            .get_tracks()
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect()
-    }
-
-    fn step_detailed(
-        &mut self,
-        py: Python<'_>,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<Py<PyStepOutput>> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let output = self
-            .inner
-            .step_detailed(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-
-        let predicted: Vec<Py<PyTrackData>> = output
-            .predicted_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let updated: Vec<Py<PyTrackData>> = output
-            .updated_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let cardinality = Py::new(
-            py,
-            PyCardinalityEstimate {
-                n_estimated: output.cardinality.n_estimated,
-                map_indices: output.cardinality.map_indices,
-            },
-        )?;
-
-        Py::new(
-            py,
-            PyStepOutput {
-                predicted_tracks: predicted,
-                association_matrices: None,
-                association_result: None,
-                updated_tracks: updated,
-                cardinality,
-            },
-        )
-    }
 }
+
+impl_filter_reset!(PyFilterPuLmb);
+impl_multisensor_step!(PyFilterPuLmb, false);
+impl_lmb_track_access!(PyFilterPuLmb);
 
 // =============================================================================
 // FilterIcLmb - Iterated Corrector multi-sensor LMB filter
@@ -892,23 +703,6 @@ impl PyFilterIcLmb {
         })
     }
 
-    fn step(
-        &mut self,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<PyStateEstimate> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let estimate = self
-            .inner
-            .step(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-        Ok(PyStateEstimate::from_inner(estimate))
-    }
-
-    fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     #[getter]
     fn num_tracks(&self) -> usize {
         self.inner.state().len()
@@ -917,63 +711,11 @@ impl PyFilterIcLmb {
     fn __repr__(&self) -> String {
         format!("FilterIcLmb(num_tracks={})", self.num_tracks())
     }
-
-    // Testing methods
-    fn set_tracks(&mut self, tracks: Vec<PyRef<PyTrackData>>) {
-        let rust_tracks: Vec<_> = tracks.iter().map(|t| t.to_track()).collect();
-        self.inner.set_tracks(rust_tracks);
-    }
-
-    fn get_tracks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyTrackData>>> {
-        self.inner
-            .get_tracks()
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect()
-    }
-
-    fn step_detailed(
-        &mut self,
-        py: Python<'_>,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<Py<PyStepOutput>> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let output = self
-            .inner
-            .step_detailed(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-
-        let predicted: Vec<Py<PyTrackData>> = output
-            .predicted_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let updated: Vec<Py<PyTrackData>> = output
-            .updated_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let cardinality = Py::new(
-            py,
-            PyCardinalityEstimate {
-                n_estimated: output.cardinality.n_estimated,
-                map_indices: output.cardinality.map_indices,
-            },
-        )?;
-
-        Py::new(
-            py,
-            PyStepOutput {
-                predicted_tracks: predicted,
-                association_matrices: None,
-                association_result: None,
-                updated_tracks: updated,
-                cardinality,
-            },
-        )
-    }
 }
+
+impl_filter_reset!(PyFilterIcLmb);
+impl_multisensor_step!(PyFilterIcLmb, false);
+impl_lmb_track_access!(PyFilterIcLmb);
 
 // =============================================================================
 // FilterMultisensorLmbm - Multi-sensor LMBM filter
@@ -1019,23 +761,6 @@ impl PyFilterMultisensorLmbm {
         })
     }
 
-    fn step(
-        &mut self,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<PyStateEstimate> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let estimate = self
-            .inner
-            .step(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-        Ok(PyStateEstimate::from_inner(estimate))
-    }
-
-    fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     #[getter]
     fn num_tracks(&self) -> usize {
         self.inner
@@ -1058,55 +783,8 @@ impl PyFilterMultisensorLmbm {
             self.num_tracks()
         )
     }
-
-    // Testing methods
-    fn get_tracks(&self, py: Python<'_>) -> PyResult<Vec<Py<PyTrackData>>> {
-        self.inner
-            .get_tracks()
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect()
-    }
-
-    fn step_detailed(
-        &mut self,
-        py: Python<'_>,
-        measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-        timestep: usize,
-    ) -> PyResult<Py<PyStepOutput>> {
-        let meas = numpy_nested_to_measurements(measurements);
-        let output = self
-            .inner
-            .step_detailed(&mut self.rng, &meas, timestep)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{:?}", e)))?;
-
-        let predicted: Vec<Py<PyTrackData>> = output
-            .predicted_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let updated: Vec<Py<PyTrackData>> = output
-            .updated_tracks
-            .iter()
-            .map(|t| Py::new(py, PyTrackData::from_track(t)))
-            .collect::<PyResult<_>>()?;
-        let cardinality = Py::new(
-            py,
-            PyCardinalityEstimate {
-                n_estimated: output.cardinality.n_estimated,
-                map_indices: output.cardinality.map_indices,
-            },
-        )?;
-
-        Py::new(
-            py,
-            PyStepOutput {
-                predicted_tracks: predicted,
-                association_matrices: None,
-                association_result: None,
-                updated_tracks: updated,
-                cardinality,
-            },
-        )
-    }
 }
+
+impl_filter_reset!(PyFilterMultisensorLmbm);
+impl_multisensor_step!(PyFilterMultisensorLmbm, false);
+impl_lmbm_track_access!(PyFilterMultisensorLmbm);

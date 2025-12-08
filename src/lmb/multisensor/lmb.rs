@@ -38,7 +38,7 @@ use super::super::config::{AssociationConfig, BirthModel, MotionModel, Multisens
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
-use super::super::types::{CardinalityEstimate, StepDetailedOutput, Track};
+use super::super::types::{StepDetailedOutput, Track};
 
 // Re-export fusion strategies for backwards compatibility
 pub use super::fusion::{
@@ -301,10 +301,7 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
         // ══════════════════════════════════════════════════════════════════════
         // STEP 4: Cardinality extraction
         // ══════════════════════════════════════════════════════════════════════
-        let existences: Vec<f64> = self.tracks.iter().map(|t| t.existence).collect();
-        let (n_estimated, map_indices) =
-            super::super::cardinality::lmb_map_cardinality_estimate(&existences);
-        let cardinality = CardinalityEstimate::new(n_estimated, map_indices);
+        let cardinality = super::super::common_ops::compute_cardinality(&self.tracks);
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 5: Gating

@@ -40,7 +40,7 @@ clap = { version = "4.5", features = ["derive"] }
 hotpath = { version = "0.7", optional = true }
 
 # Python bindings (optional)
-pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi3-py312"] }
+pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi3-py312", "multiple-pymethods"] }
 numpy = { version = "0.23", optional = true }
 
 [dev-dependencies]

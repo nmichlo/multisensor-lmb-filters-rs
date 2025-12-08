@@ -27,9 +27,7 @@ use super::super::config::{
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::Filter;
-use super::super::types::{
-    CardinalityEstimate, GaussianComponent, LmbmHypothesis, StepDetailedOutput, Track,
-};
+use super::super::types::{GaussianComponent, LmbmHypothesis, StepDetailedOutput, Track};
 use super::lmb::MultisensorMeasurements;
 use super::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
 
@@ -620,10 +618,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         // STEP 5: Cardinality extraction
         // ══════════════════════════════════════════════════════════════════════
-        let existences: Vec<f64> = updated_tracks.iter().map(|t| t.existence).collect();
-        let (n_estimated, map_indices) =
-            super::super::cardinality::lmb_map_cardinality_estimate(&existences);
-        let cardinality = CardinalityEstimate::new(n_estimated, map_indices);
+        let cardinality = super::super::common_ops::compute_cardinality(&updated_tracks);
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 6: Track gating

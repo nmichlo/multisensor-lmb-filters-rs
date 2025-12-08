@@ -9,7 +9,7 @@ use super::cardinality::lmb_map_cardinality_estimate;
 use super::config::{BirthModel, MotionModel};
 use super::output::{EstimatedTrack, StateEstimate, Trajectory};
 use super::traits::AssociationResult;
-use super::types::{GaussianComponent, LmbmHypothesis, Track};
+use super::types::{CardinalityEstimate, GaussianComponent, LmbmHypothesis, Track};
 
 use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
@@ -84,6 +84,30 @@ pub fn normalize_component_weights(components: &mut SmallVec<[GaussianComponent;
 pub fn normalize_track_weights(track: &mut Track) {
     normalize_component_weights(&mut track.components);
 }
+
+// ============================================================================
+// Cardinality Estimation
+// ============================================================================
+
+/// Compute MAP cardinality estimate from track existence probabilities.
+///
+/// This is a convenience wrapper around `lmb_map_cardinality_estimate` that
+/// extracts existence probabilities from tracks and returns a `CardinalityEstimate`.
+///
+/// # Arguments
+/// * `tracks` - Slice of tracks with existence probabilities
+///
+/// # Returns
+/// A `CardinalityEstimate` containing the MAP estimate and selected track indices.
+pub fn compute_cardinality(tracks: &[Track]) -> CardinalityEstimate {
+    let existences: Vec<f64> = tracks.iter().map(|t| t.existence).collect();
+    let (n_estimated, map_indices) = lmb_map_cardinality_estimate(&existences);
+    CardinalityEstimate::new(n_estimated, map_indices)
+}
+
+// ============================================================================
+// Gaussian Mixture Pruning
+// ============================================================================
 
 /// Prune weighted components by threshold, truncate to max, and normalize.
 ///
