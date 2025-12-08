@@ -15,7 +15,5 @@ pub fn create_rng(seed: Option<u64>) -> StdRng {
 
 /// Convert FilterError to PyResult
 pub fn wrap_filter_error<T>(result: Result<T, FilterError>) -> PyResult<T> {
-    result.map_err(|e| {
-        pyo3::exceptions::PyRuntimeError::new_err(format!("Filter error: {:?}", e))
-    })
+    result.map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Filter error: {:?}", e)))
 }

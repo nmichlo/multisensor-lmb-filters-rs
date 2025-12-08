@@ -39,7 +39,9 @@ pub fn dmatrix_to_numpy<'py>(py: Python<'py>, m: &DMatrix<f64>) -> Bound<'py, Py
 }
 
 /// Convert list of numpy arrays to Vec<DVector> (single-sensor measurements)
-pub fn numpy_list_to_measurements(measurements: Vec<PyReadonlyArray1<'_, f64>>) -> Vec<DVector<f64>> {
+pub fn numpy_list_to_measurements(
+    measurements: Vec<PyReadonlyArray1<'_, f64>>,
+) -> Vec<DVector<f64>> {
     measurements.into_iter().map(numpy_to_dvector).collect()
 }
 

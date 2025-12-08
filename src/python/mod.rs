@@ -52,6 +52,9 @@ fn _multisensor_lmb_filters_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIcLmbFilter>()?;
     m.add_class::<PyMultisensorLmbmFilter>()?;
 
+    // Low-level operations (for testing)
+    ops::register_ops(m)?;
+
     // Version
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
