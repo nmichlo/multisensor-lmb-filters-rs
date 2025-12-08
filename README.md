@@ -1,6 +1,22 @@
-# Prak - Multi-Object Tracking Library
+# 🎯 multisensor-lmb-filters-rs
 
-A Rust implementation of Labeled Multi-Bernoulli (LMB) and LMB Mixture (LMBM) filters for multi-object tracking. Ported from the MATLAB [multisensor-lmb-filters](https://github.com/example/multisensor-lmb-filters) library.
+> Rust implementation for multi-object tracking using Labeled Multi-Bernoulli filters
+
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
+[![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+
+---
+
+## Related Projects
+
+- [**multisensor-lmb-filters**](https://github.com/nmichlo/multisensor-lmb-filters) - MATLAB reference implementation with deterministic fixtures
+- [**Original repository**](https://github.com/scjrobertson/multisensor-lmb-filters) - Stuart Robertson's original MATLAB implementation (see [LICENSE-MIT](LICENSE-MIT) for permission details)
+
+## Overview
+
+This is a Rust port of [scjrobertson/multisensor-lmb-filters](https://github.com/scjrobertson/multisensor-lmb-filters), providing **verified numerical equivalence** with the MATLAB reference at high tolerance.
+
+**Purpose:** High-performance multi-object tracking with trait-based extensibility.
 
 ## Features
 
@@ -233,4 +249,4 @@ Typical performance on modern hardware (100 timesteps):
 
 ## License
 
-MIT OR Apache-2.0
+MIT (see [LICENSE-MIT](LICENSE-MIT))
