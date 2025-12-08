@@ -5,6 +5,7 @@
 mod birth;
 mod convert;
 mod filters;
+mod intermediate;
 mod models;
 mod output;
 mod types;
@@ -46,6 +47,13 @@ fn _multisensor_lmb_filters_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Core types
     m.add_class::<types::PyTrackLabel>()?;
     m.add_class::<types::PyGaussianComponent>()?;
+
+    // Internal types for testing (underscore-prefixed = private)
+    m.add_class::<intermediate::PyTrackData>()?;
+    m.add_class::<intermediate::PyAssociationMatrices>()?;
+    m.add_class::<intermediate::PyAssociationResult>()?;
+    m.add_class::<intermediate::PyCardinalityEstimate>()?;
+    m.add_class::<intermediate::PyStepOutput>()?;
 
     // Version
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

@@ -203,12 +203,8 @@ impl PyFilterLmb {
         thresholds: Option<&PyFilterThresholds>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
-        let assoc = association
-            .map(|a| a.inner.clone())
-            .unwrap_or_else(AssociationConfig::default);
-        let thresh = thresholds
-            .map(|t| t.inner.clone())
-            .unwrap_or_else(FilterThresholds::default);
+        let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
+        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
 
         let inner = LmbFilter::new(
             motion.inner.clone(),
@@ -278,9 +274,7 @@ impl PyFilterLmbm {
         let assoc = association
             .map(|a| a.inner.clone())
             .unwrap_or_else(|| AssociationConfig::gibbs(1000));
-        let lmbm = lmbm_config
-            .map(|c| c.inner.clone())
-            .unwrap_or_else(LmbmConfig::default);
+        let lmbm = lmbm_config.map(|c| c.inner.clone()).unwrap_or_default();
 
         // Note: thresholds not used for LMBM filter (no builder method for it)
         let inner = LmbmFilter::new(
@@ -360,12 +354,8 @@ impl PyFilterAaLmb {
         thresholds: Option<&PyFilterThresholds>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
-        let assoc = association
-            .map(|a| a.inner.clone())
-            .unwrap_or_else(AssociationConfig::default);
-        let thresh = thresholds
-            .map(|t| t.inner.clone())
-            .unwrap_or_else(FilterThresholds::default);
+        let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
+        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
 
         let num_sensors = sensors.inner.num_sensors();
         let merger = ArithmeticAverageMerger::uniform(num_sensors, thresh.max_gm_components);
@@ -434,12 +424,8 @@ impl PyFilterGaLmb {
         thresholds: Option<&PyFilterThresholds>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
-        let assoc = association
-            .map(|a| a.inner.clone())
-            .unwrap_or_else(AssociationConfig::default);
-        let thresh = thresholds
-            .map(|t| t.inner.clone())
-            .unwrap_or_else(FilterThresholds::default);
+        let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
+        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
 
         let num_sensors = sensors.inner.num_sensors();
         let merger = GeometricAverageMerger::uniform(num_sensors);
@@ -508,12 +494,8 @@ impl PyFilterPuLmb {
         thresholds: Option<&PyFilterThresholds>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
-        let assoc = association
-            .map(|a| a.inner.clone())
-            .unwrap_or_else(AssociationConfig::default);
-        let thresh = thresholds
-            .map(|t| t.inner.clone())
-            .unwrap_or_else(FilterThresholds::default);
+        let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
+        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
 
         // PU merger needs prior tracks - start with empty
         let merger = ParallelUpdateMerger::new(Vec::new());
@@ -582,12 +564,8 @@ impl PyFilterIcLmb {
         thresholds: Option<&PyFilterThresholds>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
-        let assoc = association
-            .map(|a| a.inner.clone())
-            .unwrap_or_else(AssociationConfig::default);
-        let thresh = thresholds
-            .map(|t| t.inner.clone())
-            .unwrap_or_else(FilterThresholds::default);
+        let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
+        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
 
         let merger = IteratedCorrectorMerger::new();
 
@@ -660,9 +638,7 @@ impl PyFilterMultisensorLmbm {
         let assoc = association
             .map(|a| a.inner.clone())
             .unwrap_or_else(|| AssociationConfig::gibbs(1000));
-        let lmbm = lmbm_config
-            .map(|c| c.inner.clone())
-            .unwrap_or_else(LmbmConfig::default);
+        let lmbm = lmbm_config.map(|c| c.inner.clone()).unwrap_or_default();
 
         // Note: thresholds not used for LMBM filter (no builder method for it)
         let inner = MultisensorLmbmFilter::new(
