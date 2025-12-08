@@ -2,8 +2,11 @@
 //!
 //! This module provides PyO3 bindings for the LMB tracking library.
 
+mod common;
 mod config;
+mod convert;
 mod filters;
+mod ops;
 mod output;
 mod types;
 

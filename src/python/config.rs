@@ -1,47 +1,13 @@
 //! Python bindings for configuration types
 
-use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
+use super::convert::{dmatrix_to_numpy, dvector_to_numpy, numpy_to_dmatrix, numpy_to_dvector};
 use crate::lmb::{
     AssociationConfig, BirthLocation, BirthModel, DataAssociationMethod, FilterThresholds,
     LmbmConfig, MotionModel, MultisensorConfig, SensorModel,
 };
-use nalgebra::{DMatrix, DVector};
-
-/// Convert numpy array to nalgebra DVector
-fn numpy_to_dvector(arr: PyReadonlyArray1<'_, f64>) -> DVector<f64> {
-    DVector::from_vec(arr.as_slice().unwrap().to_vec())
-}
-
-/// Convert numpy array to nalgebra DMatrix
-fn numpy_to_dmatrix(arr: PyReadonlyArray2<'_, f64>) -> DMatrix<f64> {
-    let shape = arr.shape();
-    let rows = shape[0];
-    let cols = shape[1];
-    let data: Vec<f64> = arr.as_slice().unwrap().to_vec();
-    // numpy is row-major, nalgebra is column-major
-    DMatrix::from_row_slice(rows, cols, &data)
-}
-
-/// Convert nalgebra DVector to numpy array
-fn dvector_to_numpy<'py>(py: Python<'py>, v: &DVector<f64>) -> Bound<'py, PyArray1<f64>> {
-    PyArray1::from_slice(py, v.as_slice())
-}
-
-/// Convert nalgebra DMatrix to numpy array (row-major)
-fn dmatrix_to_numpy<'py>(py: Python<'py>, m: &DMatrix<f64>) -> Bound<'py, PyArray2<f64>> {
-    let rows = m.nrows();
-    let cols = m.ncols();
-    // Convert to row-major for numpy
-    let mut data = vec![vec![0.0; cols]; rows];
-    for i in 0..rows {
-        for j in 0..cols {
-            data[i][j] = m[(i, j)];
-        }
-    }
-    PyArray2::from_vec2(py, &data).unwrap()
-}
 
 /// Motion model for prediction
 #[pyclass(name = "MotionModel")]

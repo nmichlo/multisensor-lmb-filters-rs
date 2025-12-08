@@ -2,40 +2,19 @@
 
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
-use rand::SeedableRng;
 
+use super::common::{create_rng, wrap_filter_error};
+use super::config::{
+    PyAssociationConfig, PyBirthModel, PyLmbmConfig, PyMotionModel, PyMultisensorConfig,
+    PySensorModel,
+};
+use super::convert::{numpy_list_to_measurements, numpy_nested_to_measurements};
+use super::output::PyStateEstimate;
 use crate::lmb::{
     AaLmbFilter, ArithmeticAverageMerger, Filter, GaLmbFilter, GeometricAverageMerger, IcLmbFilter,
     IteratedCorrectorMerger, LbpAssociator, LmbFilter, LmbmFilter, MultisensorLmbmFilter,
     ParallelUpdateMerger, PuLmbFilter,
 };
-use nalgebra::DVector;
-
-use super::config::{
-    PyAssociationConfig, PyBirthModel, PyLmbmConfig, PyMotionModel, PyMultisensorConfig,
-    PySensorModel,
-};
-use super::output::PyStateEstimate;
-
-/// Convert numpy array to nalgebra DVector
-fn numpy_to_dvector(arr: PyReadonlyArray1<'_, f64>) -> DVector<f64> {
-    DVector::from_vec(arr.as_slice().unwrap().to_vec())
-}
-
-/// Convert list of numpy arrays to Vec<DVector>
-fn numpy_list_to_measurements(measurements: Vec<PyReadonlyArray1<'_, f64>>) -> Vec<DVector<f64>> {
-    measurements.into_iter().map(numpy_to_dvector).collect()
-}
-
-/// Convert list of list of numpy arrays to Vec<Vec<DVector>> (multisensor)
-fn numpy_nested_to_measurements(
-    measurements: Vec<Vec<PyReadonlyArray1<'_, f64>>>,
-) -> Vec<Vec<DVector<f64>>> {
-    measurements
-        .into_iter()
-        .map(|sensor_meas| sensor_meas.into_iter().map(numpy_to_dvector).collect())
-        .collect()
-}
 
 /// Single-sensor LMB filter
 #[pyclass(name = "LmbFilter")]
@@ -57,13 +36,9 @@ impl PyLmbFilter {
         seed: Option<u64>,
     ) -> Self {
         let association_config = association.map(|a| a.inner).unwrap_or_default();
-        let rng = match seed {
-            Some(s) => rand::rngs::StdRng::seed_from_u64(s),
-            None => rand::rngs::StdRng::from_entropy(),
-        };
         Self {
             inner: LmbFilter::new(motion.inner, sensor.inner, birth.inner, association_config),
-            rng,
+            rng: create_rng(seed),
         }
     }
 
@@ -82,13 +57,8 @@ impl PyLmbFilter {
         timestep: usize,
     ) -> PyResult<PyStateEstimate> {
         let meas = numpy_list_to_measurements(measurements);
-        match self.inner.step(&mut self.rng, &meas, timestep) {
-            Ok(estimate) => Ok(PyStateEstimate { inner: estimate }),
-            Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Filter error: {:?}",
-                e
-            ))),
-        }
+        wrap_filter_error(self.inner.step(&mut self.rng, &meas, timestep))
+            .map(|estimate| PyStateEstimate { inner: estimate })
     }
 
     /// Reset the filter to initial state
@@ -129,10 +99,6 @@ impl PyLmbmFilter {
     ) -> Self {
         let association_config = association.map(|a| a.inner).unwrap_or_default();
         let lmbm = lmbm_config.map(|c| c.inner).unwrap_or_default();
-        let rng = match seed {
-            Some(s) => rand::rngs::StdRng::seed_from_u64(s),
-            None => rand::rngs::StdRng::from_entropy(),
-        };
         Self {
             inner: LmbmFilter::new(
                 motion.inner,
@@ -141,7 +107,7 @@ impl PyLmbmFilter {
                 association_config,
                 lmbm,
             ),
-            rng,
+            rng: create_rng(seed),
         }
     }
 
@@ -153,13 +119,8 @@ impl PyLmbmFilter {
         timestep: usize,
     ) -> PyResult<PyStateEstimate> {
         let meas = numpy_list_to_measurements(measurements);
-        match self.inner.step(&mut self.rng, &meas, timestep) {
-            Ok(estimate) => Ok(PyStateEstimate { inner: estimate }),
-            Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Filter error: {:?}",
-                e
-            ))),
-        }
+        wrap_filter_error(self.inner.step(&mut self.rng, &meas, timestep))
+            .map(|estimate| PyStateEstimate { inner: estimate })
     }
 
     /// Reset the filter to initial state
@@ -173,8 +134,23 @@ impl PyLmbmFilter {
         self.inner.state().len()
     }
 
+    /// Get number of tracks (max across all hypotheses)
+    #[getter]
+    fn num_tracks(&self) -> usize {
+        self.inner
+            .state()
+            .iter()
+            .map(|h| h.tracks.len())
+            .max()
+            .unwrap_or(0)
+    }
+
     fn __repr__(&self) -> String {
-        format!("LmbmFilter(num_hypotheses={})", self.inner.state().len())
+        format!(
+            "LmbmFilter(num_hypotheses={}, num_tracks={})",
+            self.inner.state().len(),
+            self.num_tracks()
+        )
     }
 }
 
@@ -201,10 +177,6 @@ impl PyAaLmbFilter {
         let association_config = association.map(|a| a.inner).unwrap_or_default();
         let num_sensors = sensors.inner.num_sensors();
         let merger = ArithmeticAverageMerger::uniform(num_sensors, max_components);
-        let rng = match seed {
-            Some(s) => rand::rngs::StdRng::seed_from_u64(s),
-            None => rand::rngs::StdRng::from_entropy(),
-        };
         Self {
             inner: AaLmbFilter::new(
                 motion.inner,
@@ -213,7 +185,7 @@ impl PyAaLmbFilter {
                 association_config,
                 merger,
             ),
-            rng,
+            rng: create_rng(seed),
         }
     }
 
@@ -229,13 +201,8 @@ impl PyAaLmbFilter {
         timestep: usize,
     ) -> PyResult<PyStateEstimate> {
         let meas = numpy_nested_to_measurements(measurements);
-        match self.inner.step(&mut self.rng, &meas, timestep) {
-            Ok(estimate) => Ok(PyStateEstimate { inner: estimate }),
-            Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Filter error: {:?}",
-                e
-            ))),
-        }
+        wrap_filter_error(self.inner.step(&mut self.rng, &meas, timestep))
+            .map(|estimate| PyStateEstimate { inner: estimate })
     }
 
     /// Reset the filter to initial state
@@ -276,10 +243,6 @@ impl PyGaLmbFilter {
         let association_config = association.map(|a| a.inner).unwrap_or_default();
         let num_sensors = sensors.inner.num_sensors();
         let merger = GeometricAverageMerger::uniform(num_sensors);
-        let rng = match seed {
-            Some(s) => rand::rngs::StdRng::seed_from_u64(s),
-            None => rand::rngs::StdRng::from_entropy(),
-        };
         Self {
             inner: GaLmbFilter::new(
                 motion.inner,
@@ -288,7 +251,7 @@ impl PyGaLmbFilter {
                 association_config,
                 merger,
             ),
-            rng,
+            rng: create_rng(seed),
         }
     }
 
@@ -300,13 +263,8 @@ impl PyGaLmbFilter {
         timestep: usize,
     ) -> PyResult<PyStateEstimate> {
         let meas = numpy_nested_to_measurements(measurements);
-        match self.inner.step(&mut self.rng, &meas, timestep) {
-            Ok(estimate) => Ok(PyStateEstimate { inner: estimate }),
-            Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Filter error: {:?}",
-                e
-            ))),
-        }
+        wrap_filter_error(self.inner.step(&mut self.rng, &meas, timestep))
+            .map(|estimate| PyStateEstimate { inner: estimate })
     }
 
     /// Reset the filter to initial state
@@ -346,10 +304,6 @@ impl PyPuLmbFilter {
     ) -> Self {
         let association_config = association.map(|a| a.inner).unwrap_or_default();
         let merger = ParallelUpdateMerger::new(Vec::new());
-        let rng = match seed {
-            Some(s) => rand::rngs::StdRng::seed_from_u64(s),
-            None => rand::rngs::StdRng::from_entropy(),
-        };
         Self {
             inner: PuLmbFilter::new(
                 motion.inner,
@@ -358,7 +312,7 @@ impl PyPuLmbFilter {
                 association_config,
                 merger,
             ),
-            rng,
+            rng: create_rng(seed),
         }
     }
 
@@ -370,13 +324,8 @@ impl PyPuLmbFilter {
         timestep: usize,
     ) -> PyResult<PyStateEstimate> {
         let meas = numpy_nested_to_measurements(measurements);
-        match self.inner.step(&mut self.rng, &meas, timestep) {
-            Ok(estimate) => Ok(PyStateEstimate { inner: estimate }),
-            Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Filter error: {:?}",
-                e
-            ))),
-        }
+        wrap_filter_error(self.inner.step(&mut self.rng, &meas, timestep))
+            .map(|estimate| PyStateEstimate { inner: estimate })
     }
 
     /// Reset the filter to initial state
@@ -416,10 +365,6 @@ impl PyIcLmbFilter {
     ) -> Self {
         let association_config = association.map(|a| a.inner).unwrap_or_default();
         let merger = IteratedCorrectorMerger::new();
-        let rng = match seed {
-            Some(s) => rand::rngs::StdRng::seed_from_u64(s),
-            None => rand::rngs::StdRng::from_entropy(),
-        };
         Self {
             inner: IcLmbFilter::new(
                 motion.inner,
@@ -428,7 +373,7 @@ impl PyIcLmbFilter {
                 association_config,
                 merger,
             ),
-            rng,
+            rng: create_rng(seed),
         }
     }
 
@@ -440,13 +385,8 @@ impl PyIcLmbFilter {
         timestep: usize,
     ) -> PyResult<PyStateEstimate> {
         let meas = numpy_nested_to_measurements(measurements);
-        match self.inner.step(&mut self.rng, &meas, timestep) {
-            Ok(estimate) => Ok(PyStateEstimate { inner: estimate }),
-            Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Filter error: {:?}",
-                e
-            ))),
-        }
+        wrap_filter_error(self.inner.step(&mut self.rng, &meas, timestep))
+            .map(|estimate| PyStateEstimate { inner: estimate })
     }
 
     /// Reset the filter to initial state
@@ -487,10 +427,6 @@ impl PyMultisensorLmbmFilter {
     ) -> Self {
         let association_config = association.map(|a| a.inner).unwrap_or_default();
         let lmbm = lmbm_config.map(|c| c.inner).unwrap_or_default();
-        let rng = match seed {
-            Some(s) => rand::rngs::StdRng::seed_from_u64(s),
-            None => rand::rngs::StdRng::from_entropy(),
-        };
         Self {
             inner: MultisensorLmbmFilter::new(
                 motion.inner,
@@ -499,7 +435,7 @@ impl PyMultisensorLmbmFilter {
                 association_config,
                 lmbm,
             ),
-            rng,
+            rng: create_rng(seed),
         }
     }
 
@@ -511,13 +447,8 @@ impl PyMultisensorLmbmFilter {
         timestep: usize,
     ) -> PyResult<PyStateEstimate> {
         let meas = numpy_nested_to_measurements(measurements);
-        match self.inner.step(&mut self.rng, &meas, timestep) {
-            Ok(estimate) => Ok(PyStateEstimate { inner: estimate }),
-            Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
-                "Filter error: {:?}",
-                e
-            ))),
-        }
+        wrap_filter_error(self.inner.step(&mut self.rng, &meas, timestep))
+            .map(|estimate| PyStateEstimate { inner: estimate })
     }
 
     /// Reset the filter to initial state
@@ -531,10 +462,22 @@ impl PyMultisensorLmbmFilter {
         self.inner.state().len()
     }
 
+    /// Get number of tracks (max across all hypotheses)
+    #[getter]
+    fn num_tracks(&self) -> usize {
+        self.inner
+            .state()
+            .iter()
+            .map(|h| h.tracks.len())
+            .max()
+            .unwrap_or(0)
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "MultisensorLmbmFilter(num_hypotheses={})",
-            self.inner.state().len()
+            "MultisensorLmbmFilter(num_hypotheses={}, num_tracks={})",
+            self.inner.state().len(),
+            self.num_tracks()
         )
     }
 }

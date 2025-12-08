@@ -3,28 +3,9 @@
 use numpy::{PyArray1, PyArray2};
 use pyo3::prelude::*;
 
-use crate::lmb::{EstimatedTrack, FilterOutput, StateEstimate, Trajectory};
-use nalgebra::{DMatrix, DVector};
-
+use super::convert::{dmatrix_to_numpy, dvector_to_numpy};
 use super::types::PyTrackLabel;
-
-/// Convert nalgebra DVector to numpy array
-fn dvector_to_numpy<'py>(py: Python<'py>, v: &DVector<f64>) -> Bound<'py, PyArray1<f64>> {
-    PyArray1::from_slice(py, v.as_slice())
-}
-
-/// Convert nalgebra DMatrix to numpy array (row-major)
-fn dmatrix_to_numpy<'py>(py: Python<'py>, m: &DMatrix<f64>) -> Bound<'py, PyArray2<f64>> {
-    let rows = m.nrows();
-    let cols = m.ncols();
-    let mut data = vec![vec![0.0; cols]; rows];
-    for i in 0..rows {
-        for j in 0..cols {
-            data[i][j] = m[(i, j)];
-        }
-    }
-    PyArray2::from_vec2(py, &data).unwrap()
-}
+use crate::lmb::{EstimatedTrack, FilterOutput, StateEstimate, Trajectory};
 
 /// Estimated state of a single track at one timestep
 #[pyclass(name = "EstimatedTrack")]
