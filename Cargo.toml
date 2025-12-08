@@ -13,7 +13,7 @@ categories = ["science", "algorithms"]
 
 [lib]
 name = "multisensor_lmb_filters_rs"
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Linear algebra
@@ -39,12 +39,18 @@ clap = { version = "4.5", features = ["derive"] }
 # Profiling (optional)
 hotpath = { version = "0.7", optional = true }
 
+# Python bindings (optional)
+pyo3 = { version = "0.23", optional = true, features = ["extension-module", "abi3-py312"] }
+numpy = { version = "0.23", optional = true }
+
 [dev-dependencies]
 # Testing
 approx = "0.5"      # Floating point comparisons
 criterion = "0.5"   # Benchmarking
 
 [features]
+default = []
+python = ["dep:pyo3", "dep:numpy"]
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 
