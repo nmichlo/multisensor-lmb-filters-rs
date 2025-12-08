@@ -1,7 +1,6 @@
 """Tests for filter implementations."""
 
 import numpy as np
-import pytest
 
 
 class TestLmbFilter:
@@ -42,15 +41,12 @@ class TestLmbFilter:
         # Run a few steps
         for t in range(3):
             lmb_filter.step(measurements=[np.array([1.0, 2.0])], timestep=t)
-        initial_tracks = lmb_filter.num_tracks
 
         # Reset
         lmb_filter.reset()
         assert lmb_filter.num_tracks == 0
 
-    def test_reproducibility_with_seed(
-        self, motion_model_2d, sensor_model_2d, birth_model_2d
-    ):
+    def test_reproducibility_with_seed(self, motion_model_2d, sensor_model_2d, birth_model_2d):
         """Test that filters with same seed produce same results."""
         from multisensor_lmb_filters_rs import LmbFilter
 
@@ -76,9 +72,7 @@ class TestLmbFilter:
         for t1, t2 in zip(est1.tracks, est2.tracks):
             np.testing.assert_array_almost_equal(t1.mean, t2.mean)
 
-    def test_different_association_methods(
-        self, motion_model_2d, sensor_model_2d, birth_model_2d
-    ):
+    def test_different_association_methods(self, motion_model_2d, sensor_model_2d, birth_model_2d):
         """Test different association methods produce results."""
         from multisensor_lmb_filters_rs import AssociationConfig, LmbFilter
 
@@ -126,9 +120,7 @@ class TestLmbmFilter:
         """Test LMBM with custom config."""
         from multisensor_lmb_filters_rs import LmbmConfig, LmbmFilter
 
-        config = LmbmConfig(
-            max_hypotheses=100, hypothesis_weight_threshold=1e-4, use_eap=True
-        )
+        config = LmbmConfig(max_hypotheses=100, hypothesis_weight_threshold=1e-4, use_eap=True)
         filter = LmbmFilter(
             motion=motion_model_2d,
             sensor=sensor_model_2d,
@@ -143,9 +135,7 @@ class TestLmbmFilter:
 class TestMultisensorFilters:
     """Test multi-sensor filter variants."""
 
-    def test_aa_lmb_filter(
-        self, motion_model_2d, multisensor_config_2d, birth_model_2d
-    ):
+    def test_aa_lmb_filter(self, motion_model_2d, multisensor_config_2d, birth_model_2d):
         """Test AA-LMB filter."""
         from multisensor_lmb_filters_rs import AaLmbFilter
 
@@ -165,9 +155,7 @@ class TestMultisensorFilters:
         estimate = filter.step(measurements=measurements, timestep=0)
         assert estimate.timestamp == 0
 
-    def test_ga_lmb_filter(
-        self, motion_model_2d, multisensor_config_2d, birth_model_2d
-    ):
+    def test_ga_lmb_filter(self, motion_model_2d, multisensor_config_2d, birth_model_2d):
         """Test GA-LMB filter."""
         from multisensor_lmb_filters_rs import GaLmbFilter
 
@@ -184,9 +172,7 @@ class TestMultisensorFilters:
         estimate = filter.step(measurements=measurements, timestep=0)
         assert estimate.timestamp == 0
 
-    def test_pu_lmb_filter(
-        self, motion_model_2d, multisensor_config_2d, birth_model_2d
-    ):
+    def test_pu_lmb_filter(self, motion_model_2d, multisensor_config_2d, birth_model_2d):
         """Test PU-LMB filter."""
         from multisensor_lmb_filters_rs import PuLmbFilter
 
@@ -203,9 +189,7 @@ class TestMultisensorFilters:
         estimate = filter.step(measurements=measurements, timestep=0)
         assert estimate.timestamp == 0
 
-    def test_ic_lmb_filter(
-        self, motion_model_2d, multisensor_config_2d, birth_model_2d
-    ):
+    def test_ic_lmb_filter(self, motion_model_2d, multisensor_config_2d, birth_model_2d):
         """Test IC-LMB filter."""
         from multisensor_lmb_filters_rs import IcLmbFilter
 
@@ -222,9 +206,7 @@ class TestMultisensorFilters:
         estimate = filter.step(measurements=measurements, timestep=0)
         assert estimate.timestamp == 0
 
-    def test_multisensor_lmbm_filter(
-        self, motion_model_2d, multisensor_config_2d, birth_model_2d
-    ):
+    def test_multisensor_lmbm_filter(self, motion_model_2d, multisensor_config_2d, birth_model_2d):
         """Test multi-sensor LMBM filter."""
         from multisensor_lmb_filters_rs import MultisensorLmbmFilter
 
@@ -254,9 +236,7 @@ class TestStateEstimate:
         assert estimate.num_tracks >= 0
         assert len(estimate) == estimate.num_tracks
 
-    def test_estimated_track_properties(
-        self, motion_model_2d, sensor_model_2d, birth_model_2d
-    ):
+    def test_estimated_track_properties(self, motion_model_2d, sensor_model_2d, birth_model_2d):
         """Test EstimatedTrack properties."""
         from multisensor_lmb_filters_rs import BirthLocation, BirthModel, LmbFilter
 
@@ -272,9 +252,7 @@ class TestStateEstimate:
             lmbm_existence=0.1,
         )
 
-        filter = LmbFilter(
-            motion=motion_model_2d, sensor=sensor_model_2d, birth=birth, seed=42
-        )
+        filter = LmbFilter(motion=motion_model_2d, sensor=sensor_model_2d, birth=birth, seed=42)
 
         # Measurement near birth location
         estimate = filter.step(measurements=[np.array([1.0, 2.0])], timestep=0)
@@ -311,9 +289,7 @@ class TestProtocolCompliance:
         from multisensor_lmb_filters_rs import BirthLocation, GaussianComponent
 
         # GaussianComponent has mean
-        comp = GaussianComponent(
-            weight=1.0, mean=np.array([1.0, 2.0]), covariance=np.eye(2)
-        )
+        comp = GaussianComponent(weight=1.0, mean=np.array([1.0, 2.0]), covariance=np.eye(2))
         assert hasattr(comp, "mean")
 
         # BirthLocation has mean
@@ -339,9 +315,7 @@ class TestProtocolCompliance:
         assert hasattr(sensor, "x_dim")
         assert sensor.x_dim == 4
 
-        comp = GaussianComponent(
-            weight=1.0, mean=np.zeros(4), covariance=np.eye(4)
-        )
+        comp = GaussianComponent(weight=1.0, mean=np.zeros(4), covariance=np.eye(4))
         assert hasattr(comp, "x_dim")
         assert comp.x_dim == 4
 
@@ -355,9 +329,7 @@ class TestProtocolCompliance:
         assert hasattr(track, "x_dim")
         assert track.x_dim == 4
 
-    def test_single_sensor_filter_protocol(
-        self, motion_model_2d, sensor_model_2d, birth_model_2d
-    ):
+    def test_single_sensor_filter_protocol(self, motion_model_2d, sensor_model_2d, birth_model_2d):
         """Test SingleSensorFilter protocol compliance."""
         from multisensor_lmb_filters_rs import LmbFilter
 

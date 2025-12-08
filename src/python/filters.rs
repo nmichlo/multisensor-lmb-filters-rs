@@ -56,20 +56,13 @@ impl PyLmbFilter {
         association: Option<PyAssociationConfig>,
         seed: Option<u64>,
     ) -> Self {
-        let association_config = association
-            .map(|a| a.inner)
-            .unwrap_or_default();
+        let association_config = association.map(|a| a.inner).unwrap_or_default();
         let rng = match seed {
             Some(s) => rand::rngs::StdRng::seed_from_u64(s),
             None => rand::rngs::StdRng::from_entropy(),
         };
         Self {
-            inner: LmbFilter::new(
-                motion.inner,
-                sensor.inner,
-                birth.inner,
-                association_config,
-            ),
+            inner: LmbFilter::new(motion.inner, sensor.inner, birth.inner, association_config),
             rng,
         }
     }
@@ -134,12 +127,8 @@ impl PyLmbmFilter {
         lmbm_config: Option<PyLmbmConfig>,
         seed: Option<u64>,
     ) -> Self {
-        let association_config = association
-            .map(|a| a.inner)
-            .unwrap_or_default();
-        let lmbm = lmbm_config
-            .map(|c| c.inner)
-            .unwrap_or_default();
+        let association_config = association.map(|a| a.inner).unwrap_or_default();
+        let lmbm = lmbm_config.map(|c| c.inner).unwrap_or_default();
         let rng = match seed {
             Some(s) => rand::rngs::StdRng::seed_from_u64(s),
             None => rand::rngs::StdRng::from_entropy(),
@@ -209,9 +198,7 @@ impl PyAaLmbFilter {
         max_components: usize,
         seed: Option<u64>,
     ) -> Self {
-        let association_config = association
-            .map(|a| a.inner)
-            .unwrap_or_default();
+        let association_config = association.map(|a| a.inner).unwrap_or_default();
         let num_sensors = sensors.inner.num_sensors();
         let merger = ArithmeticAverageMerger::uniform(num_sensors, max_components);
         let rng = match seed {
@@ -286,9 +273,7 @@ impl PyGaLmbFilter {
         association: Option<PyAssociationConfig>,
         seed: Option<u64>,
     ) -> Self {
-        let association_config = association
-            .map(|a| a.inner)
-            .unwrap_or_default();
+        let association_config = association.map(|a| a.inner).unwrap_or_default();
         let num_sensors = sensors.inner.num_sensors();
         let merger = GeometricAverageMerger::uniform(num_sensors);
         let rng = match seed {
@@ -359,9 +344,7 @@ impl PyPuLmbFilter {
         association: Option<PyAssociationConfig>,
         seed: Option<u64>,
     ) -> Self {
-        let association_config = association
-            .map(|a| a.inner)
-            .unwrap_or_default();
+        let association_config = association.map(|a| a.inner).unwrap_or_default();
         let merger = ParallelUpdateMerger::new(Vec::new());
         let rng = match seed {
             Some(s) => rand::rngs::StdRng::seed_from_u64(s),
@@ -431,9 +414,7 @@ impl PyIcLmbFilter {
         association: Option<PyAssociationConfig>,
         seed: Option<u64>,
     ) -> Self {
-        let association_config = association
-            .map(|a| a.inner)
-            .unwrap_or_default();
+        let association_config = association.map(|a| a.inner).unwrap_or_default();
         let merger = IteratedCorrectorMerger::new();
         let rng = match seed {
             Some(s) => rand::rngs::StdRng::seed_from_u64(s),
@@ -504,12 +485,8 @@ impl PyMultisensorLmbmFilter {
         lmbm_config: Option<PyLmbmConfig>,
         seed: Option<u64>,
     ) -> Self {
-        let association_config = association
-            .map(|a| a.inner)
-            .unwrap_or_default();
-        let lmbm = lmbm_config
-            .map(|c| c.inner)
-            .unwrap_or_default();
+        let association_config = association.map(|a| a.inner).unwrap_or_default();
+        let lmbm = lmbm_config.map(|c| c.inner).unwrap_or_default();
         let rng = match seed {
             Some(s) => rand::rngs::StdRng::seed_from_u64(s),
             None => rand::rngs::StdRng::from_entropy(),

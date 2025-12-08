@@ -1,6 +1,8 @@
 """Type stubs for multisensor_lmb_filters_rs Rust bindings."""
 
-from typing import Protocol, Sequence, runtime_checkable
+from collections.abc import Sequence
+from typing import Protocol, runtime_checkable
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -10,14 +12,12 @@ __version__: str
 # Protocols for common interfaces
 # =============================================================================
 
-
 @runtime_checkable
 class HasLabel(Protocol):
     """Protocol for objects with a track label."""
 
     @property
-    def label(self) -> "TrackLabel": ...
-
+    def label(self) -> TrackLabel: ...
 
 @runtime_checkable
 class HasMean(Protocol):
@@ -26,14 +26,12 @@ class HasMean(Protocol):
     @property
     def mean(self) -> NDArray[np.float64]: ...
 
-
 @runtime_checkable
 class HasCovariance(Protocol):
     """Protocol for objects with a state covariance."""
 
     @property
     def covariance(self) -> NDArray[np.float64]: ...
-
 
 @runtime_checkable
 class HasStateDimension(Protocol):
@@ -42,20 +40,14 @@ class HasStateDimension(Protocol):
     @property
     def x_dim(self) -> int: ...
 
-
 @runtime_checkable
 class SingleSensorFilter(Protocol):
     """Protocol for single-sensor filters."""
 
-    def step(
-        self, measurements: Sequence[NDArray[np.float64]], timestep: int
-    ) -> "StateEstimate": ...
-
+    def step(self, measurements: Sequence[NDArray[np.float64]], timestep: int) -> StateEstimate: ...
     def reset(self) -> None: ...
-
     @property
     def num_tracks(self) -> int: ...
-
 
 @runtime_checkable
 class MultisensorFilter(Protocol):
@@ -65,18 +57,14 @@ class MultisensorFilter(Protocol):
         self,
         measurements: Sequence[Sequence[NDArray[np.float64]]],
         timestep: int,
-    ) -> "StateEstimate": ...
-
+    ) -> StateEstimate: ...
     def reset(self) -> None: ...
-
     @property
     def num_tracks(self) -> int: ...
-
 
 # =============================================================================
 # Core types
 # =============================================================================
-
 
 class TrackLabel:
     """Track label uniquely identifies a track by birth time and location."""
@@ -89,7 +77,6 @@ class TrackLabel:
     def __repr__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
     def __hash__(self) -> int: ...
-
 
 class GaussianComponent(HasMean, HasCovariance, HasStateDimension):
     """Gaussian component with weight, mean, and covariance."""
@@ -109,7 +96,6 @@ class GaussianComponent(HasMean, HasCovariance, HasStateDimension):
     @property
     def x_dim(self) -> int: ...
     def __repr__(self) -> str: ...
-
 
 class Track(HasLabel, HasStateDimension):
     """Track representing a potential object with Gaussian mixture state."""
@@ -136,11 +122,9 @@ class Track(HasLabel, HasStateDimension):
     def primary_covariance(self) -> NDArray[np.float64] | None: ...
     def __repr__(self) -> str: ...
 
-
 # =============================================================================
 # Configuration types
 # =============================================================================
-
 
 class MotionModel(HasStateDimension):
     """Motion model for prediction step."""
@@ -155,7 +139,7 @@ class MotionModel(HasStateDimension):
     @staticmethod
     def constant_velocity_2d(
         dt: float, process_noise_std: float, survival_prob: float
-    ) -> "MotionModel": ...
+    ) -> MotionModel: ...
     @property
     def x_dim(self) -> int: ...
     @property
@@ -167,7 +151,6 @@ class MotionModel(HasStateDimension):
     @property
     def survival_probability(self) -> float: ...
     def __repr__(self) -> str: ...
-
 
 class SensorModel(HasStateDimension):
     """Sensor observation model."""
@@ -186,7 +169,7 @@ class SensorModel(HasStateDimension):
         detection_prob: float,
         clutter_rate: float,
         obs_volume: float,
-    ) -> "SensorModel": ...
+    ) -> SensorModel: ...
     @property
     def z_dim(self) -> int: ...
     @property
@@ -205,7 +188,6 @@ class SensorModel(HasStateDimension):
     def clutter_density(self) -> float: ...
     def __repr__(self) -> str: ...
 
-
 class MultisensorConfig:
     """Multi-sensor configuration."""
 
@@ -216,7 +198,6 @@ class MultisensorConfig:
     def z_dim(self) -> int: ...
     def __repr__(self) -> str: ...
     def __len__(self) -> int: ...
-
 
 class BirthLocation(HasMean, HasCovariance):
     """Birth location parameters."""
@@ -235,7 +216,6 @@ class BirthLocation(HasMean, HasCovariance):
     def covariance(self) -> NDArray[np.float64]: ...
     def __repr__(self) -> str: ...
 
-
 class BirthModel:
     """Birth model parameters."""
 
@@ -253,21 +233,19 @@ class BirthModel:
     def lmbm_existence(self) -> float: ...
     def __repr__(self) -> str: ...
 
-
 class AssociationConfig:
     """Data association configuration."""
 
     def __init__(self) -> None: ...
     @staticmethod
-    def lbp(max_iterations: int = 50, tolerance: float = 1e-6) -> "AssociationConfig": ...
+    def lbp(max_iterations: int = 50, tolerance: float = 1e-6) -> AssociationConfig: ...
     @staticmethod
-    def gibbs(samples: int = 1000) -> "AssociationConfig": ...
+    def gibbs(samples: int = 1000) -> AssociationConfig: ...
     @staticmethod
-    def murty(assignments: int = 100) -> "AssociationConfig": ...
+    def murty(assignments: int = 100) -> AssociationConfig: ...
     @property
     def method(self) -> str: ...
     def __repr__(self) -> str: ...
-
 
 class FilterThresholds:
     """Filter threshold configuration."""
@@ -289,7 +267,6 @@ class FilterThresholds:
     def min_trajectory_length(self) -> int: ...
     def __repr__(self) -> str: ...
 
-
 class LmbmConfig:
     """LMBM-specific configuration."""
 
@@ -307,11 +284,9 @@ class LmbmConfig:
     def use_eap(self) -> bool: ...
     def __repr__(self) -> str: ...
 
-
 # =============================================================================
 # Output types
 # =============================================================================
-
 
 class EstimatedTrack(HasLabel, HasMean, HasCovariance, HasStateDimension):
     """Estimated state of a single track at one timestep."""
@@ -326,7 +301,6 @@ class EstimatedTrack(HasLabel, HasMean, HasCovariance, HasStateDimension):
     def x_dim(self) -> int: ...
     def __repr__(self) -> str: ...
 
-
 class StateEstimate:
     """All track state estimates at a single timestep."""
 
@@ -338,7 +312,6 @@ class StateEstimate:
     def tracks(self) -> list[EstimatedTrack]: ...
     def __repr__(self) -> str: ...
     def __len__(self) -> int: ...
-
 
 class Trajectory(HasLabel):
     """Complete trajectory of a single track across multiple timesteps."""
@@ -358,7 +331,6 @@ class Trajectory(HasLabel):
     def get_timestamp(self, index: int) -> int | None: ...
     def __repr__(self) -> str: ...
 
-
 class FilterOutput:
     """Complete output from running a filter over a sequence of measurements."""
 
@@ -372,11 +344,9 @@ class FilterOutput:
     def num_trajectories(self) -> int: ...
     def __repr__(self) -> str: ...
 
-
 # =============================================================================
 # Single-sensor filters
 # =============================================================================
-
 
 class LmbFilter(SingleSensorFilter):
     """Single-sensor LMB (Labeled Multi-Bernoulli) filter."""
@@ -398,7 +368,6 @@ class LmbFilter(SingleSensorFilter):
     @property
     def num_tracks(self) -> int: ...
     def __repr__(self) -> str: ...
-
 
 class LmbmFilter:
     """Single-sensor LMBM (LMB Mixture) filter."""
@@ -422,11 +391,9 @@ class LmbmFilter:
     def num_hypotheses(self) -> int: ...
     def __repr__(self) -> str: ...
 
-
 # =============================================================================
 # Multi-sensor filters
 # =============================================================================
-
 
 class AaLmbFilter(MultisensorFilter):
     """Multi-sensor LMB filter with Arithmetic Average fusion."""
@@ -450,7 +417,6 @@ class AaLmbFilter(MultisensorFilter):
     def num_tracks(self) -> int: ...
     def __repr__(self) -> str: ...
 
-
 class GaLmbFilter(MultisensorFilter):
     """Multi-sensor LMB filter with Geometric Average fusion."""
 
@@ -471,7 +437,6 @@ class GaLmbFilter(MultisensorFilter):
     @property
     def num_tracks(self) -> int: ...
     def __repr__(self) -> str: ...
-
 
 class PuLmbFilter(MultisensorFilter):
     """Multi-sensor LMB filter with Parallel Update fusion."""
@@ -494,7 +459,6 @@ class PuLmbFilter(MultisensorFilter):
     def num_tracks(self) -> int: ...
     def __repr__(self) -> str: ...
 
-
 class IcLmbFilter(MultisensorFilter):
     """Multi-sensor LMB filter with Iterated Corrector fusion."""
 
@@ -515,7 +479,6 @@ class IcLmbFilter(MultisensorFilter):
     @property
     def num_tracks(self) -> int: ...
     def __repr__(self) -> str: ...
-
 
 class MultisensorLmbmFilter:
     """Multi-sensor LMBM (LMB Mixture) filter."""

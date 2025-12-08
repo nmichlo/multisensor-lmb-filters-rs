@@ -105,7 +105,11 @@ impl PyGaussianComponent {
         covariance: PyReadonlyArray2<'_, f64>,
     ) -> Self {
         Self {
-            inner: GaussianComponent::new(weight, numpy_to_dvector(mean), numpy_to_dmatrix(covariance)),
+            inner: GaussianComponent::new(
+                weight,
+                numpy_to_dvector(mean),
+                numpy_to_dmatrix(covariance),
+            ),
         }
     }
 

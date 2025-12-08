@@ -261,7 +261,10 @@ impl PyMultisensorConfig {
     }
 
     fn __repr__(&self) -> String {
-        format!("MultisensorConfig(num_sensors={})", self.inner.num_sensors())
+        format!(
+            "MultisensorConfig(num_sensors={})",
+            self.inner.num_sensors()
+        )
     }
 
     fn __len__(&self) -> usize {

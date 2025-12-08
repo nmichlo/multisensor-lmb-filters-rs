@@ -64,7 +64,9 @@ impl PyEstimatedTrack {
     fn __repr__(&self) -> String {
         format!(
             "EstimatedTrack(label=({}, {}), x_dim={})",
-            self.inner.label.birth_time, self.inner.label.birth_location, self.inner.x_dim()
+            self.inner.label.birth_time,
+            self.inner.label.birth_location,
+            self.inner.x_dim()
         )
     }
 }
@@ -190,7 +192,9 @@ impl PyTrajectory {
     fn __repr__(&self) -> String {
         format!(
             "Trajectory(label=({}, {}), len={})",
-            self.inner.label.birth_time, self.inner.label.birth_location, self.inner.len()
+            self.inner.label.birth_time,
+            self.inner.label.birth_location,
+            self.inner.len()
         )
     }
 }

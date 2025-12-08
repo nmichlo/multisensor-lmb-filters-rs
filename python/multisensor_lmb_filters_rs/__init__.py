@@ -31,34 +31,28 @@ Example
 """
 
 from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
-    # Types
-    TrackLabel,
-    GaussianComponent,
-    Track,
-    # Configuration
-    MotionModel,
-    SensorModel,
-    MultisensorConfig,
+    AaLmbFilter,
+    AssociationConfig,
     BirthLocation,
     BirthModel,
-    AssociationConfig,
-    FilterThresholds,
-    LmbmConfig,
-    # Output
     EstimatedTrack,
-    StateEstimate,
-    Trajectory,
     FilterOutput,
-    # Single-sensor filters
-    LmbFilter,
-    LmbmFilter,
-    # Multi-sensor filters
-    AaLmbFilter,
+    FilterThresholds,
     GaLmbFilter,
-    PuLmbFilter,
+    GaussianComponent,
     IcLmbFilter,
+    LmbFilter,
+    LmbmConfig,
+    LmbmFilter,
+    MotionModel,
+    MultisensorConfig,
     MultisensorLmbmFilter,
-    # Version
+    PuLmbFilter,
+    SensorModel,
+    StateEstimate,
+    Track,
+    TrackLabel,
+    Trajectory,
     __version__,
 )
 
