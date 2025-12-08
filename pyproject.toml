@@ -1,0 +1,44 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "multisensor-lmb-filters-rs"
+version = "0.1.0"
+description = "Multi-object tracking with Labeled Multi-Bernoulli filters in Rust"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Nathan Michlo", email = "nmichlo@gmail.com" }]
+keywords = ["tracking", "mot", "lmb", "kalman-filter", "sensor-fusion"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+requires-python = ">=3.12"
+dependencies = ["numpy>=1.26"]
+
+[project.urls]
+Homepage = "https://github.com/nmichlo/multisensor-lmb-filters-rs"
+Repository = "https://github.com/nmichlo/multisensor-lmb-filters-rs"
+Documentation = "https://github.com/nmichlo/multisensor-lmb-filters-rs"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "maturin>=1.4",
+]
+
+[tool.maturin]
+features = ["python"]
+python-source = "python"
+module-name = "multisensor_lmb_filters_rs._multisensor_lmb_filters_rs"
+strip = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
