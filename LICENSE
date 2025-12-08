@@ -1,6 +1,7 @@
 MIT License
 
-Copyright (c) 2025 Nathan Michlo
+Copyright (c) 2022 Stuart Robertson (Original MATLAB Implementation)
+Copyright (c) 2025 Nathan Michlo (Rust Port)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +20,19 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+ORIGIN AND PERMISSION NOTICE
+
+This repository is a Rust port of "multisensor-lmb-filters" originally authored
+by Stuart Robertson (https://github.com/scjrobertson/multisensor-lmb-filters).
+The original work was published without an explicit license file.
+
+The original author was notified that unlicensed code defaults to "all rights
+reserved" and was asked to select licensing terms. Rather than selecting a
+specific license, the author granted broader permission, stating: "You're free
+to do whatever you want with the code." This exchange occurred via Slack on
+the 28th and 29th of November 2025.
+
+Based on this permission, this port is released under the MIT License.

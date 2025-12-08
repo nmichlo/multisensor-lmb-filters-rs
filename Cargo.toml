@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2021"
 description = "Multi-object tracking library - Rust port of multisensor-lmb-filters"
 authors = ["Nathan Michlo"]
-license = "MIT OR Apache-2.0"
+license = "MIT"
 readme = "README.md"
 
 [lib]
