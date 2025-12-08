@@ -2,10 +2,12 @@
 name = "multisensor-lmb-filters-rs"
 version = "0.0.1"
 edition = "2021"
+rust-version = "1.70"
 description = "Multi-object tracking library - Rust port of multisensor-lmb-filters"
 authors = ["Nathan Michlo"]
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/nmichlo/multisensor-lmb-filters-rs"
 
 [lib]
 name = "multisensor_lmb_filters_rs"
