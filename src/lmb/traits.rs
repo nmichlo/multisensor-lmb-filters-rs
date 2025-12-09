@@ -104,6 +104,11 @@ pub struct AssociationResult {
     /// Entry `[i]` is P(track i exists but was not detected).
     pub miss_weights: nalgebra::DVector<f64>,
 
+    /// Posterior existence probabilities (n_tracks).
+    /// For LBP, this is the `r` output from belief propagation.
+    /// Entry `[i]` is P(track i exists | measurements).
+    pub posterior_existence: nalgebra::DVector<f64>,
+
     /// Discrete association event samples for hypothesis-based filters (LMBM).
     /// Each inner Vec represents one sampled association: `v[i]` is the measurement
     /// index assigned to track i, or -1 if track i missed detection.
@@ -121,14 +126,34 @@ impl AssociationResult {
     pub fn new(
         marginal_weights: nalgebra::DMatrix<f64>,
         miss_weights: nalgebra::DVector<f64>,
+        posterior_existence: nalgebra::DVector<f64>,
     ) -> Self {
         Self {
             marginal_weights,
             miss_weights,
+            posterior_existence,
             sampled_associations: None,
             iterations: 0,
             converged: true,
         }
+    }
+
+    /// Compute posterior existence from marginal weights.
+    ///
+    /// For Gibbs/Murty, the posterior existence is approximated as the sum of
+    /// miss weight plus all measurement association weights for each track.
+    /// This should sum to ~1 for properly normalized marginals.
+    pub fn posterior_existence_from_marginals(
+        marginal_weights: &nalgebra::DMatrix<f64>,
+        miss_weights: &nalgebra::DVector<f64>,
+    ) -> nalgebra::DVector<f64> {
+        let n = miss_weights.len();
+        let m = marginal_weights.ncols();
+        nalgebra::DVector::from_fn(n, |i, _| {
+            let total: f64 =
+                miss_weights[i] + (0..m).map(|j| marginal_weights[(i, j)]).sum::<f64>();
+            total.min(1.0)
+        })
     }
 
     /// Get the most likely association for a track (MAP estimate).
@@ -284,9 +309,13 @@ impl Associator for LbpAssociator {
             nalgebra::DMatrix::zeros(n, 0)
         };
 
+        // Posterior existence comes directly from LBP's r output
+        let posterior_existence = lbp_result.r;
+
         Ok(AssociationResult {
             marginal_weights,
             miss_weights,
+            posterior_existence,
             sampled_associations: None,
             iterations: config.lbp_max_iterations,
             converged: true, // LBP with convergence check always converges or hits max iters
@@ -329,6 +358,7 @@ impl Associator for GibbsAssociator {
             return Ok(AssociationResult {
                 marginal_weights: nalgebra::DMatrix::zeros(n, m),
                 miss_weights: nalgebra::DVector::zeros(n),
+                posterior_existence: nalgebra::DVector::zeros(n),
                 sampled_associations: Some(Vec::new()),
                 iterations: 0,
                 converged: true,
@@ -399,9 +429,13 @@ impl Associator for GibbsAssociator {
             })
             .collect();
 
+        let posterior_existence =
+            AssociationResult::posterior_existence_from_marginals(&marginal_weights, &miss_weights);
+
         Ok(AssociationResult {
             marginal_weights,
             miss_weights,
+            posterior_existence,
             sampled_associations: Some(sampled_associations),
             iterations: config.gibbs_samples,
             converged: true,
@@ -443,6 +477,7 @@ impl Associator for MurtyAssociator {
             return Ok(AssociationResult {
                 marginal_weights: nalgebra::DMatrix::zeros(n, m),
                 miss_weights: nalgebra::DVector::zeros(n),
+                posterior_existence: nalgebra::DVector::zeros(n),
                 sampled_associations: Some(Vec::new()),
                 iterations: 0,
                 converged: true,
@@ -515,9 +550,13 @@ impl Associator for MurtyAssociator {
             })
             .collect();
 
+        let posterior_existence =
+            AssociationResult::posterior_existence_from_marginals(&marginal_weights, &miss_weights);
+
         Ok(AssociationResult {
             marginal_weights,
             miss_weights,
+            posterior_existence,
             sampled_associations: Some(sampled_associations),
             iterations: num_assignments,
             converged: true,
@@ -604,11 +643,12 @@ impl Updater for MarginalUpdater {
                     continue; // Skip negligible associations
                 }
 
-                // For each prior component, create a posterior component
+                // For each prior component, use its OWN posterior (not shared)
                 for comp_idx in 0..num_prior_components {
-                    if let (Some(post_mean), Some(post_cov)) =
-                        (posteriors.get_mean(i, j), posteriors.get_covariance(i, j))
-                    {
+                    if let (Some(post_mean), Some(post_cov)) = (
+                        posteriors.get_mean_for_component(i, j, comp_idx),
+                        posteriors.get_covariance_for_component(i, j, comp_idx),
+                    ) {
                         let prior_weight = track.components[comp_idx].weight;
                         new_weights.push(meas_prob * prior_weight);
                         new_means.push(post_mean.clone());
@@ -775,8 +815,9 @@ mod tests {
     fn test_association_result() {
         let weights = nalgebra::DMatrix::from_row_slice(2, 3, &[0.1, 0.8, 0.1, 0.2, 0.3, 0.5]);
         let miss = nalgebra::DVector::from_vec(vec![0.0, 0.0]);
+        let posterior_existence = nalgebra::DVector::from_vec(vec![0.9, 0.8]);
 
-        let result = AssociationResult::new(weights, miss);
+        let result = AssociationResult::new(weights, miss, posterior_existence);
 
         // Track 0 best association is measurement 1 (weight 0.8)
         assert_eq!(result.best_association(0), Some(1));

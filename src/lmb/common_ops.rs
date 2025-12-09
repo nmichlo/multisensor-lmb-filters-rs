@@ -282,27 +282,18 @@ pub fn init_birth_trajectories(tracks: &mut [Track], max_length: usize) {
 /// Update existence probabilities from association marginal weights.
 ///
 /// Uses the miss weights and marginal detection weights from the association
-/// result to update track existence probabilities. If strongly associated with
-/// measurements, existence is boosted; if mostly miss, existence is reduced.
+/// result to update track existence probabilities.
+///
+/// Uses the posterior_existence from the association result directly.
+/// For LBP, this is the exact posterior existence from belief propagation.
+/// For Gibbs/Murty, this is an approximation computed from marginals.
 ///
 /// # Arguments
 /// * `tracks` - Mutable reference to track list
-/// * `result` - Association result containing miss_weights and marginal_weights
+/// * `result` - Association result containing posterior_existence
 pub fn update_existence_from_marginals(tracks: &mut [Track], result: &AssociationResult) {
     for (i, track) in tracks.iter_mut().enumerate() {
-        let miss_weight = result.miss_weights[i];
-        let detection_weight: f64 = (0..result.marginal_weights.ncols())
-            .map(|j| result.marginal_weights[(i, j)])
-            .sum();
-
-        let total = miss_weight + detection_weight;
-        if total > super::NUMERICAL_ZERO {
-            // Weighted update: detection increases confidence
-            let detection_ratio = detection_weight / total;
-            // Interpolate between current existence and boosted value based on detection
-            track.existence = track.existence * (1.0 - detection_ratio * 0.5)
-                + detection_ratio * 0.5 * 1.0_f64.min(track.existence * 2.0);
-        }
+        track.existence = result.posterior_existence[i];
     }
 }
 

@@ -20,18 +20,21 @@ use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
 /// pre-compute posteriors for all possible pairings. The data association
 /// algorithm then selects or weights these posteriors.
 ///
-/// This grid stores `n_tracks × n_measurements` posterior means and covariances,
-/// indexed as `[track_idx][measurement_idx]`.
+/// This grid stores `n_tracks × n_measurements × n_components` posterior means
+/// and covariances, indexed as `[track_idx][measurement_idx][component_idx]`.
 #[derive(Debug, Clone)]
 pub struct PosteriorGrid {
     pub num_tracks: usize,
     pub num_measurements: usize,
-    /// Kalman-updated posterior means for each (track, measurement) pair.
-    pub means: Vec<Vec<DVector<f64>>>,
+    /// Kalman-updated posterior means for each (track, measurement, component) triple.
+    /// Indexed as means[track][measurement][component].
+    pub means: Vec<Vec<Vec<DVector<f64>>>>,
     /// Kalman-updated posterior covariances.
-    pub covariances: Vec<Vec<DMatrix<f64>>>,
+    /// Indexed as covariances[track][measurement][component].
+    pub covariances: Vec<Vec<Vec<DMatrix<f64>>>>,
     /// Kalman gains (useful for some update strategies).
-    pub kalman_gains: Vec<Vec<DMatrix<f64>>>,
+    /// Indexed as kalman_gains[track][measurement][component].
+    pub kalman_gains: Vec<Vec<Vec<DMatrix<f64>>>>,
 }
 
 impl PosteriorGrid {
@@ -46,18 +49,56 @@ impl PosteriorGrid {
         }
     }
 
-    /// Get posterior mean for (track, measurement) pair
+    /// Get posterior mean for (track, measurement) pair - returns first component for backwards compat.
     pub fn get_mean(&self, track_idx: usize, measurement_idx: usize) -> Option<&DVector<f64>> {
-        self.means.get(track_idx)?.get(measurement_idx)
+        self.means.get(track_idx)?.get(measurement_idx)?.first()
     }
 
-    /// Get posterior covariance for (track, measurement) pair
+    /// Get posterior covariance for (track, measurement) pair - returns first component.
     pub fn get_covariance(
         &self,
         track_idx: usize,
         measurement_idx: usize,
     ) -> Option<&DMatrix<f64>> {
-        self.covariances.get(track_idx)?.get(measurement_idx)
+        self.covariances
+            .get(track_idx)?
+            .get(measurement_idx)?
+            .first()
+    }
+
+    /// Get posterior mean for specific (track, measurement, component) triple.
+    pub fn get_mean_for_component(
+        &self,
+        track_idx: usize,
+        measurement_idx: usize,
+        component_idx: usize,
+    ) -> Option<&DVector<f64>> {
+        self.means
+            .get(track_idx)?
+            .get(measurement_idx)?
+            .get(component_idx)
+    }
+
+    /// Get posterior covariance for specific (track, measurement, component) triple.
+    pub fn get_covariance_for_component(
+        &self,
+        track_idx: usize,
+        measurement_idx: usize,
+        component_idx: usize,
+    ) -> Option<&DMatrix<f64>> {
+        self.covariances
+            .get(track_idx)?
+            .get(measurement_idx)?
+            .get(component_idx)
+    }
+
+    /// Get number of components for a given track.
+    pub fn num_components(&self, track_idx: usize) -> usize {
+        self.means
+            .get(track_idx)
+            .and_then(|track| track.first())
+            .map(|meas| meas.len())
+            .unwrap_or(0)
     }
 }
 
@@ -170,19 +211,12 @@ impl<'a> AssociationBuilder<'a> {
         // Compute likelihoods for all (track, measurement) pairs
         // Matching MATLAB: iterate over ALL GM components and sum weighted likelihoods
         for (i, track) in self.tracks.iter().enumerate() {
-            // For posteriors, we use the primary (highest weight) component
-            // This is a simplification - full MATLAB stores posteriors for ALL components
-            let primary_idx = track
-                .components
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.weight.partial_cmp(&b.weight).unwrap())
-                .map(|(idx, _)| idx)
-                .unwrap_or(0);
+            let num_components = track.components.len();
 
-            let mut track_means = Vec::with_capacity(m);
-            let mut track_covs = Vec::with_capacity(m);
-            let mut track_gains = Vec::with_capacity(m);
+            // track_means[j][k] = posterior mean for measurement j, component k
+            let mut track_means: Vec<Vec<DVector<f64>>> = Vec::with_capacity(m);
+            let mut track_covs: Vec<Vec<DMatrix<f64>>> = Vec::with_capacity(m);
+            let mut track_gains: Vec<Vec<DMatrix<f64>>> = Vec::with_capacity(m);
 
             // Initialize L values to 0 for accumulation
             for j in 0..m {
@@ -194,12 +228,17 @@ impl<'a> AssociationBuilder<'a> {
             // L[i,j] = sum_k( r * p_D * w[k] / lambda * gaussian_likelihood[k] )
             let r = track.existence;
 
-            for (comp_idx, component) in track.components.iter().enumerate() {
-                let prior_mean = &component.mean;
-                let prior_cov = &component.covariance;
-                let comp_weight = component.weight;
+            // For each measurement, compute posteriors for ALL components
+            for (j, measurement) in measurements.iter().enumerate() {
+                let mut meas_means = Vec::with_capacity(num_components);
+                let mut meas_covs = Vec::with_capacity(num_components);
+                let mut meas_gains = Vec::with_capacity(num_components);
 
-                for (j, measurement) in measurements.iter().enumerate() {
+                for component in track.components.iter() {
+                    let prior_mean = &component.mean;
+                    let prior_cov = &component.covariance;
+                    let comp_weight = component.weight;
+
                     let result = compute_likelihood(
                         prior_mean,
                         prior_cov,
@@ -214,13 +253,15 @@ impl<'a> AssociationBuilder<'a> {
                     let component_likelihood = r * comp_weight * result.log_likelihood_ratio.exp();
                     l_matrix[(i, j)] += component_likelihood;
 
-                    // Store posteriors only for primary component
-                    if comp_idx == primary_idx {
-                        track_means.push(result.posterior_mean);
-                        track_covs.push(result.posterior_covariance);
-                        track_gains.push(result.kalman_gain);
-                    }
+                    // Store posterior for this component
+                    meas_means.push(result.posterior_mean);
+                    meas_covs.push(result.posterior_covariance);
+                    meas_gains.push(result.kalman_gain);
                 }
+
+                track_means.push(meas_means);
+                track_covs.push(meas_covs);
+                track_gains.push(meas_gains);
             }
 
             // Convert L to cost: cost = -log(L)

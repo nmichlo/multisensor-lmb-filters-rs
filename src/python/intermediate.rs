@@ -191,7 +191,8 @@ pub struct PyAssociationMatrices {
     /// Log-likelihood ratios L: [n_tracks x n_measurements]
     likelihood: Vec<Vec<f64>>,
 
-    /// Sampling probabilities P: [n_tracks x (n_measurements + 1)]
+    /// Sampling probabilities P: [n_tracks x n_measurements]
+    /// Computed as psi / (1 + psi) element-wise to match MATLAB format.
     sampling_prob: Vec<Vec<f64>>,
 
     /// Eta normalization factors: [n_tracks]
@@ -249,15 +250,25 @@ impl PyAssociationMatrices {
             .map(|row| row.iter().map(|&c| (-c).exp()).collect())
             .collect();
 
-        // Convert sampling_prob
-        let sampling_prob: Vec<Vec<f64>> = (0..matrices.sampling_prob.nrows())
-            .map(|i| matrices.sampling_prob.row(i).iter().copied().collect())
+        // Compute P = psi / (1 + psi) element-wise to match MATLAB's P matrix
+        // This is NOT row-normalized - each element is normalized independently
+        let n_meas = matrices.psi.ncols();
+        let sampling_prob: Vec<Vec<f64>> = (0..matrices.psi.nrows())
+            .map(|i| {
+                (0..n_meas)
+                    .map(|j| {
+                        let psi_ij = matrices.psi[(i, j)];
+                        psi_ij / (1.0 + psi_ij)
+                    })
+                    .collect()
+            })
             .collect();
 
         // Convert eta
         let eta: Vec<f64> = matrices.eta.iter().copied().collect();
 
-        // Convert posteriors
+        // Convert posteriors - use first component for backwards compatibility
+        // New structure is [track][measurement][component] - we take [track][measurement][0]
         let posterior_means: Vec<Vec<Vec<f64>>> = matrices
             .posteriors
             .means
@@ -265,6 +276,7 @@ impl PyAssociationMatrices {
             .map(|track_means| {
                 track_means
                     .iter()
+                    .filter_map(|meas_comps| meas_comps.first())
                     .map(|m| m.iter().copied().collect())
                     .collect()
             })
@@ -277,6 +289,7 @@ impl PyAssociationMatrices {
             .map(|track_covs| {
                 track_covs
                     .iter()
+                    .filter_map(|meas_comps| meas_comps.first())
                     .map(|cov| {
                         let nrows = cov.nrows();
                         (0..nrows)
@@ -307,8 +320,11 @@ pub struct PyAssociationResult {
     /// Marginal weights W: [n_tracks x n_measurements]
     marginal_weights: Vec<Vec<f64>>,
 
-    /// Miss weights r: [n_tracks]
+    /// Miss weights (W column 0): [n_tracks]
     miss_weights: Vec<f64>,
+
+    /// Posterior existence probabilities (r from LBP): [n_tracks]
+    posterior_existence: Vec<f64>,
 
     /// Sampled assignments V: [n_samples x n_tracks] (Gibbs/Murty only)
     assignments: Option<Vec<Vec<i32>>>,
@@ -324,6 +340,11 @@ impl PyAssociationResult {
     #[getter]
     fn miss_weights<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         self.miss_weights.to_pyarray(py)
+    }
+
+    #[getter]
+    fn posterior_existence<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        self.posterior_existence.to_pyarray(py)
     }
 
     #[getter]
@@ -363,6 +384,9 @@ impl PyAssociationResult {
         // Convert miss weights
         let miss_weights: Vec<f64> = result.miss_weights.iter().copied().collect();
 
+        // Convert posterior existence
+        let posterior_existence: Vec<f64> = result.posterior_existence.iter().copied().collect();
+
         // Convert sampled associations
         let assignments: Option<Vec<Vec<i32>>> = result
             .sampled_associations
@@ -372,6 +396,7 @@ impl PyAssociationResult {
         Self {
             marginal_weights,
             miss_weights,
+            posterior_existence,
             assignments,
         }
     }

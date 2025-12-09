@@ -355,14 +355,10 @@ def compare_tracks(name: str, expected: list, actual: list, tol: float = TOLERAN
         # Compare existence (r)
         compare_scalar(f"{prefix}.existence", exp["r"], act.existence, tol)
 
-        # Compare GM weights
+        # Compare GM components
         exp_w = exp["w"] if isinstance(exp["w"], list) else [exp["w"]]
         compare_array(f"{prefix}.w", exp_w, act.w, tol)
-
-        # Compare GM means
         compare_array(f"{prefix}.mu", exp["mu"], act.mu, tol)
-
-        # Compare GM covariances
         compare_array(f"{prefix}.sigma", exp["Sigma"], act.sigma, tol)
 
 
