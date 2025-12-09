@@ -179,6 +179,90 @@ impl PyTrackData {
 }
 
 // =============================================================================
+// _PosteriorParameters - Per-track posterior parameters matching MATLAB format
+// =============================================================================
+
+/// Posterior parameters for a single track, matching MATLAB's posteriorParameters[i].
+///
+/// # MATLAB Fixture Format
+///
+/// In fixtures at `tests/data/step_by_step/*.json`, each track has:
+/// - `posteriorParameters[i].w` → shape `(num_meas + 1, num_comp)`
+///   Row 0 is miss hypothesis (equals prior weights), rows 1+ are measurements.
+///   Each row sums to 1.0 (likelihood-normalized component weights).
+///
+/// - `posteriorParameters[i].mu` → shape `(num_meas * num_comp, state_dim)`
+///   Flattened posterior means. Index `(j * num_comp + k)` gives measurement j, component k.
+///
+/// - `posteriorParameters[i].Sigma` → shape `(num_meas * num_comp, state_dim, state_dim)`
+///   Flattened posterior covariances.
+#[pyclass(name = "_PosteriorParameters")]
+pub struct PyPosteriorParameters {
+    /// Component weights: [num_meas + 1 x num_comp]
+    /// Row 0 = prior weights (miss hypothesis)
+    /// Rows 1+ = likelihood-normalized weights per measurement
+    w: Vec<Vec<f64>>,
+
+    /// Posterior means: [num_meas * num_comp x state_dim]
+    /// Flattened: index = meas_idx * num_comp + comp_idx
+    mu: Vec<Vec<f64>>,
+
+    /// Posterior covariances: [num_meas * num_comp x state_dim x state_dim]
+    sigma: Vec<Vec<Vec<f64>>>,
+}
+
+#[pymethods]
+impl PyPosteriorParameters {
+    /// Component weights matrix matching MATLAB's posteriorParameters[i].w
+    /// Shape: [num_meas + 1, num_comp] where row 0 is miss (prior weights)
+    #[getter]
+    fn w<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        matrix_to_numpy(py, &self.w)
+    }
+
+    /// Posterior means matching MATLAB's posteriorParameters[i].mu
+    /// Shape: [num_meas * num_comp, state_dim]
+    #[getter]
+    fn mu<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        matrix_to_numpy(py, &self.mu)
+    }
+
+    /// Posterior covariances matching MATLAB's posteriorParameters[i].Sigma
+    /// Shape: [num_meas * num_comp, state_dim, state_dim]
+    #[getter]
+    fn sigma<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray3<f64>> {
+        let n_entries = self.sigma.len();
+        let state_dim = if n_entries > 0 && !self.sigma[0].is_empty() {
+            self.sigma[0].len()
+        } else {
+            0
+        };
+        let flat: Vec<f64> = self
+            .sigma
+            .iter()
+            .flat_map(|cov| cov.iter().flatten())
+            .copied()
+            .collect();
+        let arr = Array3::from_shape_vec((n_entries, state_dim, state_dim), flat)
+            .unwrap_or_else(|_| Array3::zeros((0, 0, 0)));
+        arr.to_pyarray(py)
+    }
+
+    fn __repr__(&self) -> String {
+        let n_meas_plus_miss = self.w.len();
+        let n_comp = if n_meas_plus_miss > 0 {
+            self.w[0].len()
+        } else {
+            0
+        };
+        format!(
+            "_PosteriorParameters(n_hypotheses={}, n_components={})",
+            n_meas_plus_miss, n_comp
+        )
+    }
+}
+
+// =============================================================================
 // _AssociationMatrices - Matrices from association builder
 // =============================================================================
 
@@ -191,6 +275,11 @@ pub struct PyAssociationMatrices {
     /// Log-likelihood ratios L: [n_tracks x n_measurements]
     likelihood: Vec<Vec<f64>>,
 
+    /// Miss probability matrix R: [n_tracks x n_measurements]
+    /// R[i,j] = (1 - P_d) * r[i] / eta[i] for all j (constant per row)
+    /// This matches MATLAB's R matrix format.
+    miss_prob: Vec<Vec<f64>>,
+
     /// Sampling probabilities P: [n_tracks x n_measurements]
     /// Computed as psi / (1 + psi) element-wise to match MATLAB format.
     sampling_prob: Vec<Vec<f64>>,
@@ -198,11 +287,9 @@ pub struct PyAssociationMatrices {
     /// Eta normalization factors: [n_tracks]
     eta: Vec<f64>,
 
-    /// Posterior means for each (track, measurement) pair
-    posterior_means: Vec<Vec<Vec<f64>>>,
-
-    /// Posterior covariances for each (track, measurement) pair
-    posterior_covariances: Vec<Vec<Vec<Vec<f64>>>>,
+    /// Posterior parameters for each track
+    /// This matches MATLAB's posteriorParameters array structure.
+    posterior_parameters: Vec<PyPosteriorParameters>,
 }
 
 #[pymethods]
@@ -217,6 +304,13 @@ impl PyAssociationMatrices {
         matrix_to_numpy(py, &self.likelihood)
     }
 
+    /// Miss probability matrix R matching MATLAB format.
+    /// R[i,j] = phi[i] / eta[i] = (1 - P_d) * r[i] / eta[i]
+    #[getter]
+    fn miss_prob<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        matrix_to_numpy(py, &self.miss_prob)
+    }
+
     #[getter]
     fn sampling_prob<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
         matrix_to_numpy(py, &self.sampling_prob)
@@ -227,6 +321,20 @@ impl PyAssociationMatrices {
         self.eta.to_pyarray(py)
     }
 
+    /// Posterior parameters for each track, matching MATLAB's posteriorParameters array.
+    #[getter]
+    fn posterior_parameters(&self) -> Vec<PyPosteriorParameters> {
+        // Clone the posterior parameters for Python access
+        self.posterior_parameters
+            .iter()
+            .map(|pp| PyPosteriorParameters {
+                w: pp.w.clone(),
+                mu: pp.mu.clone(),
+                sigma: pp.sigma.clone(),
+            })
+            .collect()
+    }
+
     fn __repr__(&self) -> String {
         let n_tracks = self.cost.len();
         let n_meas = if n_tracks > 0 { self.cost[0].len() } else { 0 };
@@ -235,25 +343,56 @@ impl PyAssociationMatrices {
 }
 
 impl PyAssociationMatrices {
-    pub fn from_matrices(matrices: &AssociationMatrices) -> Self {
+    /// Create from AssociationMatrices with prior track data for posteriorParameters.
+    ///
+    /// The priors are needed because MATLAB's posteriorParameters includes the
+    /// miss hypothesis (row 0), which uses the prior means/covariances unchanged.
+    pub fn from_matrices(
+        matrices: &AssociationMatrices,
+        prior_weights: &[Vec<f64>],
+        prior_means: &[Vec<Vec<f64>>],
+        prior_covariances: &[Vec<Vec<Vec<f64>>>],
+    ) -> Self {
         // Convert cost matrix
         let n_tracks = matrices.cost.nrows();
+        let n_meas = matrices.psi.ncols();
+
         let cost: Vec<Vec<f64>> = (0..n_tracks)
             .map(|i| matrices.cost.row(i).iter().copied().collect())
             .collect();
 
-        // Convert log-likelihood (stored in cost, so compute L = exp(-cost))
-        // Actually, we need the raw likelihood ratios. Let's use psi/phi relationship.
-        // For simplicity, compute L from cost: L = exp(-cost)
-        let likelihood: Vec<Vec<f64>> = cost
-            .iter()
-            .map(|row| row.iter().map(|&c| (-c).exp()).collect())
+        // Convert log-likelihood: L = [eta | exp(-cost)]
+        // MATLAB format: L[i,0] = eta[i] = 1 - r[i] * P_d, L[i,j+1] = likelihood ratio for measurement j
+        let likelihood: Vec<Vec<f64>> = (0..n_tracks)
+            .map(|i| {
+                // First column: eta[i] = 1 - r[i] * P_d (same as MATLAB's L first column)
+                let mut row = vec![matrices.eta[i]];
+                // Remaining columns: exp(-cost[i,j]) for each measurement
+                for j in 0..n_meas {
+                    row.push((-matrices.cost[(i, j)]).exp());
+                }
+                row
+            })
+            .collect();
+
+        // Compute R matrix matching MATLAB format:
+        // R[i,0] = phi[i] / eta[i] (miss probability for LBP)
+        // R[i,j>0] = 1.0 for all measurement columns
+        let miss_prob: Vec<Vec<f64>> = (0..n_tracks)
+            .map(|i| {
+                let miss_val = if matrices.eta[i].abs() > 1e-15 {
+                    matrices.phi[i] / matrices.eta[i]
+                } else {
+                    0.0
+                };
+                let mut row = vec![miss_val];
+                row.extend(std::iter::repeat(1.0).take(n_meas));
+                row
+            })
             .collect();
 
         // Compute P = psi / (1 + psi) element-wise to match MATLAB's P matrix
-        // This is NOT row-normalized - each element is normalized independently
-        let n_meas = matrices.psi.ncols();
-        let sampling_prob: Vec<Vec<f64>> = (0..matrices.psi.nrows())
+        let sampling_prob: Vec<Vec<f64>> = (0..n_tracks)
             .map(|i| {
                 (0..n_meas)
                     .map(|j| {
@@ -267,46 +406,115 @@ impl PyAssociationMatrices {
         // Convert eta
         let eta: Vec<f64> = matrices.eta.iter().copied().collect();
 
-        // Convert posteriors - use first component for backwards compatibility
-        // New structure is [track][measurement][component] - we take [track][measurement][0]
-        let posterior_means: Vec<Vec<Vec<f64>>> = matrices
-            .posteriors
-            .means
-            .iter()
-            .map(|track_means| {
-                track_means
-                    .iter()
-                    .filter_map(|meas_comps| meas_comps.first())
-                    .map(|m| m.iter().copied().collect())
-                    .collect()
-            })
-            .collect();
+        // Build posterior parameters for each track
+        // Matches MATLAB's posteriorParameters[i] structure
+        let posterior_parameters: Vec<PyPosteriorParameters> = (0..n_tracks)
+            .map(|track_idx| {
+                let n_comp = matrices.posteriors.num_components(track_idx);
 
-        let posterior_covariances: Vec<Vec<Vec<Vec<f64>>>> = matrices
-            .posteriors
-            .covariances
-            .iter()
-            .map(|track_covs| {
-                track_covs
-                    .iter()
-                    .filter_map(|meas_comps| meas_comps.first())
-                    .map(|cov| {
-                        let nrows = cov.nrows();
-                        (0..nrows)
-                            .map(|i| cov.row(i).iter().copied().collect())
-                            .collect()
-                    })
-                    .collect()
+                // Build w matrix: [n_meas + 1, n_comp]
+                // Row 0 = prior weights (miss hypothesis)
+                // Rows 1+ = likelihood-normalized weights per measurement
+                let mut w: Vec<Vec<f64>> = Vec::with_capacity(n_meas + 1);
+
+                // Row 0: prior weights - ensure exactly n_comp elements
+                let prior_w: Vec<f64> = if track_idx < prior_weights.len()
+                    && prior_weights[track_idx].len() == n_comp
+                {
+                    prior_weights[track_idx].clone()
+                } else {
+                    // Fallback: uniform weights if prior_weights missing or wrong size
+                    vec![1.0 / n_comp as f64; n_comp]
+                };
+                debug_assert_eq!(
+                    prior_w.len(),
+                    n_comp,
+                    "prior_w length mismatch: {} vs {} for track {}",
+                    prior_w.len(),
+                    n_comp,
+                    track_idx
+                );
+                w.push(prior_w);
+
+                // Rows 1+: component_weights for each measurement
+                for meas_idx in 0..n_meas {
+                    let meas_weights: Vec<f64> = (0..n_comp)
+                        .map(|comp_idx| {
+                            matrices
+                                .posteriors
+                                .get_component_weight(track_idx, meas_idx, comp_idx)
+                                .unwrap_or(1.0 / n_comp as f64)
+                        })
+                        .collect();
+                    w.push(meas_weights);
+                }
+
+                // Build mu: [(n_meas + 1) * n_comp, state_dim]
+                // MATLAB uses component-major ordering:
+                // For each component, iterate hypotheses (miss first, then measurements)
+                // Row index = comp_idx * (n_meas + 1) + hypothesis_idx
+                let mut mu: Vec<Vec<f64>> = Vec::with_capacity((n_meas + 1) * n_comp);
+
+                for comp_idx in 0..n_comp {
+                    // Hypothesis 0: miss (use prior mean for this component)
+                    if track_idx < prior_means.len() && comp_idx < prior_means[track_idx].len() {
+                        mu.push(prior_means[track_idx][comp_idx].clone());
+                    } else {
+                        mu.push(Vec::new());
+                    }
+
+                    // Hypotheses 1+: measurements
+                    for meas_idx in 0..n_meas {
+                        let mean = matrices
+                            .posteriors
+                            .get_mean_for_component(track_idx, meas_idx, comp_idx)
+                            .map(|m| m.iter().copied().collect())
+                            .unwrap_or_default();
+                        mu.push(mean);
+                    }
+                }
+
+                // Build Sigma: [(n_meas + 1) * n_comp, state_dim, state_dim]
+                // Same component-major ordering as mu
+                let mut sigma: Vec<Vec<Vec<f64>>> = Vec::with_capacity((n_meas + 1) * n_comp);
+
+                for comp_idx in 0..n_comp {
+                    // Hypothesis 0: miss (use prior covariance for this component)
+                    if track_idx < prior_covariances.len()
+                        && comp_idx < prior_covariances[track_idx].len()
+                    {
+                        sigma.push(prior_covariances[track_idx][comp_idx].clone());
+                    } else {
+                        sigma.push(Vec::new());
+                    }
+
+                    // Hypotheses 1+: measurements
+                    for meas_idx in 0..n_meas {
+                        let cov = matrices
+                            .posteriors
+                            .get_covariance_for_component(track_idx, meas_idx, comp_idx)
+                            .map(|cov| {
+                                let nrows = cov.nrows();
+                                (0..nrows)
+                                    .map(|i| cov.row(i).iter().copied().collect())
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        sigma.push(cov);
+                    }
+                }
+
+                PyPosteriorParameters { w, mu, sigma }
             })
             .collect();
 
         Self {
             cost,
             likelihood,
+            miss_prob,
             sampling_prob,
             eta,
-            posterior_means,
-            posterior_covariances,
+            posterior_parameters,
         }
     }
 }

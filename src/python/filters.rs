@@ -54,10 +54,55 @@ fn step_output_to_py(
     let predicted = tracks_to_py(py, &output.predicted_tracks)?;
     let updated = tracks_to_py(py, &output.updated_tracks)?;
 
+    // Extract prior data from predicted tracks for posteriorParameters
+    // MATLAB's posteriorParameters includes miss hypothesis which uses prior values
+    let prior_weights: Vec<Vec<f64>> = output
+        .predicted_tracks
+        .iter()
+        .map(|t| t.components.iter().map(|c| c.weight).collect())
+        .collect();
+
+    let prior_means: Vec<Vec<Vec<f64>>> = output
+        .predicted_tracks
+        .iter()
+        .map(|t| {
+            t.components
+                .iter()
+                .map(|c| c.mean.iter().copied().collect())
+                .collect()
+        })
+        .collect();
+
+    let prior_covariances: Vec<Vec<Vec<Vec<f64>>>> = output
+        .predicted_tracks
+        .iter()
+        .map(|t| {
+            t.components
+                .iter()
+                .map(|c| {
+                    let nrows = c.covariance.nrows();
+                    (0..nrows)
+                        .map(|i| c.covariance.row(i).iter().copied().collect())
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
+
     let matrices = if include_association {
         output
             .association_matrices
-            .map(|m| Py::new(py, PyAssociationMatrices::from_matrices(&m)))
+            .map(|m| {
+                Py::new(
+                    py,
+                    PyAssociationMatrices::from_matrices(
+                        &m,
+                        &prior_weights,
+                        &prior_means,
+                        &prior_covariances,
+                    ),
+                )
+            })
             .transpose()?
     } else {
         None

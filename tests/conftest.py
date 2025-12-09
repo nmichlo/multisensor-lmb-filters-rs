@@ -70,11 +70,19 @@ def compare_array(name: str, expected: list, actual: np.ndarray, tol: float = TO
     """Compare array values, raise detailed error on first mismatch."""
     expected_arr = np.array(expected, dtype=np.float64)
 
-    # Check shape
+    # Handle shape compatibility: MATLAB may save (N,1) matrices as 1D arrays
+    # When comparing, squeeze singleton dimensions to allow (N,1) vs (N,) comparisons
     if expected_arr.shape != actual.shape:
-        raise AssertionError(
-            f"{name}: shape mismatch - expected {expected_arr.shape}, got {actual.shape}"
-        )
+        # Try squeezing both arrays to handle (N,1) vs (N,) case
+        expected_squeezed = np.squeeze(expected_arr)
+        actual_squeezed = np.squeeze(actual)
+        if expected_squeezed.shape == actual_squeezed.shape:
+            expected_arr = expected_squeezed
+            actual = actual_squeezed
+        else:
+            raise AssertionError(
+                f"{name}: shape mismatch - expected {expected_arr.shape}, got {actual.shape}"
+            )
 
     # Check values
     diff = np.abs(expected_arr - actual)
@@ -386,3 +394,58 @@ def compare_association_matrices(name: str, expected: dict, actual, tol: float =
     # Compare eta normalization factors
     if "eta" in expected:
         compare_array(f"{name}.eta", expected["eta"], actual.eta, tol)
+
+    # Compare R matrix (miss probabilities)
+    if "R" in expected:
+        compare_array(f"{name}.miss_prob", expected["R"], actual.miss_prob, tol)
+
+    # Compare posteriorParameters
+    if "posteriorParameters" in expected:
+        compare_posterior_parameters(
+            f"{name}.posteriorParameters",
+            expected["posteriorParameters"],
+            actual.posterior_parameters,
+            tol,
+        )
+
+
+def compare_posterior_parameters(name: str, expected: list, actual: list, tol: float = TOLERANCE):
+    """Compare posteriorParameters from fixture against actual output.
+
+    Args:
+        name: Name for error messages
+        expected: List of fixture dicts, each with keys: w, mu, Sigma
+        actual: List of _PosteriorParameters objects from filter
+        tol: Numerical tolerance
+
+    MATLAB Fixture Format:
+        posteriorParameters[i].w → shape (num_meas + 1, num_comp)
+            Row 0 is miss hypothesis (equals prior weights)
+            Rows 1+ are measurements
+            Each row sums to 1.0 (likelihood-normalized component weights)
+
+        posteriorParameters[i].mu → shape (num_meas * num_comp, state_dim)
+            Flattened posterior means
+
+        posteriorParameters[i].Sigma → shape (num_meas * num_comp, state_dim, state_dim)
+            Flattened posterior covariances
+    """
+    if len(expected) != len(actual):
+        raise AssertionError(
+            f"{name}: count mismatch - expected {len(expected)}, got {len(actual)}"
+        )
+
+    for i, (exp, act) in enumerate(zip(expected, actual)):
+        prefix = f"{name}[{i}]"
+
+        # Compare component weights w
+        if "w" in exp:
+            compare_array(f"{prefix}.w", exp["w"], act.w, tol)
+
+        # Compare posterior means mu
+        if "mu" in exp:
+            compare_array(f"{prefix}.mu", exp["mu"], act.mu, tol)
+
+        # Compare posterior covariances Sigma
+        if "Sigma" in exp:
+            compare_array(f"{prefix}.Sigma", exp["Sigma"], act.sigma, tol)

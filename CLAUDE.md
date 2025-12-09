@@ -107,22 +107,8 @@ When Rust output != MATLAB fixture output:
 - **Fixtures are truth**: Always trust fixture values over Rust outputs when debugging
 - **Skip, don't weaken**: If you can't fix a test, skip it with a TODO, don't relax it
 
-## MATLAB Equivalence Status
+## Development Rules
 
-**All LMB filters now match MATLAB exactly at TOLERANCE=1e-10.**
-
-The `test_lmb_update_equivalence` test validates that Rust's LMB update produces
-results identical to MATLAB's implementation.
-
-### Key Implementation Details
-
-1. **Likelihood-normalized component weights**: The `MarginalUpdater` uses
-   per-measurement, per-component weights from `PosteriorGrid.component_weights`
-   instead of prior weights. This matches MATLAB's `posteriorParameters.w[meas][comp]`.
-
-2. **GM pruning (not merging)**: Both MATLAB and Rust use weight-based pruning
-   with `max_components` and `gm_weight_threshold`. MATLAB does NOT use Mahalanobis
-   merging by default - the `gm_merge_threshold` is set to `f64::INFINITY`.
-
-3. **Fixture documentation**: See `PosteriorGrid` in `src/association/builder.rs`
-   for detailed documentation of how fixture structures map to Rust types.
+- use sub-agents for researching issues and investigating and confirming hypotheses
+- use sub-agents for investigations, make sure the sub-agents ALWAYS follow the GOLDEN RULES
+- avoid running `python -c` for investigations, especially if investigating the contents of .json files, rather check the matlab code that generated these files for the schema, or check the rust code that loads the files for the schema.

@@ -9,6 +9,7 @@
 
 use nalgebra::{DMatrix, DVector};
 
+use crate::common::linalg::normalize_log_weights;
 use crate::lmb::{SensorModel, Track};
 
 use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
@@ -290,9 +291,11 @@ impl<'a> AssociationBuilder<'a> {
                 let mut meas_covs = Vec::with_capacity(num_components);
                 let mut meas_gains = Vec::with_capacity(num_components);
 
-                // Track per-component likelihoods for normalization
-                // w[k] = prior_weight[k] * likelihood[k] / sum_c(prior_weight[c] * likelihood[c])
-                let mut comp_weighted_likelihoods = Vec::with_capacity(num_components);
+                // Track per-component log-weights for normalization (log-space for numerical stability)
+                // MATLAB: posteriorParameters(i).w(k+1, j) = log(w[j]) + gaussianLogLikelihood + log(p_D) - log(clutter)
+                // where compute_likelihood returns: log_likelihood_ratio = log_lik + log(p_D) - log(clutter)
+                // So: log_w[k] = log(prior_w[k]) + log_likelihood_ratio
+                let mut log_comp_weights = Vec::with_capacity(num_components);
 
                 for component in track.components.iter() {
                     let prior_mean = &component.mean;
@@ -313,9 +316,10 @@ impl<'a> AssociationBuilder<'a> {
                     let component_likelihood = r * comp_weight * result.log_likelihood_ratio.exp();
                     l_matrix[(i, j)] += component_likelihood;
 
-                    // Store per-component weighted likelihood for normalization
-                    // (without the r factor, since it cancels in normalization)
-                    comp_weighted_likelihoods.push(comp_weight * result.log_likelihood_ratio.exp());
+                    // Store log-weight for this component (in log-space to avoid underflow)
+                    // MATLAB: log(w[k]) + gaussian_log_likelihood + log(p_D) - log(clutter)
+                    //       = log(w[k]) + log_likelihood_ratio
+                    log_comp_weights.push(comp_weight.ln() + result.log_likelihood_ratio);
 
                     // Store posterior for this component
                     meas_means.push(result.posterior_mean);
@@ -323,18 +327,9 @@ impl<'a> AssociationBuilder<'a> {
                     meas_gains.push(result.kalman_gain);
                 }
 
-                // Normalize component weights for this measurement
-                // w[k] = prior_weight[k] * likelihood[k] / sum_c(prior_weight[c] * likelihood[c])
-                let sum_weighted_likelihood: f64 = comp_weighted_likelihoods.iter().sum();
-                let meas_comp_weights: Vec<f64> = if sum_weighted_likelihood > 1e-300 {
-                    comp_weighted_likelihoods
-                        .iter()
-                        .map(|&wl| wl / sum_weighted_likelihood)
-                        .collect()
-                } else {
-                    // Fallback to prior weights if all likelihoods are zero
-                    track.components.iter().map(|c| c.weight).collect()
-                };
+                // Normalize component weights using log-sum-exp (matches MATLAB lines 68-70)
+                // This avoids underflow issues that could occur with linear-space computation
+                let meas_comp_weights = normalize_log_weights(&log_comp_weights);
 
                 track_means.push(meas_means);
                 track_covs.push(meas_covs);

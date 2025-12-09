@@ -56,7 +56,19 @@ class TestLmbFixtureEquivalence:
         compare_tracks("step1_predicted", expected_predicted, output.predicted_tracks, TOLERANCE)
 
     def test_lmb_association_matrices_equivalence(self, lmb_fixture):
-        """Verify LMB association matrices match MATLAB exactly."""
+        """Verify ALL LMB association matrices match MATLAB exactly.
+
+        This test validates:
+        - C: Cost matrix (negative log-likelihood)
+        - L: Likelihood matrix
+        - R: Miss probability matrix (phi/eta)
+        - P: Sampling probabilities (psi/(1+psi))
+        - eta: Normalization factors
+        - posteriorParameters[i].w: Likelihood-normalized component weights
+        - posteriorParameters[i].mu: Posterior means
+        - posteriorParameters[i].Sigma: Posterior covariances
+        """
+        from conftest import compare_association_matrices
         from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
 
         model = lmb_fixture["model"]
@@ -73,23 +85,16 @@ class TestLmbFixtureEquivalence:
         output = filter.step_detailed(measurements, timestep=lmb_fixture["timestep"])
 
         # ═══════════════════════════════════════════════════════════════
-        # STEP 2: Verify association matrices match MATLAB
+        # STEP 2: Verify ALL association matrices match MATLAB
         # ═══════════════════════════════════════════════════════════════
         expected_assoc = lmb_fixture["step2_association"]["output"]
 
         assert output.association_matrices is not None, "Association matrices should exist"
 
-        # Compare cost matrix C
-        compare_array("step2.C", expected_assoc["C"], output.association_matrices.cost, TOLERANCE)
-
-        # Compare eta normalization factors
-        compare_array(
-            "step2.eta", expected_assoc["eta"], output.association_matrices.eta, TOLERANCE
-        )
-
-        # Compare sampling probabilities P
-        compare_array(
-            "step2.P", expected_assoc["P"], output.association_matrices.sampling_prob, TOLERANCE
+        # Use comprehensive comparison that validates ALL fields:
+        # C, L, R, P, eta, and posteriorParameters (w, mu, Sigma)
+        compare_association_matrices(
+            "step2", expected_assoc, output.association_matrices, TOLERANCE
         )
 
     def test_lmb_lbp_result_equivalence(self, lmb_fixture):
