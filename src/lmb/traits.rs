@@ -18,7 +18,7 @@ use crate::common::association::lbp as legacy_lbp;
 use crate::common::association::murtys as legacy_murtys;
 use crate::common::rng as legacy_rng;
 
-use super::config::AssociationConfig;
+use super::config::{AssociationConfig, DataAssociationMethod};
 use super::errors::{AssociationError, FilterError};
 use super::output::StateEstimate;
 use super::types::Track;
@@ -568,6 +568,67 @@ impl Associator for MurtyAssociator {
     }
 }
 
+// ============================================================================
+// Dynamic Associator (for Python bindings)
+// ============================================================================
+
+/// Dynamic associator that can be any of the three associator types.
+///
+/// This enum allows runtime selection of the associator algorithm, which is
+/// necessary for Python bindings where the associator type is determined at
+/// runtime based on `AssociationConfig`.
+#[derive(Debug, Clone)]
+pub enum DynamicAssociator {
+    /// Loopy Belief Propagation
+    Lbp(LbpAssociator),
+    /// Gibbs Sampling
+    Gibbs(GibbsAssociator),
+    /// Murty's Algorithm
+    Murty(MurtyAssociator),
+}
+
+impl Default for DynamicAssociator {
+    fn default() -> Self {
+        DynamicAssociator::Lbp(LbpAssociator)
+    }
+}
+
+impl DynamicAssociator {
+    /// Create a dynamic associator from an association config.
+    pub fn from_config(config: &AssociationConfig) -> Self {
+        match config.method {
+            DataAssociationMethod::Lbp | DataAssociationMethod::LbpFixed => {
+                DynamicAssociator::Lbp(LbpAssociator)
+            }
+            DataAssociationMethod::Gibbs => DynamicAssociator::Gibbs(GibbsAssociator),
+            DataAssociationMethod::Murty => DynamicAssociator::Murty(MurtyAssociator),
+        }
+    }
+}
+
+impl Associator for DynamicAssociator {
+    fn associate<R: rand::Rng>(
+        &self,
+        matrices: &AssociationMatrices,
+        config: &AssociationConfig,
+        rng: &mut R,
+    ) -> Result<AssociationResult, AssociationError> {
+        match self {
+            DynamicAssociator::Lbp(a) => a.associate(matrices, config, rng),
+            DynamicAssociator::Gibbs(a) => a.associate(matrices, config, rng),
+            DynamicAssociator::Murty(a) => a.associate(matrices, config, rng),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            DynamicAssociator::Lbp(a) => a.name(),
+            DynamicAssociator::Gibbs(a) => a.name(),
+            DynamicAssociator::Murty(a) => a.name(),
+        }
+    }
+}
+
 /// LMB marginal update strategy using soft (probabilistic) associations.
 ///
 /// This updater implements the standard LMB measurement update, which maintains
@@ -853,6 +914,10 @@ mod tests {
         assert_eq!(LbpAssociator.name(), "LBP");
         assert_eq!(GibbsAssociator.name(), "Gibbs");
         assert_eq!(MurtyAssociator.name(), "Murty");
+        // Test DynamicAssociator names
+        assert_eq!(DynamicAssociator::Lbp(LbpAssociator).name(), "LBP");
+        assert_eq!(DynamicAssociator::Gibbs(GibbsAssociator).name(), "Gibbs");
+        assert_eq!(DynamicAssociator::Murty(MurtyAssociator).name(), "Murty");
     }
 
     #[test]

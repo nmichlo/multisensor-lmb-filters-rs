@@ -139,6 +139,118 @@ class TestLmbFixtureEquivalence:
             TOLERANCE,
         )
 
+    def test_lmb_gibbs_equivalence(self, lmb_fixture):
+        """Verify Gibbs sampling association result matches MATLAB exactly.
+
+        Gibbs sampling uses MCMC to approximate marginal association probabilities.
+        With the same seed and number of samples, it should produce identical results.
+
+        MATLAB fixture generation (generateLmbStepByStepData.m lines 149-170):
+        - Uses rng_seed = seed + 2000 = 2042
+        - Calls lmbGibbsSampling with model.numberOfSamples
+        """
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+
+        model = lmb_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+        birth = make_birth_model_from_fixture(lmb_fixture)
+
+        # Get Gibbs parameters from fixture
+        gibbs_input = lmb_fixture["step3b_gibbs"]["input"]
+        num_samples = gibbs_input["numberOfSamples"]
+        gibbs_seed = gibbs_input["rng_seed"]
+
+        filter = FilterLmb(
+            motion, sensor, birth, AssociatorConfig.gibbs(num_samples), seed=gibbs_seed
+        )
+
+        prior_tracks = load_prior_tracks(lmb_fixture)
+        filter.set_tracks(prior_tracks)
+
+        measurements = measurements_to_numpy(lmb_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=lmb_fixture["timestep"])
+
+        # ═══════════════════════════════════════════════════════════════
+        # STEP 3b: Verify Gibbs marginals match MATLAB
+        # ═══════════════════════════════════════════════════════════════
+        expected_gibbs = lmb_fixture["step3b_gibbs"]["output"]
+
+        assert output.association_result is not None, "Association result should exist"
+
+        # Compare posterior existence (r)
+        compare_array(
+            "step3b.r",
+            expected_gibbs["r"],
+            output.association_result.posterior_existence,
+            TOLERANCE,
+        )
+
+        # Compare marginal weights W (MATLAB W is [miss, meas1, meas2, ...])
+        expected_w = expected_gibbs["W"]
+        expected_marginals = [row[1:] for row in expected_w]
+        compare_array(
+            "step3b.W_marginals",
+            expected_marginals,
+            output.association_result.marginal_weights,
+            TOLERANCE,
+        )
+
+    def test_lmb_murty_equivalence(self, lmb_fixture):
+        """Verify Murty's algorithm association result matches MATLAB exactly.
+
+        Murty's algorithm finds the k-best assignments to compute exact marginals.
+        Being deterministic, it should match MATLAB precisely.
+
+        MATLAB fixture generation (generateLmbStepByStepData.m lines 172-191):
+        - Calls lmbMurtysAlgorithm with model.numberOfAssignments
+        """
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+
+        model = lmb_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+        birth = make_birth_model_from_fixture(lmb_fixture)
+
+        # Get Murty parameters from fixture
+        murty_input = lmb_fixture["step3c_murtys"]["input"]
+        num_assignments = murty_input["numberOfAssignments"]
+
+        filter = FilterLmb(
+            motion, sensor, birth, AssociatorConfig.murty(num_assignments), seed=lmb_fixture["seed"]
+        )
+
+        prior_tracks = load_prior_tracks(lmb_fixture)
+        filter.set_tracks(prior_tracks)
+
+        measurements = measurements_to_numpy(lmb_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=lmb_fixture["timestep"])
+
+        # ═══════════════════════════════════════════════════════════════
+        # STEP 3c: Verify Murty's marginals match MATLAB
+        # ═══════════════════════════════════════════════════════════════
+        expected_murty = lmb_fixture["step3c_murtys"]["output"]
+
+        assert output.association_result is not None, "Association result should exist"
+
+        # Compare posterior existence (r)
+        compare_array(
+            "step3c.r",
+            expected_murty["r"],
+            output.association_result.posterior_existence,
+            TOLERANCE,
+        )
+
+        # Compare marginal weights W (MATLAB W is [miss, meas1, meas2, ...])
+        expected_w = expected_murty["W"]
+        expected_marginals = [row[1:] for row in expected_w]
+        compare_array(
+            "step3c.W_marginals",
+            expected_marginals,
+            output.association_result.marginal_weights,
+            TOLERANCE,
+        )
+
     def test_lmb_update_equivalence(self, lmb_fixture):
         """Verify LMB update step matches MATLAB exactly.
 

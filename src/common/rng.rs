@@ -72,6 +72,37 @@ impl Rng for SimpleRng {
     }
 }
 
+// Implement rand::RngCore to enable use with rand::Rng trait bound
+impl rand::RngCore for SimpleRng {
+    fn next_u32(&mut self) -> u32 {
+        Rng::next_u64(self) as u32
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        Rng::next_u64(self)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        let mut i = 0;
+        let len = dest.len();
+        while i + 8 <= len {
+            let bytes = Rng::next_u64(self).to_le_bytes();
+            dest[i..i + 8].copy_from_slice(&bytes);
+            i += 8;
+        }
+        if i < len {
+            let bytes = Rng::next_u64(self).to_le_bytes();
+            let remaining = len - i;
+            dest[i..].copy_from_slice(&bytes[..remaining]);
+        }
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

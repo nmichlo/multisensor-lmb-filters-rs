@@ -2,10 +2,9 @@
 //!
 //! Uses helper functions and macros to reduce boilerplate across the 7 filter types.
 
+use crate::common::rng::SimpleRng;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
-use rand::rngs::StdRng;
-use rand::SeedableRng;
 
 use crate::lmb::config::{AssociationConfig, DataAssociationMethod, FilterThresholds, LmbmConfig};
 use crate::lmb::errors::FilterError;
@@ -18,7 +17,7 @@ use crate::lmb::singlesensor::lmb::LmbFilter;
 use crate::lmb::singlesensor::lmbm::LmbmFilter;
 use crate::lmb::traits::Filter;
 use crate::lmb::types::{StepDetailedOutput, Track};
-use crate::lmb::LbpAssociator;
+use crate::lmb::{DynamicAssociator, LbpAssociator};
 
 use super::birth::PyBirthModel;
 use super::convert::{numpy_list_to_measurements, numpy_nested_to_measurements};
@@ -414,8 +413,9 @@ impl PyFilterLmbmConfig {
 // Helper: Create RNG from optional seed
 // =============================================================================
 
-fn create_rng(seed: Option<u64>) -> StdRng {
-    seed.map_or_else(StdRng::from_entropy, StdRng::seed_from_u64)
+fn create_rng(seed: Option<u64>) -> SimpleRng {
+    // Use SimpleRng for MATLAB equivalence - it matches MATLAB's SimpleRng class exactly
+    SimpleRng::new(seed.unwrap_or(42))
 }
 
 // =============================================================================
@@ -424,8 +424,8 @@ fn create_rng(seed: Option<u64>) -> StdRng {
 
 #[pyclass(name = "FilterLmb")]
 pub struct PyFilterLmb {
-    inner: LmbFilter,
-    rng: StdRng,
+    inner: LmbFilter<DynamicAssociator>,
+    rng: SimpleRng,
 }
 
 #[pymethods]
@@ -443,11 +443,15 @@ impl PyFilterLmb {
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
         let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
 
-        let inner = LmbFilter::new(
+        // Create the appropriate dynamic associator based on the config
+        let associator = DynamicAssociator::from_config(&assoc);
+
+        let inner = LmbFilter::with_associator_type(
             motion.inner.clone(),
             sensor.inner.clone(),
             birth.inner.clone(),
             assoc,
+            associator,
         )
         .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
         .with_gm_merge_threshold(thresh.gm_merge_threshold);
@@ -479,7 +483,7 @@ impl_lmb_track_access!(PyFilterLmb);
 #[pyclass(name = "FilterLmbm")]
 pub struct PyFilterLmbm {
     inner: LmbmFilter,
-    rng: StdRng,
+    rng: SimpleRng,
 }
 
 #[pymethods]
@@ -551,7 +555,7 @@ impl_lmbm_track_access!(PyFilterLmbm);
 #[pyclass(name = "FilterAaLmb")]
 pub struct PyFilterAaLmb {
     inner: MultisensorLmbFilter<LbpAssociator, ArithmeticAverageMerger>,
-    rng: StdRng,
+    rng: SimpleRng,
 }
 
 #[pymethods]
@@ -609,7 +613,7 @@ impl_lmb_track_access!(PyFilterAaLmb);
 #[pyclass(name = "FilterGaLmb")]
 pub struct PyFilterGaLmb {
     inner: MultisensorLmbFilter<LbpAssociator, GeometricAverageMerger>,
-    rng: StdRng,
+    rng: SimpleRng,
 }
 
 #[pymethods]
@@ -667,7 +671,7 @@ impl_lmb_track_access!(PyFilterGaLmb);
 #[pyclass(name = "FilterPuLmb")]
 pub struct PyFilterPuLmb {
     inner: MultisensorLmbFilter<LbpAssociator, ParallelUpdateMerger>,
-    rng: StdRng,
+    rng: SimpleRng,
 }
 
 #[pymethods]
@@ -725,7 +729,7 @@ impl_lmb_track_access!(PyFilterPuLmb);
 #[pyclass(name = "FilterIcLmb")]
 pub struct PyFilterIcLmb {
     inner: MultisensorLmbFilter<LbpAssociator, IteratedCorrectorMerger>,
-    rng: StdRng,
+    rng: SimpleRng,
 }
 
 #[pymethods]
@@ -782,7 +786,7 @@ impl_lmb_track_access!(PyFilterIcLmb);
 #[pyclass(name = "FilterMultisensorLmbm")]
 pub struct PyFilterMultisensorLmbm {
     inner: MultisensorLmbmFilter,
-    rng: StdRng,
+    rng: SimpleRng,
 }
 
 #[pymethods]

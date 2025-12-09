@@ -75,8 +75,8 @@ pub use errors::{AssociationError, FilterError};
 
 // Traits and implementations
 pub use traits::{
-    AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, LbpAssociator,
-    MarginalUpdater, Merger, MurtyAssociator, Updater,
+    AssociationResult, Associator, DynamicAssociator, Filter, GibbsAssociator,
+    HardAssignmentUpdater, LbpAssociator, MarginalUpdater, Merger, MurtyAssociator, Updater,
 };
 
 // Builder traits
