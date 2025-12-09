@@ -107,33 +107,22 @@ When Rust output != MATLAB fixture output:
 - **Fixtures are truth**: Always trust fixture values over Rust outputs when debugging
 - **Skip, don't weaken**: If you can't fix a test, skip it with a TODO, don't relax it
 
-## Intentional Algorithm Differences
+## MATLAB Equivalence Status
 
-### GM Component Reduction: Pruning vs Merging
+**All LMB filters now match MATLAB exactly at TOLERANCE=1e-10.**
 
-Rust and MATLAB use different GM reduction algorithms. This is a **deliberate design choice**,
-not missing functionality.
+The `test_lmb_update_equivalence` test validates that Rust's LMB update produces
+results identical to MATLAB's implementation.
 
-| Aspect | Rust (Pruning) | MATLAB (Merging) |
-|--------|----------------|------------------|
-| Algorithm | Sort by weight, keep top N | Merge similar (Mahalanobis), then prune |
-| Complexity | O(n log n) | O(n²) |
-| Weight redistribution | Dropped weights lost | Merged weights preserved |
+### Key Implementation Details
 
-**Measured Impact:**
-- Component weights differ by ~1-2%
-- Component means are identical (same Kalman posteriors)
-- **Weighted mean position differs by only 0.0003 units**
-- Tracking accuracy is equivalent
+1. **Likelihood-normalized component weights**: The `MarginalUpdater` uses
+   per-measurement, per-component weights from `PosteriorGrid.component_weights`
+   instead of prior weights. This matches MATLAB's `posteriorParameters.w[meas][comp]`.
 
-**Why pruning is acceptable:**
-1. For tracking, only the weighted mean matters - and it matches
-2. O(n log n) vs O(n²) is significant for many components
-3. Simpler implementation with fewer edge cases
+2. **GM pruning (not merging)**: Both MATLAB and Rust use weight-based pruning
+   with `max_components` and `gm_weight_threshold`. MATLAB does NOT use Mahalanobis
+   merging by default - the `gm_merge_threshold` is set to `f64::INFINITY`.
 
-**Test status:** `test_lmb_update_equivalence` is skipped because it compares
-individual components, not tracking accuracy. A weighted-mean comparison would pass.
-
-**If exact MATLAB equivalence is needed:** Implement `merge_by_mahalanobis()` in
-`src/lmb/common_ops.rs` before the existing pruning step. The Mahalanobis distance
-function already exists in `src/common/linalg.rs`.
+3. **Fixture documentation**: See `PosteriorGrid` in `src/association/builder.rs`
+   for detailed documentation of how fixture structures map to Rust types.

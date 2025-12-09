@@ -652,6 +652,8 @@ impl Updater for MarginalUpdater {
             }
 
             // Measurement cases: posterior components weighted by marginal probabilities
+            // Uses likelihood-normalized component weights from PosteriorGrid, matching
+            // MATLAB's posteriorParameters.w[meas][comp] (see fixture file structure docs).
             for j in 0..m {
                 let meas_prob = result.marginal_weights[(i, j)];
                 if meas_prob < super::NUMERICAL_ZERO {
@@ -664,8 +666,13 @@ impl Updater for MarginalUpdater {
                         posteriors.get_mean_for_component(i, j, comp_idx),
                         posteriors.get_covariance_for_component(i, j, comp_idx),
                     ) {
-                        let prior_weight = track.components[comp_idx].weight;
-                        new_weights.push(meas_prob * prior_weight);
+                        // Use likelihood-normalized component weight instead of prior weight.
+                        // This matches MATLAB: w_posterior = meas_prob * posteriorParameters.w[j][k]
+                        // where posteriorParameters.w[j][k] = prior[k] * L[j][k] / sum_c(prior[c] * L[j][c])
+                        let comp_weight = posteriors
+                            .get_component_weight(i, j, comp_idx)
+                            .unwrap_or(track.components[comp_idx].weight);
+                        new_weights.push(meas_prob * comp_weight);
                         new_means.push(post_mean.clone());
                         new_covs.push(post_cov.clone());
                     }
