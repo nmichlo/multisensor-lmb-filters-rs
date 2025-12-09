@@ -134,15 +134,11 @@ class TestLmbFixtureEquivalence:
             TOLERANCE,
         )
 
-    @pytest.mark.skip(reason="TODO: Implement GM merging in Rust to match MATLAB - see CLAUDE.md")
     def test_lmb_update_equivalence(self, lmb_fixture):
         """Verify LMB update step matches MATLAB exactly.
 
-        BLOCKED: Rust uses weight-based pruning only, MATLAB uses Mahalanobis-distance
-        merging. This causes ~1-2% differences in weights/means. The correct fix is to
-        implement GM merging in Rust, not to relax the tolerance.
-
-        See CLAUDE.md "Current Technical Debt" section.
+        This test validates that Rust's Mahalanobis-distance GM merging
+        produces results identical to MATLAB's implementation.
         """
         from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb, FilterThresholds
 

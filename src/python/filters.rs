@@ -283,19 +283,21 @@ pub struct PyFilterThresholds {
 #[pymethods]
 impl PyFilterThresholds {
     #[new]
-    #[pyo3(signature = (existence=0.5, gm_weight=1e-4, max_components=100, min_trajectory_length=3))]
+    #[pyo3(signature = (existence=0.5, gm_weight=1e-4, max_components=100, min_trajectory_length=3, gm_merge=f64::INFINITY))]
     fn new(
         existence: f64,
         gm_weight: f64,
         max_components: usize,
         min_trajectory_length: usize,
+        gm_merge: f64,
     ) -> Self {
         Self {
-            inner: FilterThresholds::new(
+            inner: FilterThresholds::with_merge_threshold(
                 existence,
                 gm_weight,
                 max_components,
                 min_trajectory_length,
+                gm_merge,
             ),
         }
     }
@@ -315,12 +317,18 @@ impl PyFilterThresholds {
         self.inner.max_gm_components
     }
 
+    #[getter]
+    fn gm_merge_threshold(&self) -> f64 {
+        self.inner.gm_merge_threshold
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "FilterThresholds(existence={}, gm_weight={}, max_components={})",
+            "FilterThresholds(existence={}, gm_weight={}, max_components={}, gm_merge={})",
             self.inner.existence_threshold,
             self.inner.gm_weight_threshold,
-            self.inner.max_gm_components
+            self.inner.max_gm_components,
+            self.inner.gm_merge_threshold
         )
     }
 }
@@ -396,7 +404,8 @@ impl PyFilterLmb {
             birth.inner.clone(),
             assoc,
         )
-        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components);
+        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
+        .with_gm_merge_threshold(thresh.gm_merge_threshold);
 
         Ok(Self {
             inner,
@@ -525,7 +534,8 @@ impl PyFilterAaLmb {
             assoc,
             merger,
         )
-        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components);
+        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
+        .with_gm_merge_threshold(thresh.gm_merge_threshold);
 
         Ok(Self {
             inner,
@@ -582,7 +592,8 @@ impl PyFilterGaLmb {
             assoc,
             merger,
         )
-        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components);
+        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
+        .with_gm_merge_threshold(thresh.gm_merge_threshold);
 
         Ok(Self {
             inner,
@@ -639,7 +650,8 @@ impl PyFilterPuLmb {
             assoc,
             merger,
         )
-        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components);
+        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
+        .with_gm_merge_threshold(thresh.gm_merge_threshold);
 
         Ok(Self {
             inner,
@@ -695,7 +707,8 @@ impl PyFilterIcLmb {
             assoc,
             merger,
         )
-        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components);
+        .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
+        .with_gm_merge_threshold(thresh.gm_merge_threshold);
 
         Ok(Self {
             inner,

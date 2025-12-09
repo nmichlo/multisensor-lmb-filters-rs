@@ -588,28 +588,43 @@ impl Associator for MurtyAssociator {
 /// This approach preserves uncertainty about associations, which is important when
 /// measurements are ambiguous. However, it can lead to component explosion in
 /// dense scenarios.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct MarginalUpdater {
     /// Components with weight below this threshold are pruned.
     pub weight_threshold: f64,
     /// Maximum number of Gaussian components to retain per track.
     pub max_components: usize,
+    /// Mahalanobis distance threshold for merging similar components (MATLAB-style).
+    /// Set to `f64::INFINITY` to disable merging (faster but not MATLAB-equivalent).
+    pub merge_threshold: f64,
+}
+
+impl Default for MarginalUpdater {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MarginalUpdater {
-    /// Create a new marginal updater with default settings
+    /// Create a new marginal updater with default settings (MATLAB-compatible).
     pub fn new() -> Self {
         Self {
             weight_threshold: 1e-4,
             max_components: 100,
+            merge_threshold: 4.0, // MATLAB default
         }
     }
 
-    /// Create with custom thresholds
-    pub fn with_thresholds(weight_threshold: f64, max_components: usize) -> Self {
+    /// Create with custom thresholds.
+    pub fn with_thresholds(
+        weight_threshold: f64,
+        max_components: usize,
+        merge_threshold: f64,
+    ) -> Self {
         Self {
             weight_threshold,
             max_components,
+            merge_threshold,
         }
     }
 }
@@ -670,6 +685,7 @@ impl Updater for MarginalUpdater {
                 weighted_components,
                 self.weight_threshold,
                 self.max_components,
+                self.merge_threshold,
             );
         }
     }

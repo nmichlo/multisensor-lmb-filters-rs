@@ -75,6 +75,8 @@ pub struct LmbFilter<A: Associator = LbpAssociator> {
     gm_weight_threshold: f64,
     /// Maximum GM components per track
     max_gm_components: usize,
+    /// Mahalanobis distance threshold for GM component merging
+    gm_merge_threshold: f64,
 
     /// The associator to use
     associator: A,
@@ -103,6 +105,7 @@ impl LmbFilter<LbpAssociator> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
             max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: super::super::DEFAULT_GM_MERGE_THRESHOLD,
             associator: LbpAssociator,
             updater,
         }
@@ -144,6 +147,7 @@ impl<A: Associator> LmbFilter<A> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
             max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: super::super::DEFAULT_GM_MERGE_THRESHOLD,
             associator,
             updater,
         }
@@ -155,7 +159,27 @@ impl<A: Associator> LmbFilter<A> {
     pub fn with_gm_pruning(mut self, weight_threshold: f64, max_components: usize) -> Self {
         self.gm_weight_threshold = weight_threshold;
         self.max_gm_components = max_components;
-        self.updater = MarginalUpdater::with_thresholds(weight_threshold, max_components);
+        self.updater = MarginalUpdater::with_thresholds(
+            weight_threshold,
+            max_components,
+            self.gm_merge_threshold,
+        );
+        self
+    }
+
+    /// Set the GM component merge threshold for Mahalanobis-distance merging.
+    ///
+    /// This controls how similar components must be (in Mahalanobis distance)
+    /// to be merged together. Set to `f64::INFINITY` to disable merging.
+    ///
+    /// This also updates the internal updater to use the new threshold.
+    pub fn with_gm_merge_threshold(mut self, merge_threshold: f64) -> Self {
+        self.gm_merge_threshold = merge_threshold;
+        self.updater = MarginalUpdater::with_thresholds(
+            self.gm_weight_threshold,
+            self.max_gm_components,
+            merge_threshold,
+        );
         self
     }
 
