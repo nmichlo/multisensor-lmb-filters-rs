@@ -254,8 +254,9 @@ class TestLmbFixtureEquivalence:
     def test_lmb_update_equivalence(self, lmb_fixture):
         """Verify LMB update step matches MATLAB exactly.
 
-        This test validates that Rust's Mahalanobis-distance GM merging
-        produces results identical to MATLAB's implementation.
+        This test validates that Rust's LMB update (using likelihood-normalized
+        component weights and weight-based pruning) produces results identical
+        to MATLAB's computePosteriorLmbSpatialDistributions implementation.
         """
         from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb, FilterThresholds
 

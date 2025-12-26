@@ -386,26 +386,19 @@ impl<'a> AssociationBuilder<'a> {
         }
 
         // Compute sampling probabilities (for Gibbs)
+        // MATLAB formula: P = L ./ (L + eta)
+        // Since psi = L / eta, we have L = psi * eta, so:
+        // P[i,j] = (psi[i,j] * eta[i]) / (psi[i,j] * eta[i] + eta[i])
+        //        = psi[i,j] / (psi[i,j] + 1)
         let mut sampling_prob = DMatrix::zeros(n, m + 1); // +1 for miss
         for i in 0..n {
-            let miss_prob = phi[i];
-            let mut row_sum = miss_prob;
-
             for j in 0..m {
-                let prob = psi[(i, j)];
-                sampling_prob[(i, j)] = prob;
-                row_sum += prob;
+                let psi_ij = psi[(i, j)];
+                sampling_prob[(i, j)] = psi_ij / (1.0 + psi_ij);
             }
-
-            // Normalize
-            if row_sum > 1e-15 {
-                for j in 0..m {
-                    sampling_prob[(i, j)] /= row_sum;
-                }
-                sampling_prob[(i, m)] = miss_prob / row_sum; // miss column
-            } else {
-                sampling_prob[(i, m)] = 1.0; // If nothing likely, assume miss
-            }
+            // Miss probability: phi / (phi + L_sum) - but Gibbs doesn't use this column
+            // We store it for completeness but it's not used by MATLAB's generateGibbsSample
+            sampling_prob[(i, m)] = 0.0;
         }
 
         AssociationMatrices {
@@ -485,7 +478,10 @@ mod tests {
     }
 
     #[test]
-    fn test_sampling_probabilities_sum_to_one() {
+    fn test_sampling_probabilities_follow_matlab_formula() {
+        // MATLAB formula: P = L ./ (L + eta)
+        // This is element-wise, so each P[i,j] = L[i,j] / (L[i,j] + eta[i])
+        // Since psi = L / eta, we have: P[i,j] = psi[i,j] / (1 + psi[i,j])
         let tracks = vec![create_test_track()];
         let sensor = create_test_sensor();
         let mut builder = AssociationBuilder::new(&tracks, &sensor);
@@ -497,17 +493,34 @@ mod tests {
 
         let matrices = builder.build(&measurements);
 
-        // Each row of sampling_prob should sum to 1
+        // Verify P matches the formula P = psi / (1 + psi)
         for i in 0..matrices.num_tracks() {
-            let row_sum: f64 = (0..=matrices.num_measurements())
-                .map(|j| matrices.sampling_prob[(i, j)])
-                .sum();
-            assert!(
-                (row_sum - 1.0).abs() < 1e-10,
-                "Row {} sums to {}",
-                i,
-                row_sum
-            );
+            for j in 0..matrices.num_measurements() {
+                let psi_ij = matrices.psi[(i, j)];
+                let expected_p = psi_ij / (1.0 + psi_ij);
+                assert!(
+                    (matrices.sampling_prob[(i, j)] - expected_p).abs() < 1e-14,
+                    "P[{},{}] = {} but expected {}",
+                    i,
+                    j,
+                    matrices.sampling_prob[(i, j)],
+                    expected_p
+                );
+            }
+        }
+
+        // Verify P values are in [0, 1]
+        for i in 0..matrices.num_tracks() {
+            for j in 0..matrices.num_measurements() {
+                let p = matrices.sampling_prob[(i, j)];
+                assert!(
+                    p >= 0.0 && p <= 1.0,
+                    "P[{},{}] = {} is not in [0, 1]",
+                    i,
+                    j,
+                    p
+                );
+            }
         }
     }
 }

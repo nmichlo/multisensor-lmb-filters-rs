@@ -429,8 +429,10 @@ impl Associator for GibbsAssociator {
             })
             .collect();
 
-        let posterior_existence =
-            AssociationResult::posterior_existence_from_marginals(&marginal_weights, &miss_weights);
+        // Use the posterior existence computed by lmb_gibbs_sampling directly.
+        // The legacy function already computes r = sum(Tau, 2) where Tau = (Sigma .* R) / sum(Sigma, 2)
+        // which correctly accounts for the existence ratio matrix R.
+        let posterior_existence = gibbs_result.r;
 
         Ok(AssociationResult {
             marginal_weights,
@@ -492,47 +494,90 @@ impl Associator for MurtyAssociator {
             return Err(AssociationError::NoValidAssignments);
         }
 
-        // Convert assignments to marginal probabilities
-        // Each assignment has a cost; compute weights as exp(-cost)
         let num_assignments = murty_result.assignments.nrows();
-        let mut assignment_weights: Vec<f64> =
-            murty_result.costs.iter().map(|&c| (-c).exp()).collect();
 
-        // Normalize weights
-        let total_weight: f64 = assignment_weights.iter().sum();
-        if total_weight > super::NUMERICAL_ZERO {
-            for w in &mut assignment_weights {
-                *w /= total_weight;
-            }
-        } else {
-            // Uniform weights if all costs are very high
-            for w in &mut assignment_weights {
-                *w = 1.0 / num_assignments as f64;
+        // Build L matrix (n x (m+1)): [eta, L1, L2, ...] where L_j = psi_j * eta
+        // MATLAB: L = [eta, psi .* eta] where psi contains likelihood ratios
+        let mut l_mat = nalgebra::DMatrix::zeros(n, m + 1);
+        for i in 0..n {
+            l_mat[(i, 0)] = matrices.eta[i]; // miss likelihood
+            for j in 0..m {
+                l_mat[(i, j + 1)] = matrices.psi[(i, j)] * matrices.eta[i];
             }
         }
 
-        // Compute marginal probabilities from weighted assignments
-        let mut marginal_weights = nalgebra::DMatrix::zeros(n, m);
-        let mut miss_weights = nalgebra::DVector::zeros(n);
+        // Build R matrix (n x (m+1)): [phi/eta, 1, 1, ...]
+        // This is the existence ratio matrix
+        let mut r_mat = nalgebra::DMatrix::from_element(n, m + 1, 1.0);
+        for i in 0..n {
+            if matrices.eta[i].abs() > super::NUMERICAL_ZERO {
+                r_mat[(i, 0)] = matrices.phi[i] / matrices.eta[i];
+            } else {
+                r_mat[(i, 0)] = 0.0;
+            }
+        }
 
-        for (k, assignment_weight) in assignment_weights.iter().enumerate() {
+        // Compute Sigma: marginal likelihood sums
+        // MATLAB lines 30-33:
+        // W = repmat(V, 1, 1, m+1) == reshape(0:m, 1, 1, m+1);
+        // J = reshape(L(n * V + (1:n)), size(V, 1), n);
+        // L = permute(sum(prod(J, 2) .* W, 1), [2 1 3]);
+        // Sigma = reshape(L, n, m+1);
+        let mut sigma = nalgebra::DMatrix::zeros(n, m + 1);
+
+        for k in 0..num_assignments {
+            // Compute J for this assignment: product of likelihoods
+            // J(k, i) = L(i, V(k, i)) where V is 0-indexed meas (0=miss, 1+ = meas)
+            let mut j_prod = 1.0;
             for i in 0..n {
-                let assigned_meas = murty_result.assignments[(k, i)];
-                if assigned_meas == 0 {
-                    // Miss/clutter
-                    miss_weights[i] += assignment_weight;
-                } else {
-                    // Assigned to measurement (1-indexed in Murty result)
-                    let j = assigned_meas - 1;
-                    if j < m {
-                        marginal_weights[(i, j)] += assignment_weight;
-                    } else {
-                        // Dummy assignment (clutter)
-                        miss_weights[i] += assignment_weight;
-                    }
+                let v_ki = murty_result.assignments[(k, i)]; // 0=miss, 1+ = meas index
+                j_prod *= l_mat[(i, v_ki)];
+            }
+
+            // Add to sigma for each track-measurement pair in this assignment
+            for i in 0..n {
+                let v_ki = murty_result.assignments[(k, i)];
+                sigma[(i, v_ki)] += j_prod;
+            }
+        }
+
+        // Normalize: Tau = (Sigma .* R) ./ sum(Sigma, 2)
+        // MATLAB line 35
+        let mut tau = nalgebra::DMatrix::zeros(n, m + 1);
+        for i in 0..n {
+            let row_sum: f64 = sigma.row(i).sum();
+            if row_sum > super::NUMERICAL_ZERO {
+                for j in 0..(m + 1) {
+                    tau[(i, j)] = (sigma[(i, j)] * r_mat[(i, j)]) / row_sum;
                 }
             }
         }
+
+        // Existence probabilities: r = sum(Tau, 2)
+        // MATLAB line 37
+        let mut posterior_existence = nalgebra::DVector::zeros(n);
+        for i in 0..n {
+            posterior_existence[i] = tau.row(i).sum();
+        }
+
+        // Marginal association probabilities: W = Tau ./ r
+        // MATLAB line 39
+        let mut w_full = nalgebra::DMatrix::zeros(n, m + 1);
+        for i in 0..n {
+            if posterior_existence[i] > super::NUMERICAL_ZERO {
+                for j in 0..(m + 1) {
+                    w_full[(i, j)] = tau[(i, j)] / posterior_existence[i];
+                }
+            }
+        }
+
+        // Extract miss_weights (column 0) and marginal_weights (columns 1..m+1)
+        let miss_weights = w_full.column(0).into_owned();
+        let marginal_weights = if m > 0 {
+            w_full.columns(1, m).into_owned()
+        } else {
+            nalgebra::DMatrix::zeros(n, 0)
+        };
 
         // Convert assignments to sampled_associations format
         let sampled_associations: Vec<Vec<i32>> = (0..num_assignments)
@@ -549,9 +594,6 @@ impl Associator for MurtyAssociator {
                     .collect()
             })
             .collect();
-
-        let posterior_existence =
-            AssociationResult::posterior_existence_from_marginals(&marginal_weights, &miss_weights);
 
         Ok(AssociationResult {
             marginal_weights,
