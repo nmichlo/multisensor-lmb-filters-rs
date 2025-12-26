@@ -480,9 +480,14 @@ class TestLmbmFixtureEquivalence:
         expected_v = np.array(expected_gibbs["V"], dtype=np.int32)
         actual_v = output.association_result.assignments
 
+        # Rust uses 0-indexed measurements with -1 for miss
+        # MATLAB uses 1-indexed measurements with 0 for miss
+        # Convert Rust format to MATLAB format: -1 -> 0, 0 -> 1, 1 -> 2, etc.
+        actual_v_matlab = actual_v + 1
+
         # MATLAB lmbmGibbsSampling returns unique(V, 'rows') - distinct samples only
         # Get unique rows from actual_v for comparison
-        actual_v_unique = np.unique(actual_v, axis=0)
+        actual_v_unique = np.unique(actual_v_matlab, axis=0)
 
         # Compare unique V matrices
         compare_array("step3a.V", expected_v, actual_v_unique, 0)  # Exact match for integers

@@ -348,11 +348,16 @@ impl PyAssociationMatrices {
     ///
     /// The priors are needed because MATLAB's posteriorParameters includes the
     /// miss hypothesis (row 0), which uses the prior means/covariances unchanged.
+    ///
+    /// # Arguments
+    /// * `use_log_space_l` - If true, L matrix is in log space (LMBM format: [log(eta), R]).
+    ///   If false, L matrix is in linear space (LMB format: [eta, L]).
     pub fn from_matrices(
         matrices: &AssociationMatrices,
         prior_weights: &[Vec<f64>],
         prior_means: &[Vec<Vec<f64>>],
         prior_covariances: &[Vec<Vec<Vec<f64>>>],
+        use_log_space_l: bool,
     ) -> Self {
         // Convert cost matrix
         let n_tracks = matrices.cost.nrows();
@@ -362,17 +367,34 @@ impl PyAssociationMatrices {
             .map(|i| matrices.cost.row(i).iter().copied().collect())
             .collect();
 
-        // Convert log-likelihood: L = [eta | exp(-cost)]
-        // MATLAB format: L[i,0] = eta[i] = 1 - r[i] * P_d, L[i,j+1] = likelihood ratio for measurement j
+        // Convert to L matrix - format depends on filter type:
+        //
+        // LMBM (use_log_space_l=true): L = [log(eta), R] where R is log-likelihood ratio
+        //   MATLAB reference: generateLmbmAssociationMatrices.m line 61:
+        //     associationMatrices.L = [log(eta) R];
+        //   And cost = -R, so R = -cost.
+        //
+        // LMB (use_log_space_l=false): L = [eta, L] where L is linear likelihood
+        //   MATLAB reference: generateLmbAssociationMatrices.m line 79:
+        //     associationMatrices.L = [eta L];
+        //   And L = exp(-cost).
         let likelihood: Vec<Vec<f64>> = (0..n_tracks)
             .map(|i| {
-                // First column: eta[i] = 1 - r[i] * P_d (same as MATLAB's L first column)
-                let mut row = vec![matrices.eta[i]];
-                // Remaining columns: exp(-cost[i,j]) for each measurement
-                for j in 0..n_meas {
-                    row.push((-matrices.cost[(i, j)]).exp());
+                if use_log_space_l {
+                    // LMBM format: log space
+                    let mut row = vec![matrices.eta[i].ln()];
+                    for j in 0..n_meas {
+                        row.push(-matrices.cost[(i, j)]); // R = -cost
+                    }
+                    row
+                } else {
+                    // LMB format: linear space
+                    let mut row = vec![matrices.eta[i]];
+                    for j in 0..n_meas {
+                        row.push((-matrices.cost[(i, j)]).exp()); // L = exp(-cost)
+                    }
+                    row
                 }
-                row
             })
             .collect();
 

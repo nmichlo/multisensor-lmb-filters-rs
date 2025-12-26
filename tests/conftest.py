@@ -352,10 +352,13 @@ def make_birth_model_from_fixture(fixture: dict):
                 )
             )
 
+    # When extracting birth existence from fixture, use the same value for both
+    # LMB and LMBM since the fixture already contains the correct filter-specific value.
+    # MATLAB uses model.rB=0.03 for LMB and model.rBLmbm=0.045 for LMBM.
     return BirthModel(
         locations=locations,
         lmb_existence=lmb_existence,
-        lmbm_existence=lmb_existence / 10,
+        lmbm_existence=lmb_existence,  # Same value - fixture has filter-specific existence
     )
 
 

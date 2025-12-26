@@ -9,7 +9,7 @@
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::common::linalg::normalize_log_weights;
+use crate::common::linalg::{log_sum_exp, normalize_log_weights};
 use crate::lmb::{SensorModel, Track};
 
 use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
@@ -253,10 +253,10 @@ impl<'a> AssociationBuilder<'a> {
         let n = self.tracks.len();
         let m = measurements.len();
 
-        // Initialize matrices
-        // L matrix accumulates likelihood ratios (sum over GM components)
-        let mut l_matrix = DMatrix::zeros(n, m);
-        let mut cost = DMatrix::from_element(n, m, f64::INFINITY);
+        // Initialize matrices - work in LOG SPACE to avoid underflow
+        // log_l_matrix stores log-likelihood ratios: log(sum_k(r * w[k] * likelihood_ratio[k]))
+        // We use log-sum-exp to accumulate over components in log-space.
+        let mut log_l_matrix = DMatrix::from_element(n, m, f64::NEG_INFINITY);
         let mut posteriors = PosteriorGrid::new(n, m);
 
         let p_d = self.sensor.detection_probability;
@@ -264,6 +264,7 @@ impl<'a> AssociationBuilder<'a> {
 
         // Compute likelihoods for all (track, measurement) pairs
         // Matching MATLAB: iterate over ALL GM components and sum weighted likelihoods
+        // Using log-sum-exp: log(sum_k exp(log_term_k)) to avoid underflow.
         for (i, track) in self.tracks.iter().enumerate() {
             let num_components = track.components.len();
 
@@ -272,15 +273,9 @@ impl<'a> AssociationBuilder<'a> {
             let mut track_covs: Vec<Vec<DMatrix<f64>>> = Vec::with_capacity(m);
             let mut track_gains: Vec<Vec<DMatrix<f64>>> = Vec::with_capacity(m);
 
-            // Initialize L values to 0 for accumulation
-            for j in 0..m {
-                l_matrix[(i, j)] = 0.0;
-            }
-
-            // Iterate over ALL GM components to compute marginal likelihood
-            // Matching MATLAB generateLmbAssociationMatrices.m exactly:
-            // L[i,j] = sum_k( r * p_D * w[k] / lambda * gaussian_likelihood[k] )
+            // Existence probability
             let r = track.existence;
+            let log_r = if r > 0.0 { r.ln() } else { f64::NEG_INFINITY };
 
             // track_comp_weights[j][k] = likelihood-normalized weight for meas j, component k
             let mut track_comp_weights: Vec<Vec<f64>> = Vec::with_capacity(m);
@@ -297,6 +292,10 @@ impl<'a> AssociationBuilder<'a> {
                 // So: log_w[k] = log(prior_w[k]) + log_likelihood_ratio
                 let mut log_comp_weights = Vec::with_capacity(num_components);
 
+                // Collect log-terms for log-sum-exp
+                // Each term: log(r * w[k] * exp(log_likelihood_ratio[k])) = log(r) + log(w[k]) + log_likelihood_ratio[k]
+                let mut log_terms = Vec::with_capacity(num_components);
+
                 for component in track.components.iter() {
                     let prior_mean = &component.mean;
                     let prior_cov = &component.covariance;
@@ -311,21 +310,28 @@ impl<'a> AssociationBuilder<'a> {
                     );
 
                     // compute_likelihood returns: log(p_D / lambda * gaussian)
-                    // We need: r * p_D * w[k] / lambda * gaussian
-                    // So: r * w[k] * exp(log_likelihood_ratio)
-                    let component_likelihood = r * comp_weight * result.log_likelihood_ratio.exp();
-                    l_matrix[(i, j)] += component_likelihood;
+                    // Full log-likelihood for this component: log(r * w[k] * exp(log_likelihood_ratio))
+                    //   = log(r) + log(w[k]) + log_likelihood_ratio
+                    let log_w = if comp_weight > 0.0 {
+                        comp_weight.ln()
+                    } else {
+                        f64::NEG_INFINITY
+                    };
+                    let log_term = log_r + log_w + result.log_likelihood_ratio;
+                    log_terms.push(log_term);
 
-                    // Store log-weight for this component (in log-space to avoid underflow)
-                    // MATLAB: log(w[k]) + gaussian_log_likelihood + log(p_D) - log(clutter)
-                    //       = log(w[k]) + log_likelihood_ratio
-                    log_comp_weights.push(comp_weight.ln() + result.log_likelihood_ratio);
+                    // Store log-weight for this component (for component weight normalization)
+                    log_comp_weights.push(log_w + result.log_likelihood_ratio);
 
                     // Store posterior for this component
                     meas_means.push(result.posterior_mean);
                     meas_covs.push(result.posterior_covariance);
                     meas_gains.push(result.kalman_gain);
                 }
+
+                // Compute log(L[i,j]) = log(sum_k exp(log_term_k)) using log-sum-exp
+                // This is numerically stable and avoids underflow
+                log_l_matrix[(i, j)] = log_sum_exp(&log_terms);
 
                 // Normalize component weights using log-sum-exp (matches MATLAB lines 68-70)
                 // This avoids underflow issues that could occur with linear-space computation
@@ -337,28 +343,24 @@ impl<'a> AssociationBuilder<'a> {
                 track_comp_weights.push(meas_comp_weights);
             }
 
-            // Convert L to cost: cost = -log(L)
-            for j in 0..m {
-                if l_matrix[(i, j)] > 0.0 {
-                    cost[(i, j)] = -l_matrix[(i, j)].ln();
-                }
-            }
-
             posteriors.means.push(track_means);
             posteriors.covariances.push(track_covs);
             posteriors.kalman_gains.push(track_gains);
             posteriors.component_weights.push(track_comp_weights);
         }
 
-        // Also need log_likelihood_ratios matrix
-        let mut log_likelihood_ratios = DMatrix::from_element(n, m, f64::NEG_INFINITY);
+        // Cost = -log(L) = -log_l_matrix
+        let mut cost = DMatrix::from_element(n, m, f64::INFINITY);
         for i in 0..n {
             for j in 0..m {
-                if l_matrix[(i, j)] > 0.0 {
-                    log_likelihood_ratios[(i, j)] = l_matrix[(i, j)].ln();
+                if log_l_matrix[(i, j)] > f64::NEG_INFINITY {
+                    cost[(i, j)] = -log_l_matrix[(i, j)];
                 }
             }
         }
+
+        // log_likelihood_ratios is the same as log_l_matrix
+        let log_likelihood_ratios = log_l_matrix.clone();
 
         // Compute LBP matrices
         let mut eta = DVector::zeros(n);

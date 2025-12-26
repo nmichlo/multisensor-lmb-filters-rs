@@ -45,10 +45,15 @@ fn tracks_to_py(py: Python<'_>, tracks: &[Track]) -> PyResult<Vec<Py<PyTrackData
 }
 
 /// Convert StepDetailedOutput to PyStepOutput
+///
+/// # Arguments
+/// * `include_association` - Whether to include association matrices and results
+/// * `use_log_space_l` - Whether L matrix should be in log space (LMBM) or linear space (LMB)
 fn step_output_to_py(
     py: Python<'_>,
     output: StepDetailedOutput,
     include_association: bool,
+    use_log_space_l: bool,
 ) -> PyResult<Py<PyStepOutput>> {
     let predicted = tracks_to_py(py, &output.predicted_tracks)?;
     let updated = tracks_to_py(py, &output.updated_tracks)?;
@@ -99,6 +104,7 @@ fn step_output_to_py(
                         &prior_weights,
                         &prior_means,
                         &prior_covariances,
+                        use_log_space_l,
                     ),
                 )
             })
@@ -153,8 +159,13 @@ macro_rules! impl_filter_reset {
 }
 
 /// Implement step and step_detailed for single-sensor filters
+///
+/// # Parameters
+/// * `$filter` - The filter type to implement for
+/// * `$include_association` - Whether to include association matrices in output
+/// * `$use_log_space_l` - Whether L matrix should be in log space (LMBM) or linear space (LMB)
 macro_rules! impl_singlesensor_step {
-    ($filter:ty, $include_association:expr) => {
+    ($filter:ty, $include_association:expr, $use_log_space_l:expr) => {
         #[pymethods]
         impl $filter {
             fn step(
@@ -181,15 +192,20 @@ macro_rules! impl_singlesensor_step {
                     .inner
                     .step_detailed(&mut self.rng, &meas, timestep)
                     .map_err(filter_error_to_py)?;
-                step_output_to_py(py, output, $include_association)
+                step_output_to_py(py, output, $include_association, $use_log_space_l)
             }
         }
     };
 }
 
 /// Implement step and step_detailed for multi-sensor filters
+///
+/// # Parameters
+/// * `$filter` - The filter type to implement for
+/// * `$include_association` - Whether to include association matrices in output
+/// * `$use_log_space_l` - Whether L matrix should be in log space (LMBM) or linear space (LMB)
 macro_rules! impl_multisensor_step {
-    ($filter:ty, $include_association:expr) => {
+    ($filter:ty, $include_association:expr, $use_log_space_l:expr) => {
         #[pymethods]
         impl $filter {
             fn step(
@@ -216,7 +232,7 @@ macro_rules! impl_multisensor_step {
                     .inner
                     .step_detailed(&mut self.rng, &meas, timestep)
                     .map_err(filter_error_to_py)?;
-                step_output_to_py(py, output, $include_association)
+                step_output_to_py(py, output, $include_association, $use_log_space_l)
             }
         }
     };
@@ -490,7 +506,7 @@ impl PyFilterLmb {
 }
 
 impl_filter_reset!(PyFilterLmb);
-impl_singlesensor_step!(PyFilterLmb, true);
+impl_singlesensor_step!(PyFilterLmb, true, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterLmb);
 
 // =============================================================================
@@ -562,7 +578,7 @@ impl PyFilterLmbm {
 }
 
 impl_filter_reset!(PyFilterLmbm);
-impl_singlesensor_step!(PyFilterLmbm, true); // Enable association exposure for fixture validation
+impl_singlesensor_step!(PyFilterLmbm, true, true); // LMBM uses log space L
 impl_lmbm_track_access!(PyFilterLmbm);
 impl_lmbm_hypothesis_access!(PyFilterLmbm);
 
@@ -621,7 +637,7 @@ impl PyFilterAaLmb {
 }
 
 impl_filter_reset!(PyFilterAaLmb);
-impl_multisensor_step!(PyFilterAaLmb, false);
+impl_multisensor_step!(PyFilterAaLmb, false, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterAaLmb);
 
 // =============================================================================
@@ -679,7 +695,7 @@ impl PyFilterGaLmb {
 }
 
 impl_filter_reset!(PyFilterGaLmb);
-impl_multisensor_step!(PyFilterGaLmb, false);
+impl_multisensor_step!(PyFilterGaLmb, false, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterGaLmb);
 
 // =============================================================================
@@ -737,7 +753,7 @@ impl PyFilterPuLmb {
 }
 
 impl_filter_reset!(PyFilterPuLmb);
-impl_multisensor_step!(PyFilterPuLmb, false);
+impl_multisensor_step!(PyFilterPuLmb, false, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterPuLmb);
 
 // =============================================================================
@@ -794,7 +810,7 @@ impl PyFilterIcLmb {
 }
 
 impl_filter_reset!(PyFilterIcLmb);
-impl_multisensor_step!(PyFilterIcLmb, false);
+impl_multisensor_step!(PyFilterIcLmb, false, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterIcLmb);
 
 // =============================================================================
@@ -866,5 +882,5 @@ impl PyFilterMultisensorLmbm {
 }
 
 impl_filter_reset!(PyFilterMultisensorLmbm);
-impl_multisensor_step!(PyFilterMultisensorLmbm, false);
+impl_multisensor_step!(PyFilterMultisensorLmbm, false, true); // LMBM uses log space L
 impl_lmbm_track_access!(PyFilterMultisensorLmbm);
