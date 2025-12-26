@@ -65,6 +65,9 @@ from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
     _CardinalityEstimate as _CardinalityEstimate,
 )
 from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
+    _LmbmHypothesis as _LmbmHypothesis,
+)
+from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
     _StepOutput as _StepOutput,
 )
 from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (

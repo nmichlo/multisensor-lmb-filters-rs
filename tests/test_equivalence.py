@@ -355,38 +355,137 @@ class TestLmbFixtureEquivalence:
 
 
 class TestLmbmFixtureEquivalence:
-    """Test FilterLmbm against LMBM step-by-step fixture."""
+    """Test FilterLmbm against LMBM step-by-step fixture with FULL intermediate validation."""
 
-    def test_lmbm_prediction_equivalence(self, lmbm_fixture):
-        """Verify LMBM prediction step matches MATLAB exactly."""
-        from multisensor_lmb_filters_rs import FilterLmbm
+    def test_lmbm_association_matrices_equivalence(self, lmbm_fixture):
+        """Verify LMBM association matrices match MATLAB exactly.
+
+        This test validates:
+        - C: Cost matrix
+        - L: Likelihood matrix
+        - P: Sampling probabilities
+
+        Note: We load the PRIOR hypothesis and let the filter run prediction,
+        which adds birth tracks to get the predicted hypothesis state that
+        matches the fixture's step2_association input.
+        """
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
         sensor = make_sensor_model(model)
-        birth = make_birth_model_empty()
 
-        filter = FilterLmbm(motion, sensor, birth, seed=lmbm_fixture["seed"])
+        # Create birth model matching the fixture's birth configuration
+        # The fixture adds 4 birth locations at timestep 3
+        birth = make_birth_model_from_fixture(lmbm_fixture)
 
-        # LMBM uses hypothesis structure - load prior hypothesis
+        # Get Gibbs parameters from fixture
+        gibbs_input = lmbm_fixture["step3a_gibbs"]["input"]
+        num_samples = gibbs_input["numberOfSamples"]
+        gibbs_seed = gibbs_input["rng_seed"]
+
+        filter = FilterLmbm(
+            motion, sensor, birth, AssociatorConfig.gibbs(num_samples), seed=gibbs_seed
+        )
+
+        # Load PRIOR hypothesis - step_detailed will run prediction to add birth tracks
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        prior_objects = prior_hyp.get("objects", [])
-
-        # Convert to track data and set
-        from conftest import make_track_data
-
-        prior_tracks = [make_track_data(obj) for obj in prior_objects]
-
-        if prior_tracks:
-            # LMBM needs set_hypotheses, not set_tracks
-            # For now we test with birth-based initialization
-            pass
+        hypothesis = _LmbmHypothesis.from_matlab(
+            w=prior_hyp["w"],
+            r=prior_hyp["r"],
+            mu=prior_hyp["mu"],
+            sigma=prior_hyp["Sigma"],
+            birth_time=prior_hyp["birthTime"],
+            birth_location=prior_hyp["birthLocation"],
+        )
+        filter.set_hypotheses([hypothesis])
 
         measurements = measurements_to_numpy(lmbm_fixture["measurements"])
         output = filter.step_detailed(measurements, timestep=lmbm_fixture["timestep"])
 
-        # Verify output structure is valid
-        assert output.cardinality.n_estimated >= 0
+        # ═══════════════════════════════════════════════════════════════
+        # STEP 2: Verify association matrices match MATLAB
+        # ═══════════════════════════════════════════════════════════════
+        expected_assoc = lmbm_fixture["step2_association"]["output"]
+
+        assert output.association_matrices is not None, "Association matrices should exist"
+
+        # Compare C, L, P matrices
+        compare_array(
+            "step2.cost", expected_assoc["C"], output.association_matrices.cost, TOLERANCE
+        )
+        compare_array(
+            "step2.likelihood",
+            expected_assoc["L"],
+            output.association_matrices.likelihood,
+            TOLERANCE,
+        )
+        compare_array(
+            "step2.sampling_prob",
+            expected_assoc["P"],
+            output.association_matrices.sampling_prob,
+            TOLERANCE,
+        )
+
+    def test_lmbm_gibbs_v_matrix_equivalence(self, lmbm_fixture):
+        """Verify LMBM Gibbs sampling produces identical distinct assignment samples.
+
+        The V matrix contains distinct association vectors where V[i,j] indicates
+        which measurement (1-indexed) or miss (0) track j is assigned to in sample i.
+
+        Note: MATLAB returns unique(V, 'rows') - only distinct samples are kept.
+        We load the PRIOR hypothesis and let prediction run to match the fixture flow.
+        """
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+
+        model = lmbm_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+
+        # Create birth model matching the fixture's birth configuration
+        birth = make_birth_model_from_fixture(lmbm_fixture)
+
+        # Get Gibbs parameters from fixture
+        gibbs_input = lmbm_fixture["step3a_gibbs"]["input"]
+        num_samples = gibbs_input["numberOfSamples"]
+        gibbs_seed = gibbs_input["rng_seed"]
+
+        filter = FilterLmbm(
+            motion, sensor, birth, AssociatorConfig.gibbs(num_samples), seed=gibbs_seed
+        )
+
+        # Load PRIOR hypothesis - step_detailed will run prediction to add birth tracks
+        prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
+        hypothesis = _LmbmHypothesis.from_matlab(
+            w=prior_hyp["w"],
+            r=prior_hyp["r"],
+            mu=prior_hyp["mu"],
+            sigma=prior_hyp["Sigma"],
+            birth_time=prior_hyp["birthTime"],
+            birth_location=prior_hyp["birthLocation"],
+        )
+        filter.set_hypotheses([hypothesis])
+
+        measurements = measurements_to_numpy(lmbm_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=lmbm_fixture["timestep"])
+
+        # ═══════════════════════════════════════════════════════════════
+        # STEP 3a: Verify Gibbs V matrix matches MATLAB (unique samples)
+        # ═══════════════════════════════════════════════════════════════
+        expected_gibbs = lmbm_fixture["step3a_gibbs"]["output"]
+
+        assert output.association_result is not None, "Association result should exist"
+        assert output.association_result.assignments is not None, "Gibbs assignments should exist"
+
+        expected_v = np.array(expected_gibbs["V"], dtype=np.int32)
+        actual_v = output.association_result.assignments
+
+        # MATLAB lmbmGibbsSampling returns unique(V, 'rows') - distinct samples only
+        # Get unique rows from actual_v for comparison
+        actual_v_unique = np.unique(actual_v, axis=0)
+
+        # Compare unique V matrices
+        compare_array("step3a.V", expected_v, actual_v_unique, 0)  # Exact match for integers
 
     def test_lmbm_runs_on_fixture(self, lmbm_fixture):
         """LMBM filter runs on fixture data and produces valid output."""

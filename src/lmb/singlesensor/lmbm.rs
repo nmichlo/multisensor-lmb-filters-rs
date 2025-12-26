@@ -344,8 +344,9 @@ impl<A: Associator> LmbmFilter<A> {
 
     /// Detailed step that returns all intermediate data for fixture validation.
     ///
-    /// Note: LMBM doesn't expose association matrices directly since it uses
-    /// hypothesis-level processing. Returns tracks from the highest-weight hypothesis.
+    /// For LMBM, association matrices and results are computed from the first
+    /// (highest-weight) hypothesis's tracks. The sampled assignments in the
+    /// association result are used to generate posterior hypotheses.
     pub fn step_detailed<R: rand::Rng>(
         &mut self,
         rng: &mut R,
@@ -361,7 +362,7 @@ impl<A: Associator> LmbmFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         // STEP 2-3: Association and posterior hypothesis generation
         // ══════════════════════════════════════════════════════════════════════
-        if !measurements.is_empty()
+        let (association_matrices, association_result) = if !measurements.is_empty()
             && !self.hypotheses.is_empty()
             && !self.hypotheses[0].tracks.is_empty()
         {
@@ -376,9 +377,14 @@ impl<A: Associator> LmbmFilter<A> {
                 .map_err(FilterError::Association)?;
 
             self.generate_posterior_hypotheses(&result, &matrices.posteriors, &log_likelihood);
-        } else if measurements.is_empty() {
-            self.update_existence_no_measurements();
-        }
+
+            (Some(matrices), Some(result))
+        } else {
+            if measurements.is_empty() {
+                self.update_existence_no_measurements();
+            }
+            (None, None)
+        };
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 4: Hypothesis management
@@ -403,8 +409,8 @@ impl<A: Associator> LmbmFilter<A> {
 
         Ok(StepDetailedOutput {
             predicted_tracks,
-            association_matrices: None, // LMBM doesn't expose this
-            association_result: None,   // LMBM doesn't expose this
+            association_matrices,
+            association_result,
             updated_tracks,
             cardinality,
             final_estimate,

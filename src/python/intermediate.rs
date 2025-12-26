@@ -19,6 +19,7 @@ use crate::lmb::types::{GaussianComponent, Track, TrackLabel};
 // =============================================================================
 
 #[pyclass(name = "_TrackData")]
+#[derive(Clone)]
 pub struct PyTrackData {
     /// Track label as (birth_time, birth_location)
     #[pyo3(get)]
@@ -673,6 +674,117 @@ impl PyStepOutput {
             self.predicted_tracks.len(),
             self.updated_tracks.len()
         )
+    }
+}
+
+// =============================================================================
+// _LmbmHypothesis - LMBM hypothesis for setting filter state
+// =============================================================================
+
+use crate::lmb::types::LmbmHypothesis;
+
+/// LMBM Hypothesis for Python bindings
+///
+/// Used for loading LMBM fixture data into the filter for testing.
+#[pyclass(name = "_LmbmHypothesis")]
+pub struct PyLmbmHypothesis {
+    /// Log-space hypothesis weight
+    #[pyo3(get)]
+    pub log_weight: f64,
+
+    /// Tracks in this hypothesis
+    pub tracks: Vec<PyTrackData>,
+}
+
+#[pymethods]
+impl PyLmbmHypothesis {
+    #[new]
+    #[pyo3(signature = (log_weight, tracks))]
+    fn new(log_weight: f64, tracks: Vec<PyRef<PyTrackData>>) -> Self {
+        Self {
+            log_weight,
+            tracks: tracks.iter().map(|t| t.clone_inner()).collect(),
+        }
+    }
+
+    /// Create from MATLAB hypothesis format (w = linear weight, r = existence, etc.)
+    #[staticmethod]
+    #[pyo3(signature = (w, r, mu, sigma, birth_time, birth_location))]
+    fn from_matlab(
+        w: f64,
+        r: Vec<f64>,
+        mu: Vec<Vec<f64>>,
+        sigma: Vec<Vec<Vec<f64>>>,
+        birth_time: Vec<usize>,
+        birth_location: Vec<usize>,
+    ) -> Self {
+        let log_weight = if w > 0.0 { w.ln() } else { f64::NEG_INFINITY };
+
+        // Create tracks from the hypothesis data
+        // Each index in r corresponds to a track
+        let tracks: Vec<PyTrackData> = r
+            .iter()
+            .zip(mu.iter())
+            .zip(sigma.iter())
+            .zip(birth_time.iter())
+            .zip(birth_location.iter())
+            .map(|((((ri, mui), sigi), bti), bli)| PyTrackData {
+                label: (*bti, *bli),
+                existence: *ri,
+                means: vec![mui.clone()],
+                covariances: vec![sigi.clone()],
+                weights: vec![1.0], // Single component with weight 1
+            })
+            .collect();
+
+        Self { log_weight, tracks }
+    }
+
+    #[getter]
+    fn weight(&self) -> f64 {
+        self.log_weight.exp()
+    }
+
+    #[getter]
+    fn num_tracks(&self) -> usize {
+        self.tracks.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "_LmbmHypothesis(w={:.4}, num_tracks={})",
+            self.weight(),
+            self.tracks.len()
+        )
+    }
+}
+
+impl PyLmbmHypothesis {
+    /// Convert to Rust LmbmHypothesis
+    pub fn to_hypothesis(&self) -> LmbmHypothesis {
+        let tracks = self.tracks.iter().map(|t| t.to_track()).collect();
+        LmbmHypothesis::new(self.log_weight, tracks)
+    }
+
+    /// Clone inner data without PyRef
+    fn clone_inner(&self) -> Self {
+        Self {
+            log_weight: self.log_weight,
+            tracks: self.tracks.clone(),
+        }
+    }
+}
+
+impl PyTrackData {
+    /// Clone without PyRef
+    fn clone_inner(&self) -> Self {
+        Self {
+            label: self.label,
+            existence: self.existence,
+            means: self.means.clone(),
+            covariances: self.covariances.clone(),
+            weights: self.weights.clone(),
+        }
     }
 }
 

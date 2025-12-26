@@ -297,36 +297,65 @@ def make_birth_model_from_fixture(fixture: dict):
 
     MATLAB fixtures include birth tracks in the predicted output. This function
     extracts those tracks and creates a matching birth model.
+
+    Handles both LMB fixtures (predicted_objects list) and LMBM fixtures
+    (predicted_hypothesis with parallel arrays).
     """
     from multisensor_lmb_filters_rs import BirthLocation, BirthModel
 
     timestep = fixture["timestep"]
-    predicted_objects = fixture["step1_prediction"]["output"]["predicted_objects"]
+    prediction_output = fixture["step1_prediction"]["output"]
 
-    # Find birth tracks (label[0] == timestep means they were born this step)
-    birth_tracks = [obj for obj in predicted_objects if obj["label"][0] == timestep]
+    # Check if this is LMB (predicted_objects) or LMBM (predicted_hypothesis) format
+    if "predicted_objects" in prediction_output:
+        # LMB format: list of track objects
+        predicted_objects = prediction_output["predicted_objects"]
+        birth_tracks = [obj for obj in predicted_objects if obj["label"][0] == timestep]
 
-    if not birth_tracks:
-        return make_birth_model_empty()
+        if not birth_tracks:
+            return make_birth_model_empty()
 
-    # Get existence probability from first birth track
-    lmb_existence = birth_tracks[0]["r"]
-
-    locations = []
-    for obj in birth_tracks:
-        label = obj["label"]
-        locations.append(
-            BirthLocation(
-                label=label[1],  # birth_location index
-                mean=np.array(obj["mu"][0], dtype=np.float64),
-                covariance=np.array(obj["Sigma"][0], dtype=np.float64),
+        lmb_existence = birth_tracks[0]["r"]
+        locations = []
+        for obj in birth_tracks:
+            label = obj["label"]
+            locations.append(
+                BirthLocation(
+                    label=label[1],
+                    mean=np.array(obj["mu"][0], dtype=np.float64),
+                    covariance=np.array(obj["Sigma"][0], dtype=np.float64),
+                )
             )
-        )
+    else:
+        # LMBM format: predicted_hypothesis with parallel arrays
+        hyp = prediction_output["predicted_hypothesis"]
+        birth_times = hyp["birthTime"]
+        birth_locs = hyp["birthLocation"]
+        r_values = hyp["r"]
+        mu_values = hyp["mu"]
+        sigma_values = hyp["Sigma"]
+
+        # Find indices where birthTime == timestep (these are birth tracks)
+        birth_indices = [i for i, bt in enumerate(birth_times) if bt == timestep]
+
+        if not birth_indices:
+            return make_birth_model_empty()
+
+        lmb_existence = r_values[birth_indices[0]]
+        locations = []
+        for i in birth_indices:
+            locations.append(
+                BirthLocation(
+                    label=birth_locs[i],
+                    mean=np.array(mu_values[i], dtype=np.float64),
+                    covariance=np.array(sigma_values[i], dtype=np.float64),
+                )
+            )
 
     return BirthModel(
         locations=locations,
         lmb_existence=lmb_existence,
-        lmbm_existence=lmb_existence / 10,  # LMBM uses lower existence
+        lmbm_existence=lmb_existence / 10,
     )
 
 

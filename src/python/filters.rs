@@ -251,6 +251,23 @@ macro_rules! impl_lmbm_track_access {
     };
 }
 
+/// Implement set_hypotheses for single-sensor LMBM filter
+macro_rules! impl_lmbm_hypothesis_access {
+    ($filter:ty) => {
+        #[pymethods]
+        impl $filter {
+            fn set_hypotheses(
+                &mut self,
+                hypotheses: Vec<PyRef<super::intermediate::PyLmbmHypothesis>>,
+            ) {
+                let rust_hypotheses: Vec<_> =
+                    hypotheses.iter().map(|h| h.to_hypothesis()).collect();
+                self.inner.set_hypotheses(rust_hypotheses);
+            }
+        }
+    };
+}
+
 // =============================================================================
 // AssociatorConfig
 // =============================================================================
@@ -545,8 +562,9 @@ impl PyFilterLmbm {
 }
 
 impl_filter_reset!(PyFilterLmbm);
-impl_singlesensor_step!(PyFilterLmbm, false);
+impl_singlesensor_step!(PyFilterLmbm, true); // Enable association exposure for fixture validation
 impl_lmbm_track_access!(PyFilterLmbm);
+impl_lmbm_hypothesis_access!(PyFilterLmbm);
 
 // =============================================================================
 // FilterAaLmb - Arithmetic Average multi-sensor LMB filter
