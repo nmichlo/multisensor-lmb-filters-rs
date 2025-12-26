@@ -209,6 +209,31 @@ impl AssociationMatrices {
     pub fn num_measurements(&self) -> usize {
         self.psi.ncols()
     }
+
+    /// Get the miss-detection posterior existence probability for each track.
+    ///
+    /// This computes `posteriorParameters.r` from MATLAB's `generateLmbmAssociationMatrices.m`:
+    /// ```text
+    /// phi = (1 - P_d) * r       % line 29
+    /// eta = 1 - P_d * r         % line 30
+    /// posteriorParameters.r = phi ./ eta  % line 32
+    /// ```
+    ///
+    /// This is the posterior existence probability given that the track was NOT detected.
+    /// Used by LMBM hypothesis generation to set the base existence for missed tracks.
+    ///
+    /// # Returns
+    /// A vector where element i is the miss-posterior existence for track i.
+    pub fn miss_posterior_existence(&self) -> DVector<f64> {
+        let n = self.phi.len();
+        let mut r_miss = DVector::zeros(n);
+        for i in 0..n {
+            if self.eta[i].abs() > 1e-15 {
+                r_miss[i] = self.phi[i] / self.eta[i];
+            }
+        }
+        r_miss
+    }
 }
 
 /// Builds association matrices from tracks and measurements.

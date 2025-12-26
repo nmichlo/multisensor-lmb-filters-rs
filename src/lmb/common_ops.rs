@@ -690,13 +690,16 @@ pub fn init_hypothesis_birth_trajectories(hypotheses: &mut [LmbmHypothesis], max
 // Hypothesis normalization (LmbmFilter, MultisensorLmbmFilter)
 // ============================================================================
 
-/// Normalize and gate hypotheses.
+/// Normalize and gate hypotheses (hypothesis-level gating only).
 ///
 /// 1. Normalizes hypothesis weights using log-sum-exp
 /// 2. Removes hypotheses with weight below threshold
 /// 3. Sorts by descending weight
 /// 4. Caps to maximum number of hypotheses
 /// 5. Renormalizes after truncation
+///
+/// **Note:** This function does NOT prune tracks. For MATLAB-equivalent behavior,
+/// use [`normalize_gate_and_prune_tracks`] which includes track pruning.
 ///
 /// # Arguments
 /// * `hypotheses` - Mutable reference to hypothesis list
@@ -753,6 +756,92 @@ pub fn normalize_and_gate_hypotheses(
             hyp.log_weight -= log_normalizer;
         }
     }
+}
+
+/// Normalize, gate hypotheses, and prune low-existence tracks (MATLAB-equivalent).
+///
+/// This matches MATLAB's `lmbmNormalisationAndGating.m` exactly:
+/// 1. Normalizes hypothesis weights using log-sum-exp (lines 22-24)
+/// 2. Gates hypotheses by weight threshold, renormalize (lines 26-28)
+/// 3. Sorts by descending weight (lines 30-31)
+/// 4. Caps to maximum hypotheses, renormalize (lines 34-39)
+/// 5. Computes weighted total existence: r = sum(w .* [hypotheses.r], 2) (line 41)
+/// 6. Determines objectsLikelyToExist = r > threshold (line 42)
+/// 7. Prunes tracks from ALL hypotheses using objectsLikelyToExist mask (lines 43-51)
+///
+/// # Arguments
+/// * `hypotheses` - Mutable reference to hypothesis list
+/// * `trajectories` - Mutable reference to trajectory list for saving pruned tracks
+/// * `weight_threshold` - Minimum hypothesis weight to keep (linear scale)
+/// * `max_hypotheses` - Maximum number of hypotheses to keep
+/// * `existence_threshold` - Minimum weighted existence to keep a track
+/// * `min_trajectory_length` - Minimum trajectory length to save
+///
+/// # Returns
+/// A boolean vector indicating which track positions were kept (objectsLikelyToExist)
+pub fn normalize_gate_and_prune_tracks(
+    hypotheses: &mut Vec<LmbmHypothesis>,
+    trajectories: &mut Vec<Trajectory>,
+    weight_threshold: f64,
+    max_hypotheses: usize,
+    existence_threshold: f64,
+    min_trajectory_length: usize,
+) -> Vec<bool> {
+    // Step 1-4: Hypothesis normalization and gating
+    normalize_and_gate_hypotheses(hypotheses, weight_threshold, max_hypotheses);
+
+    if hypotheses.is_empty() || hypotheses[0].tracks.is_empty() {
+        return vec![];
+    }
+
+    // Step 5: Compute weighted total existence for each track position
+    // MATLAB line 41: r = sum(w .* [hypotheses.r], 2);
+    let num_tracks = hypotheses[0].tracks.len();
+    let mut total_existence = vec![0.0; num_tracks];
+    for hyp in hypotheses.iter() {
+        let w = hyp.weight(); // exp(log_weight)
+        for (i, track) in hyp.tracks.iter().enumerate() {
+            if i < num_tracks {
+                total_existence[i] += w * track.existence;
+            }
+        }
+    }
+
+    // Step 6: Determine which tracks to keep
+    // MATLAB line 42: objectsLikelyToExist = r > model.existenceThreshold;
+    let keep_mask: Vec<bool> = total_existence
+        .iter()
+        .map(|&r| r > existence_threshold)
+        .collect();
+
+    // Step 7: Prune tracks from ALL hypotheses using the mask
+    // MATLAB lines 43-51: for i = 1:numberOfHypotheses
+    //     hypotheses(i).r = hypotheses(i).r(objectsLikelyToExist, :);
+    //     hypotheses(i).mu = hypotheses(i).mu(objectsLikelyToExist);
+    //     hypotheses(i).Sigma = hypotheses(i).Sigma(objectsLikelyToExist);
+    //     ...
+    // end
+    for hyp in hypotheses.iter_mut() {
+        let mut kept_tracks = Vec::new();
+        for (i, track) in hyp.tracks.drain(..).enumerate() {
+            if i < keep_mask.len() && keep_mask[i] {
+                kept_tracks.push(track);
+            } else if let Some(ref traj) = track.trajectory {
+                // Save long trajectories from pruned tracks
+                if traj.length >= min_trajectory_length {
+                    trajectories.push(Trajectory {
+                        label: track.label,
+                        states: (0..traj.length).filter_map(|j| traj.get_state(j)).collect(),
+                        covariances: Vec::new(),
+                        timestamps: traj.timestamps.clone(),
+                    });
+                }
+            }
+        }
+        hyp.tracks = kept_tracks;
+    }
+
+    keep_mask
 }
 
 #[cfg(test)]

@@ -148,21 +148,28 @@ pub fn lmb_gibbs_sampling(
         v_samples_vec.push(v.clone());
     }
 
-    // Convert samples to matrix
-    let mut v_samples = DMatrix::zeros(v_samples_vec.len(), n);
-    for (i, sample) in v_samples_vec.iter().enumerate() {
-        for (j, &val) in sample.iter().enumerate() {
-            v_samples[(i, j)] = val;
-        }
-    }
-
-    // Find unique samples
+    // Find unique samples - MATLAB deduplicates with V = unique(V, 'rows')
+    // before generating hypotheses (line 37 of lmbmGibbsSampling.m)
+    // MATLAB's unique() returns rows in SORTED order, so we must sort too.
     let mut unique_samples: HashMap<Vec<usize>, usize> = HashMap::new();
     for sample in &v_samples_vec {
         *unique_samples.entry(sample.clone()).or_insert(0) += 1;
     }
 
-    let unique_v: Vec<Vec<usize>> = unique_samples.keys().cloned().collect();
+    let mut unique_v: Vec<Vec<usize>> = unique_samples.keys().cloned().collect();
+    // Sort to match MATLAB's unique(V, 'rows') which returns sorted rows
+    unique_v.sort();
+
+    // Convert ONLY UNIQUE samples to matrix (matching MATLAB's deduplication)
+    // This is critical for LMBM hypothesis generation - each unique sample
+    // becomes one hypothesis. Without deduplication, 2500 samples would create
+    // 2500 hypotheses instead of ~7.
+    let mut v_samples = DMatrix::zeros(unique_v.len(), n);
+    for (i, sample) in unique_v.iter().enumerate() {
+        for (j, &val) in sample.iter().enumerate() {
+            v_samples[(i, j)] = val;
+        }
+    }
 
     // Compute marginal distributions
     // This is complex due to MATLAB's advanced indexing

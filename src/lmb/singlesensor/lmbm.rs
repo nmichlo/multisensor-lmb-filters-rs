@@ -166,14 +166,23 @@ impl<A: Associator> LmbmFilter<A> {
         );
     }
 
-    /// Generate posterior hypotheses from association samples.
+    /// Generate posterior hypotheses from sampled associations.
     ///
-    /// For each prior hypothesis and each association sample, creates a new
-    /// posterior hypothesis with the appropriate track updates.
+    /// This matches MATLAB's `determinePosteriorHypothesisParameters.m`:
+    /// 1. Clone the prior hypothesis for each association sample
+    /// 2. Set base existence to miss-posterior (`posteriorParameters.r`) for ALL tracks
+    /// 3. Update hypothesis weight using log-likelihoods from the L matrix
+    /// 4. Apply Kalman updates for detected tracks
+    /// 5. Set existence to 1.0 for detected tracks
+    ///
+    /// # Arguments
+    /// * `result` - Association result with sampled assignments
+    /// * `matrices` - Association matrices containing miss-posterior existence
+    /// * `log_likelihoods` - L matrix for hypothesis weight computation
     fn generate_posterior_hypotheses(
         &mut self,
         result: &AssociationResult,
-        posteriors: &crate::association::PosteriorGrid,
+        matrices: &crate::association::AssociationMatrices,
         log_likelihoods: &nalgebra::DMatrix<f64>,
     ) {
         let samples = match &result.sampled_associations {
@@ -181,12 +190,27 @@ impl<A: Associator> LmbmFilter<A> {
             _ => return,
         };
 
+        // Get the miss-detection posterior existence (MATLAB's posteriorParameters.r)
+        // This is the base existence for all tracks in each hypothesis
+        // MATLAB line 29 of determinePosteriorHypothesisParameters.m:
+        //   priorHypothesis.r = posteriorParameters.r;
+        let miss_posterior_r = matrices.miss_posterior_existence();
+
         let mut new_hypotheses = Vec::new();
 
         for prior_hyp in &self.hypotheses {
             for (sample_idx, assignments) in samples.iter().enumerate() {
                 // Create new hypothesis by cloning prior
                 let mut new_hyp = prior_hyp.clone();
+
+                // Set ALL tracks to miss-posterior existence first
+                // This is the base existence before detection updates
+                // MATLAB line 29: priorHypothesis.r = posteriorParameters.r;
+                for (track_idx, track) in new_hyp.tracks.iter_mut().enumerate() {
+                    if track_idx < miss_posterior_r.len() {
+                        track.existence = miss_posterior_r[track_idx];
+                    }
+                }
 
                 // Compute log weight contribution from this assignment
                 let mut log_likelihood_sum = 0.0;
@@ -207,17 +231,18 @@ impl<A: Associator> LmbmFilter<A> {
                 // Update hypothesis weight
                 new_hyp.log_weight += log_likelihood_sum;
 
-                // Apply hard assignment updates to tracks
+                // Apply hard assignment updates to tracks (Kalman updates for detected)
                 let updater = HardAssignmentUpdater::with_sample_index(sample_idx);
-                updater.update(&mut new_hyp.tracks, result, posteriors);
+                updater.update(&mut new_hyp.tracks, result, &matrices.posteriors);
 
                 // Update existence probabilities for detected tracks
+                // MATLAB line 42: posteriorHypotheses(i).r(generatedMeasurement, :) = 1;
                 for (track_idx, &meas_assignment) in assignments.iter().enumerate() {
                     if track_idx < new_hyp.tracks.len() && meas_assignment >= 0 {
                         // Detected - existence is certain
                         new_hyp.tracks[track_idx].existence = 1.0;
                     }
-                    // Miss case: existence already updated by the standard LMB formula
+                    // Miss case: existence already set to posteriorParameters.r above
                 }
 
                 new_hypotheses.push(new_hyp);
@@ -238,7 +263,8 @@ impl<A: Associator> LmbmFilter<A> {
         }
     }
 
-    /// Normalize and gate hypotheses.
+    /// Normalize and gate hypotheses (hypothesis-level only, no track pruning).
+    #[allow(dead_code)]
     fn normalize_and_gate_hypotheses(&mut self) {
         super::super::common_ops::normalize_and_gate_hypotheses(
             &mut self.hypotheses,
@@ -247,7 +273,25 @@ impl<A: Associator> LmbmFilter<A> {
         );
     }
 
+    /// Normalize, gate hypotheses, and prune tracks (MATLAB-equivalent).
+    ///
+    /// This matches MATLAB's `lmbmNormalisationAndGating.m` which:
+    /// 1. Normalizes and gates hypotheses by weight
+    /// 2. Computes weighted total existence for each track
+    /// 3. Prunes tracks with weighted existence <= threshold from ALL hypotheses
+    fn normalize_gate_and_prune_tracks(&mut self) {
+        super::super::common_ops::normalize_gate_and_prune_tracks(
+            &mut self.hypotheses,
+            &mut self.trajectories,
+            self.lmbm_config.hypothesis_weight_threshold,
+            self.lmbm_config.max_hypotheses,
+            self.existence_threshold,
+            self.min_trajectory_length,
+        );
+    }
+
     /// Gate tracks by existence probability across all hypotheses.
+    #[allow(dead_code)]
     fn gate_tracks(&mut self) {
         super::super::common_ops::gate_hypothesis_tracks(
             &mut self.hypotheses,
@@ -294,9 +338,11 @@ impl<A: Associator> LmbmFilter<A> {
         let mut log_likelihood = nalgebra::DMatrix::zeros(n, m + 1);
 
         for i in 0..n {
-            // Miss column: log(phi_i)
-            log_likelihood[(i, 0)] = if matrices.phi[i] > super::super::UNDERFLOW_THRESHOLD {
-                matrices.phi[i].ln()
+            // Miss column: log(eta_i)
+            // MATLAB: L = [log(eta) R] (line 61 of generateLmbmAssociationMatrices.m)
+            // Note: eta[i] = 1 - P_d * r[i], NOT phi[i] = (1 - P_d) * r[i]
+            log_likelihood[(i, 0)] = if matrices.eta[i] > super::super::UNDERFLOW_THRESHOLD {
+                matrices.eta[i].ln()
             } else {
                 LOG_UNDERFLOW
             };
@@ -376,7 +422,7 @@ impl<A: Associator> LmbmFilter<A> {
                 .associate(&matrices, &self.association_config, rng)
                 .map_err(FilterError::Association)?;
 
-            self.generate_posterior_hypotheses(&result, &matrices.posteriors, &log_likelihood);
+            self.generate_posterior_hypotheses(&result, &matrices, &log_likelihood);
 
             (Some(matrices), Some(result))
         } else {
@@ -387,17 +433,14 @@ impl<A: Associator> LmbmFilter<A> {
         };
 
         // ══════════════════════════════════════════════════════════════════════
-        // STEP 4: Hypothesis management
+        // STEP 4-5: Hypothesis normalization, gating, and track pruning
         // ══════════════════════════════════════════════════════════════════════
-        self.normalize_and_gate_hypotheses();
+        // MATLAB's lmbmNormalisationAndGating.m performs BOTH hypothesis gating
+        // AND track pruning in a single function. Track pruning (lines 40-51)
+        // happens AFTER hypothesis normalization (lines 22-39) but BEFORE
+        // cardinality extraction. This is critical for matching MATLAB exactly.
+        self.normalize_gate_and_prune_tracks();
         let updated_tracks = self.get_tracks();
-
-        // ══════════════════════════════════════════════════════════════════════
-        // STEP 5: Track gating - prune low-existence tracks
-        // ══════════════════════════════════════════════════════════════════════
-        // MATLAB prunes tracks BEFORE cardinality extraction. This is critical
-        // for matching MATLAB's step6_extraction output.
-        self.gate_tracks();
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 6: Cardinality extraction (using hypothesis-weighted estimation)
@@ -471,7 +514,7 @@ impl<A: Associator> Filter for LmbmFilter<A> {
                     .map_err(FilterError::Association)?;
 
                 // Generate posterior hypotheses
-                self.generate_posterior_hypotheses(&result, &matrices.posteriors, &log_likelihood);
+                self.generate_posterior_hypotheses(&result, &matrices, &log_likelihood);
             }
         } else {
             // No measurements: update existence for missed detection
@@ -479,14 +522,12 @@ impl<A: Associator> Filter for LmbmFilter<A> {
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // STEP 4: Hypothesis management (LMBM only) - normalize and gate hypotheses
+        // STEP 4-5: Hypothesis normalization, gating, and track pruning
         // ══════════════════════════════════════════════════════════════════════
-        self.normalize_and_gate_hypotheses();
-
-        // ══════════════════════════════════════════════════════════════════════
-        // STEP 5: Track gating - prune low-existence tracks, archive trajectories
-        // ══════════════════════════════════════════════════════════════════════
-        self.gate_tracks();
+        // MATLAB's lmbmNormalisationAndGating.m performs BOTH hypothesis gating
+        // AND track pruning in a single function. This is critical for matching
+        // MATLAB exactly.
+        self.normalize_gate_and_prune_tracks();
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 6: Update trajectories - append current state to track histories
