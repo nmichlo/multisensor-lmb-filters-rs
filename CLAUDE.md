@@ -113,3 +113,4 @@ When Rust output != MATLAB fixture output:
 - use sub-agents for investigations, make sure the sub-agents ALWAYS follow the GOLDEN RULES
 - avoid running `python -c` for investigations, especially if investigating the contents of .json files, rather check the matlab code that generated these files for the schema, or check the rust code that loads the files for the schema.
 - If wanting to read .json ALWAYS check the ../multisensor-lmb-filters/ code that GENERATED the .json instead for the format and structure.
+- NEVER `python3` directly, always `uv run python`
