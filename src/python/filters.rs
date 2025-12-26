@@ -418,26 +418,35 @@ impl PyFilterThresholds {
 #[derive(Clone)]
 pub struct PyFilterLmbmConfig {
     pub(crate) inner: LmbmConfig,
+    /// Track existence threshold for pruning (default: 0.001)
+    pub(crate) existence_threshold: f64,
 }
 
 #[pymethods]
 impl PyFilterLmbmConfig {
     #[new]
-    #[pyo3(signature = (max_hypotheses=1000, hypothesis_weight_threshold=1e-6, use_eap=false))]
-    fn new(max_hypotheses: usize, hypothesis_weight_threshold: f64, use_eap: bool) -> Self {
+    #[pyo3(signature = (max_hypotheses=1000, hypothesis_weight_threshold=1e-6, use_eap=false, existence_threshold=None))]
+    fn new(
+        max_hypotheses: usize,
+        hypothesis_weight_threshold: f64,
+        use_eap: bool,
+        existence_threshold: Option<f64>,
+    ) -> Self {
+        use crate::lmb::DEFAULT_EXISTENCE_THRESHOLD;
         Self {
             inner: LmbmConfig {
                 max_hypotheses,
                 hypothesis_weight_threshold,
                 use_eap,
             },
+            existence_threshold: existence_threshold.unwrap_or(DEFAULT_EXISTENCE_THRESHOLD),
         }
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "FilterLmbmConfig(max_hypotheses={}, use_eap={})",
-            self.inner.max_hypotheses, self.inner.use_eap
+            "FilterLmbmConfig(max_hypotheses={}, use_eap={}, existence_threshold={})",
+            self.inner.max_hypotheses, self.inner.use_eap, self.existence_threshold
         )
     }
 }
@@ -533,19 +542,27 @@ impl PyFilterLmbm {
         lmbm_config: Option<&PyFilterLmbmConfig>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
+        use crate::lmb::builder::FilterBuilder;
+        use crate::lmb::DEFAULT_EXISTENCE_THRESHOLD;
+
         let assoc = association
             .map(|a| a.inner.clone())
             .unwrap_or_else(|| AssociationConfig::gibbs(1000));
         let lmbm = lmbm_config.map(|c| c.inner.clone()).unwrap_or_default();
+        let existence_threshold = lmbm_config
+            .map(|c| c.existence_threshold)
+            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
 
-        // Note: thresholds not used for LMBM filter (no builder method for it)
-        let inner = LmbmFilter::new(
+        let mut inner = LmbmFilter::new(
             motion.inner.clone(),
             sensor.inner.clone(),
             birth.inner.clone(),
             assoc,
             lmbm,
         );
+
+        // Set existence threshold from config
+        *inner.existence_threshold_mut() = existence_threshold;
 
         Ok(Self {
             inner,

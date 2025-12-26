@@ -492,6 +492,96 @@ class TestLmbmFixtureEquivalence:
         # Compare unique V matrices
         compare_array("step3a.V", expected_v, actual_v_unique, 0)  # Exact match for integers
 
+    def test_lmbm_cardinality_equivalence(self, lmbm_fixture):
+        """Verify LMBM cardinality estimation matches MATLAB exactly.
+
+        This test validates the final output of steps 4-6:
+        - Step 4: Hypothesis generation from Gibbs samples
+        - Step 5: Normalization and pruning
+        - Step 6: Cardinality estimation and track extraction
+
+        The cardinality_estimate and extraction_indices from step6 are the
+        key outputs that determine which tracks are extracted as estimates.
+        """
+        from multisensor_lmb_filters_rs import (
+            AssociatorConfig,
+            FilterLmbm,
+            FilterLmbmConfig,
+            _LmbmHypothesis,
+        )
+
+        model = lmbm_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+        birth = make_birth_model_from_fixture(lmbm_fixture)
+
+        # Get Gibbs parameters from fixture
+        gibbs_input = lmbm_fixture["step3a_gibbs"]["input"]
+        num_samples = gibbs_input["numberOfSamples"]
+        gibbs_seed = gibbs_input["rng_seed"]
+
+        # Get extraction config from fixture
+        # MATLAB use_map=False means use EAP, so Rust use_eap=True
+        step6_input = lmbm_fixture["step6_extraction"]["input"]
+        use_eap = not step6_input["use_map"]
+
+        # Get normalization parameters from fixture
+        step5_input = lmbm_fixture["step5_normalization"]["input"]
+        lmbm_config = FilterLmbmConfig(
+            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
+            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
+            use_eap=use_eap,
+            existence_threshold=step5_input["model_existence_threshold"],
+        )
+
+        filter = FilterLmbm(
+            motion,
+            sensor,
+            birth,
+            AssociatorConfig.gibbs(num_samples),
+            lmbm_config=lmbm_config,
+            seed=gibbs_seed,
+        )
+
+        # Load PRIOR hypothesis
+        prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
+        hypothesis = _LmbmHypothesis.from_matlab(
+            w=prior_hyp["w"],
+            r=prior_hyp["r"],
+            mu=prior_hyp["mu"],
+            sigma=prior_hyp["Sigma"],
+            birth_time=prior_hyp["birthTime"],
+            birth_location=prior_hyp["birthLocation"],
+        )
+        filter.set_hypotheses([hypothesis])
+
+        measurements = measurements_to_numpy(lmbm_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=lmbm_fixture["timestep"])
+
+        # ═══════════════════════════════════════════════════════════════
+        # STEP 6: Verify cardinality matches MATLAB exactly
+        # ═══════════════════════════════════════════════════════════════
+        expected_step6 = lmbm_fixture["step6_extraction"]["output"]
+        expected_cardinality = expected_step6["cardinality_estimate"]
+        expected_indices = expected_step6["extraction_indices"]
+
+        assert output.cardinality is not None, "Cardinality should exist"
+
+        # Verify exact cardinality match
+        assert output.cardinality.n_estimated == expected_cardinality, (
+            f"Cardinality mismatch: expected {expected_cardinality}, "
+            f"got {output.cardinality.n_estimated}"
+        )
+
+        # Verify extraction indices match (convert MATLAB 1-indexed to 0-indexed)
+        expected_indices_0indexed = [i - 1 for i in expected_indices]
+        actual_indices = sorted(output.cardinality.map_indices)
+        expected_sorted = sorted(expected_indices_0indexed)
+        assert actual_indices == expected_sorted, (
+            f"Extraction indices mismatch: expected {expected_sorted} (0-indexed), "
+            f"got {actual_indices}"
+        )
+
     def test_lmbm_runs_on_fixture(self, lmbm_fixture):
         """LMBM filter runs on fixture data and produces valid output."""
         from multisensor_lmb_filters_rs import FilterLmbm

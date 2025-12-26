@@ -571,8 +571,9 @@ pub fn extract_hypothesis_estimates(
 
     // MAP or EAP cardinality estimation
     let (n_map, map_indices) = if use_eap {
-        // EAP: floor(sum of existence), select top-k
-        let n = total_existence.iter().sum::<f64>().floor() as usize;
+        // EAP: round(sum of existence), select top-k
+        // MATLAB uses round() not floor() for EAP cardinality estimation
+        let n = total_existence.iter().sum::<f64>().round() as usize;
         let mut indexed: Vec<(usize, f64)> = hypotheses[0]
             .tracks
             .iter()
@@ -600,6 +601,61 @@ pub fn extract_hypothesis_estimates(
     }
 
     StateEstimate::new(timestamp, estimated_tracks)
+}
+
+/// Compute cardinality estimate from a hypothesis mixture.
+///
+/// Uses MAP or EAP cardinality estimation on the weighted existence probabilities.
+/// This is the cardinality-only version of `extract_hypothesis_estimates`.
+///
+/// # Arguments
+/// * `hypotheses` - Reference to hypothesis list (assumed sorted by weight, descending)
+/// * `use_eap` - If true, use EAP (round of sum) instead of MAP
+///
+/// # Returns
+/// A `CardinalityEstimate` containing:
+/// - `n_estimated`: The estimated number of objects
+/// - `map_indices`: Indices of tracks selected for extraction
+pub fn compute_hypothesis_cardinality(
+    hypotheses: &[LmbmHypothesis],
+    use_eap: bool,
+) -> CardinalityEstimate {
+    if hypotheses.is_empty() || hypotheses[0].tracks.is_empty() {
+        return CardinalityEstimate::new(0, vec![]);
+    }
+
+    // Compute weighted total existence for each track
+    let num_tracks = hypotheses[0].tracks.len();
+    let mut total_existence = vec![0.0; num_tracks];
+    for hyp in hypotheses {
+        let w = hyp.weight();
+        for (i, track) in hyp.tracks.iter().enumerate() {
+            if i < num_tracks {
+                total_existence[i] += w * track.existence;
+            }
+        }
+    }
+
+    // MAP or EAP cardinality estimation
+    let (n_map, map_indices) = if use_eap {
+        // EAP: round(sum of existence), select top-k by existence
+        // MATLAB uses round() not floor() for EAP cardinality estimation
+        let n = total_existence.iter().sum::<f64>().round() as usize;
+        let mut indexed: Vec<(usize, f64)> = hypotheses[0]
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (i, t.existence))
+            .collect();
+        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        let indices: Vec<usize> = indexed.into_iter().take(n).map(|(i, _)| i).collect();
+        (n, indices)
+    } else {
+        // MAP estimate
+        lmb_map_cardinality_estimate(&total_existence)
+    };
+
+    CardinalityEstimate::new(n_map, map_indices)
 }
 
 /// Update track trajectories in all hypotheses.

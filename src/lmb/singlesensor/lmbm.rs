@@ -393,14 +393,22 @@ impl<A: Associator> LmbmFilter<A> {
         let updated_tracks = self.get_tracks();
 
         // ══════════════════════════════════════════════════════════════════════
-        // STEP 5: Cardinality extraction (from highest-weight hypothesis)
+        // STEP 5: Track gating - prune low-existence tracks
         // ══════════════════════════════════════════════════════════════════════
-        let cardinality = super::super::common_ops::compute_cardinality(&updated_tracks);
+        // MATLAB prunes tracks BEFORE cardinality extraction. This is critical
+        // for matching MATLAB's step6_extraction output.
+        self.gate_tracks();
 
         // ══════════════════════════════════════════════════════════════════════
-        // STEP 6: Track gating
+        // STEP 6: Cardinality extraction (using hypothesis-weighted estimation)
         // ══════════════════════════════════════════════════════════════════════
-        self.gate_tracks();
+        // Use compute_hypothesis_cardinality which considers all hypotheses and
+        // their weights, with MAP or EAP based on lmbm_config.use_eap.
+        // This matches MATLAB's extraction logic (after track pruning).
+        let cardinality = super::super::common_ops::compute_hypothesis_cardinality(
+            &self.hypotheses,
+            self.lmbm_config.use_eap,
+        );
 
         // ══════════════════════════════════════════════════════════════════════
         // STEP 7: Extract final estimate
