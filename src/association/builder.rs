@@ -426,7 +426,7 @@ impl<'a> AssociationBuilder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmb::TrackLabel;
+    use crate::lmb::{GaussianComponent, TrackLabel};
     use nalgebra::DMatrix;
 
     fn create_test_track() -> Track {
@@ -522,5 +522,127 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_component_weights_sum_to_one() {
+        // Component weights for each (track, measurement) pair should sum to 1.0
+        // This matches MATLAB's posteriorParameters.w normalization
+        let tracks = vec![create_test_track()];
+        let sensor = create_test_sensor();
+        let mut builder = AssociationBuilder::new(&tracks, &sensor);
+
+        let measurements = vec![
+            DVector::from_vec(vec![0.0, 0.0]),
+            DVector::from_vec(vec![5.0, 5.0]),
+        ];
+
+        let matrices = builder.build(&measurements);
+
+        // Each (track, measurement) pair's component weights should sum to 1.0
+        for track_idx in 0..matrices.posteriors.num_tracks {
+            for meas_idx in 0..matrices.posteriors.num_measurements {
+                let weights = &matrices.posteriors.component_weights[track_idx][meas_idx];
+                let sum: f64 = weights.iter().sum();
+                assert!(
+                    (sum - 1.0).abs() < 1e-10,
+                    "Component weights for track {} meas {} sum to {} instead of 1.0",
+                    track_idx,
+                    meas_idx,
+                    sum
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_component_weights_are_nonnegative() {
+        // All component weights should be non-negative
+        let tracks = vec![create_test_track()];
+        let sensor = create_test_sensor();
+        let mut builder = AssociationBuilder::new(&tracks, &sensor);
+
+        let measurements = vec![
+            DVector::from_vec(vec![0.0, 0.0]),
+            DVector::from_vec(vec![10.0, 10.0]),
+        ];
+
+        let matrices = builder.build(&measurements);
+
+        for track_idx in 0..matrices.posteriors.num_tracks {
+            for meas_idx in 0..matrices.posteriors.num_measurements {
+                for (comp_idx, &w) in matrices.posteriors.component_weights[track_idx][meas_idx]
+                    .iter()
+                    .enumerate()
+                {
+                    assert!(
+                        w >= 0.0,
+                        "Component weight at ({},{},{}) is negative: {}",
+                        track_idx,
+                        meas_idx,
+                        comp_idx,
+                        w
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_component_weights_multi_component_track() {
+        // Test with a track that has multiple components
+        use smallvec::smallvec;
+
+        // Create a track with 3 components
+        let components = smallvec![
+            GaussianComponent {
+                weight: 0.5,
+                mean: DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
+                covariance: DMatrix::identity(4, 4) * 10.0,
+            },
+            GaussianComponent {
+                weight: 0.3,
+                mean: DVector::from_vec(vec![1.0, 1.0, 0.0, 0.0]),
+                covariance: DMatrix::identity(4, 4) * 5.0,
+            },
+            GaussianComponent {
+                weight: 0.2,
+                mean: DVector::from_vec(vec![2.0, 2.0, 0.0, 0.0]),
+                covariance: DMatrix::identity(4, 4) * 15.0,
+            },
+        ];
+        let track = Track {
+            label: TrackLabel::new(0, 0),
+            existence: 0.9,
+            components,
+            trajectory: None,
+        };
+
+        let tracks = vec![track];
+        let sensor = create_test_sensor();
+        let mut builder = AssociationBuilder::new(&tracks, &sensor);
+
+        let measurements = vec![DVector::from_vec(vec![0.5, 0.5])];
+
+        let matrices = builder.build(&measurements);
+
+        // Should have 3 component weights for the single (track, measurement) pair
+        assert_eq!(matrices.posteriors.component_weights[0][0].len(), 3);
+
+        // Weights should sum to 1.0
+        let sum: f64 = matrices.posteriors.component_weights[0][0].iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-10,
+            "Multi-component weights sum to {}",
+            sum
+        );
+
+        // The component closest to the measurement should have higher weight
+        // (component 0 is at origin, measurement is at (0.5, 0.5))
+        let weights = &matrices.posteriors.component_weights[0][0];
+        assert!(
+            weights[0] > weights[2],
+            "Component 0 (at origin) should have higher weight than component 2 (at 2,2)"
+        );
     }
 }
