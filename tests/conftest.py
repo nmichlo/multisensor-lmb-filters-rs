@@ -481,3 +481,66 @@ def compare_posterior_parameters(name: str, expected: list, actual: list, tol: f
         # Compare posterior covariances Sigma
         if "Sigma" in exp:
             compare_array(f"{prefix}.Sigma", exp["Sigma"], act.sigma, tol)
+
+
+def compare_lmbm_hypothesis(name: str, expected: dict, actual, tol: float = TOLERANCE):
+    """Compare an LMBM hypothesis against expected fixture data.
+
+    Args:
+        name: Name for error messages
+        expected: Fixture dict with keys: w, r, mu, Sigma, birthTime, birthLocation
+        actual: _LmbmHypothesis object from filter
+        tol: Numerical tolerance
+    """
+    # Compare weight (w is log-weight in fixture for step4, linear for step5)
+    # Check if it's a log-weight (negative) or linear weight (positive < 1)
+    exp_w = expected["w"]
+    if exp_w < 0:
+        # Log-weight comparison
+        compare_scalar(f"{name}.log_weight", exp_w, actual.log_weight, tol)
+    else:
+        # Linear weight comparison
+        compare_scalar(f"{name}.weight", exp_w, actual.weight, tol)
+
+    # Compare existence probabilities (r) - convert list to numpy array
+    compare_array(f"{name}.r", expected["r"], np.array(actual.r), tol)
+
+    # Compare means (mu) - flatten to 2D array
+    if "mu" in expected:
+        compare_array(f"{name}.mu", expected["mu"], np.array(actual.mu), tol)
+
+    # Compare covariances (Sigma)
+    if "Sigma" in expected:
+        compare_array(f"{name}.Sigma", expected["Sigma"], np.array(actual.sigma), tol)
+
+    # Compare birth times
+    if "birthTime" in expected:
+        expected_bt = expected["birthTime"]
+        actual_bt = list(actual.birth_time)
+        if expected_bt != actual_bt:
+            raise AssertionError(f"{name}.birthTime: expected {expected_bt}, got {actual_bt}")
+
+    # Compare birth locations
+    if "birthLocation" in expected:
+        expected_bl = expected["birthLocation"]
+        actual_bl = list(actual.birth_location)
+        if expected_bl != actual_bl:
+            raise AssertionError(f"{name}.birthLocation: expected {expected_bl}, got {actual_bl}")
+
+
+def compare_lmbm_hypotheses(name: str, expected: list, actual: list, tol: float = TOLERANCE):
+    """Compare a list of LMBM hypotheses against expected fixture data.
+
+    Args:
+        name: Name for error messages
+        expected: List of fixture hypothesis dicts
+        actual: List of _LmbmHypothesis objects from filter
+        tol: Numerical tolerance
+    """
+    if len(expected) != len(actual):
+        raise AssertionError(
+            f"{name}: count mismatch - expected {len(expected)}, got {len(actual)}"
+        )
+
+    for i, (exp, act) in enumerate(zip(expected, actual)):
+        compare_lmbm_hypothesis(f"{name}[{i}]", exp, act, tol)

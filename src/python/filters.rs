@@ -130,6 +130,35 @@ fn step_output_to_py(
         },
     )?;
 
+    // Convert LMBM-specific fields (None for LMB filters)
+    let pre_normalization_hypotheses = output
+        .pre_normalization_hypotheses
+        .map(|hyps| {
+            hyps.iter()
+                .map(|h| {
+                    Py::new(
+                        py,
+                        super::intermediate::PyLmbmHypothesis::from_hypothesis(h),
+                    )
+                })
+                .collect::<PyResult<Vec<_>>>()
+        })
+        .transpose()?;
+
+    let normalized_hypotheses = output
+        .normalized_hypotheses
+        .map(|hyps| {
+            hyps.iter()
+                .map(|h| {
+                    Py::new(
+                        py,
+                        super::intermediate::PyLmbmHypothesis::from_hypothesis(h),
+                    )
+                })
+                .collect::<PyResult<Vec<_>>>()
+        })
+        .transpose()?;
+
     Py::new(
         py,
         PyStepOutput {
@@ -138,6 +167,10 @@ fn step_output_to_py(
             association_result: result,
             updated_tracks: updated,
             cardinality,
+            // LMBM-specific fields
+            pre_normalization_hypotheses,
+            normalized_hypotheses,
+            objects_likely_to_exist: output.objects_likely_to_exist,
         },
     )
 }

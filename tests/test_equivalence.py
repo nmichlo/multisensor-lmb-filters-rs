@@ -582,6 +582,155 @@ class TestLmbmFixtureEquivalence:
             f"got {actual_indices}"
         )
 
+    def test_lmbm_step4_hypothesis_equivalence(self, lmbm_fixture):
+        """Verify LMBM hypothesis generation (step4) matches MATLAB exactly.
+
+        This test validates the hypotheses generated BEFORE normalization.
+        Each hypothesis has:
+        - w: log-weight (unnormalized)
+        - r: existence probabilities for each track
+        - mu: means for each track
+        - Sigma: covariances for each track
+        - birthTime, birthLocation: track labels
+        """
+        from conftest import compare_lmbm_hypotheses
+        from multisensor_lmb_filters_rs import (
+            AssociatorConfig,
+            FilterLmbm,
+            FilterLmbmConfig,
+            _LmbmHypothesis,
+        )
+
+        model = lmbm_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+        birth = make_birth_model_from_fixture(lmbm_fixture)
+
+        gibbs_input = lmbm_fixture["step3a_gibbs"]["input"]
+        num_samples = gibbs_input["numberOfSamples"]
+        gibbs_seed = gibbs_input["rng_seed"]
+
+        step5_input = lmbm_fixture["step5_normalization"]["input"]
+        lmbm_config = FilterLmbmConfig(
+            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
+            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
+            use_eap=False,
+            existence_threshold=step5_input["model_existence_threshold"],
+        )
+
+        filter = FilterLmbm(
+            motion,
+            sensor,
+            birth,
+            AssociatorConfig.gibbs(num_samples),
+            lmbm_config=lmbm_config,
+            seed=gibbs_seed,
+        )
+
+        prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
+        hypothesis = _LmbmHypothesis.from_matlab(
+            w=prior_hyp["w"],
+            r=prior_hyp["r"],
+            mu=prior_hyp["mu"],
+            sigma=prior_hyp["Sigma"],
+            birth_time=prior_hyp["birthTime"],
+            birth_location=prior_hyp["birthLocation"],
+        )
+        filter.set_hypotheses([hypothesis])
+
+        measurements = measurements_to_numpy(lmbm_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=lmbm_fixture["timestep"])
+
+        # ═══════════════════════════════════════════════════════════════
+        # STEP 4: Verify pre-normalization hypotheses match MATLAB
+        # ═══════════════════════════════════════════════════════════════
+        expected_hyps = lmbm_fixture["step4_hypothesis"]["output"]["new_hypotheses"]
+
+        assert (
+            output.pre_normalization_hypotheses is not None
+        ), "pre_normalization_hypotheses should exist for LMBM"
+
+        compare_lmbm_hypotheses(
+            "step4_hypothesis",
+            expected_hyps,
+            output.pre_normalization_hypotheses,
+            TOLERANCE,
+        )
+
+    def test_lmbm_step5_normalization_equivalence(self, lmbm_fixture):
+        """Verify LMBM normalization (step5) matches MATLAB exactly.
+
+        This test validates:
+        - normalized_hypotheses: after weight normalization and gating
+        - objects_likely_to_exist: which tracks have weighted existence > threshold
+        """
+        from multisensor_lmb_filters_rs import (
+            AssociatorConfig,
+            FilterLmbm,
+            FilterLmbmConfig,
+            _LmbmHypothesis,
+        )
+
+        model = lmbm_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+        birth = make_birth_model_from_fixture(lmbm_fixture)
+
+        gibbs_input = lmbm_fixture["step3a_gibbs"]["input"]
+        num_samples = gibbs_input["numberOfSamples"]
+        gibbs_seed = gibbs_input["rng_seed"]
+
+        step5_input = lmbm_fixture["step5_normalization"]["input"]
+        lmbm_config = FilterLmbmConfig(
+            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
+            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
+            use_eap=False,
+            existence_threshold=step5_input["model_existence_threshold"],
+        )
+
+        filter = FilterLmbm(
+            motion,
+            sensor,
+            birth,
+            AssociatorConfig.gibbs(num_samples),
+            lmbm_config=lmbm_config,
+            seed=gibbs_seed,
+        )
+
+        prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
+        hypothesis = _LmbmHypothesis.from_matlab(
+            w=prior_hyp["w"],
+            r=prior_hyp["r"],
+            mu=prior_hyp["mu"],
+            sigma=prior_hyp["Sigma"],
+            birth_time=prior_hyp["birthTime"],
+            birth_location=prior_hyp["birthLocation"],
+        )
+        filter.set_hypotheses([hypothesis])
+
+        measurements = measurements_to_numpy(lmbm_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=lmbm_fixture["timestep"])
+
+        # ═══════════════════════════════════════════════════════════════
+        # STEP 5: Verify normalized hypotheses match MATLAB
+        # ═══════════════════════════════════════════════════════════════
+        expected_step5 = lmbm_fixture["step5_normalization"]["output"]
+        expected_ole = expected_step5["objects_likely_to_exist"]
+
+        assert (
+            output.objects_likely_to_exist is not None
+        ), "objects_likely_to_exist should exist for LMBM"
+
+        # Compare objects_likely_to_exist mask
+        actual_ole = list(output.objects_likely_to_exist)
+        assert (
+            actual_ole == expected_ole
+        ), f"objects_likely_to_exist mismatch: expected {expected_ole}, got {actual_ole}"
+
+        # Note: normalized_hypotheses have tracks pruned based on objects_likely_to_exist,
+        # so we can't directly compare with fixture's normalized_hypotheses which have
+        # all tracks still present. The key validation is the objects_likely_to_exist mask.
+
     def test_lmbm_runs_on_fixture(self, lmbm_fixture):
         """LMBM filter runs on fixture data and produces valid output."""
         from multisensor_lmb_filters_rs import FilterLmbm

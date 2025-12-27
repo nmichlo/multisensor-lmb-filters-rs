@@ -686,6 +686,21 @@ pub struct PyStepOutput {
     /// Cardinality estimate (after step 5)
     #[pyo3(get)]
     pub cardinality: Py<PyCardinalityEstimate>,
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LMBM-specific fields (None for LMB filters)
+    // ═══════════════════════════════════════════════════════════════════════
+    /// LMBM hypotheses after association, before normalization (step4 in MATLAB)
+    #[pyo3(get)]
+    pub pre_normalization_hypotheses: Option<Vec<Py<PyLmbmHypothesis>>>,
+
+    /// LMBM hypotheses after normalization (step5 in MATLAB)
+    #[pyo3(get)]
+    pub normalized_hypotheses: Option<Vec<Py<PyLmbmHypothesis>>>,
+
+    /// Mask of which tracks "likely exist" (weighted existence > threshold)
+    #[pyo3(get)]
+    pub objects_likely_to_exist: Option<Vec<bool>>,
 }
 
 #[pymethods]
@@ -772,6 +787,54 @@ impl PyLmbmHypothesis {
         self.tracks.len()
     }
 
+    /// Track existence probabilities (r in MATLAB format)
+    #[getter]
+    fn r(&self) -> Vec<f64> {
+        self.tracks.iter().map(|t| t.existence).collect()
+    }
+
+    /// Track means (mu in MATLAB format) - first component only
+    #[getter]
+    fn mu(&self) -> Vec<Vec<f64>> {
+        self.tracks
+            .iter()
+            .map(|t| {
+                if !t.means.is_empty() {
+                    t.means[0].clone()
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect()
+    }
+
+    /// Track covariances (Sigma in MATLAB format) - first component only
+    #[getter]
+    fn sigma(&self) -> Vec<Vec<Vec<f64>>> {
+        self.tracks
+            .iter()
+            .map(|t| {
+                if !t.covariances.is_empty() {
+                    t.covariances[0].clone()
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect()
+    }
+
+    /// Track birth times
+    #[getter]
+    fn birth_time(&self) -> Vec<usize> {
+        self.tracks.iter().map(|t| t.label.0).collect()
+    }
+
+    /// Track birth locations
+    #[getter]
+    fn birth_location(&self) -> Vec<usize> {
+        self.tracks.iter().map(|t| t.label.1).collect()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "_LmbmHypothesis(w={:.4}, num_tracks={})",
@@ -786,6 +849,14 @@ impl PyLmbmHypothesis {
     pub fn to_hypothesis(&self) -> LmbmHypothesis {
         let tracks = self.tracks.iter().map(|t| t.to_track()).collect();
         LmbmHypothesis::new(self.log_weight, tracks)
+    }
+
+    /// Create from Rust LmbmHypothesis
+    pub fn from_hypothesis(hyp: &LmbmHypothesis) -> Self {
+        Self {
+            log_weight: hyp.log_weight,
+            tracks: hyp.tracks.iter().map(PyTrackData::from_track).collect(),
+        }
     }
 
     /// Clone inner data without PyRef
