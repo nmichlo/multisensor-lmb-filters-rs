@@ -1,95 +1,163 @@
-# Python Fixture Equivalence Tests - Implementation Plan
+# Fixture Coverage Analysis - Full Value Comparison TODOs
 
-## Status: COMPLETE (with known numerical divergences)
+## Current Status
 
-## Summary
+**Python tests**: 31 passed
+**Rust tests**: 44 passed (+ 2 ignored)
 
-**22 tests pass, 3 tests fail with numerical divergences**
+## Coverage Matrix
 
-The test infrastructure is complete and working. Tests now:
-- Load prior tracks from fixtures using `set_tracks()`
-- Get full intermediate outputs using `step_detailed()`
-- Compare ALL intermediate values against MATLAB expected values
+### LMB FIXTURE (lmb_step_by_step_seed42.json)
 
-### Known Numerical Divergences (to investigate)
+| Field | Python | Rust | Action |
+|-------|--------|------|--------|
+| step1.predicted_objects | ✓ values | ✓ values | COMPLETE |
+| step2.C (cost) | ✓ values | ✓ values | COMPLETE |
+| step2.L (likelihood) | ✓ values | ✓ values | COMPLETE |
+| step2.R (miss prob) | ✓ values | ✓ values | COMPLETE |
+| step2.P (sampling) | ✓ values | ✓ values | COMPLETE |
+| step2.eta | ✓ values | ✓ values | COMPLETE |
+| step2.posteriorParameters.w | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step2.posteriorParameters.mu | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step2.posteriorParameters.Sigma | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step3a_lbp.r | ✓ values | ✓ values | COMPLETE |
+| step3a_lbp.W | ✓ values | ✓ values | COMPLETE |
+| step3b_gibbs.r | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step3b_gibbs.W | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step3c_murtys.r | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step3c_murtys.W | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step4.posterior_objects | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step5.n_estimated | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step5.map_indices | ✓ values | ✗ | TODO: Add Rust value comparison |
 
-1. **Association matrices shape mismatch** - P matrix `(9, 17)` vs `(9, 18)`
-   - Likely difference in miss-probability column handling
-2. **LBP result numerical mismatch** - miss_weights value `1.0` vs expected `0.002`
-   - Suggests issue with LBP algorithm or existence updates
-3. **Update step existence mismatch** - `0.94` vs expected `0.77`
-   - Related to LBP issue above
+### LMBM FIXTURE (lmbm_step_by_step_seed42.json)
 
-## TODO List
+| Field | Python | Rust | Action |
+|-------|--------|------|--------|
+| step1.predicted_hypothesis.w | ✗ | ✗ | TODO: Add BOTH |
+| step1.predicted_hypothesis.r | ✗ | ✓ values | TODO: Add Python |
+| step1.predicted_hypothesis.mu | ✗ | ✗ | TODO: Add BOTH |
+| step1.predicted_hypothesis.Sigma | ✗ | ✗ | TODO: Add BOTH |
+| step1.predicted_hypothesis.birthTime | ✗ | ✓ values | TODO: Add Python |
+| step1.predicted_hypothesis.birthLocation | ✗ | ✗ | TODO: Add BOTH |
+| step2.C | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step2.L | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step2.P | ✓ values | ✓ values | COMPLETE |
+| step2.posteriorParameters.r | ✗ | ✓ values | TODO: Add Python |
+| step2.posteriorParameters.mu | ✗ | ✗ | TODO: Add BOTH |
+| step2.posteriorParameters.Sigma | ✗ | ✗ | TODO: Add BOTH |
+| step3a_gibbs.V | ✓ values | ✓ structure | TODO: Add Rust value comparison |
+| step3b_murtys.V | ✗ | ✓ structure | TODO: Add BOTH value comparison |
+| step4.new_hypotheses.w | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step4.new_hypotheses.r | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step4.new_hypotheses.mu | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step4.new_hypotheses.Sigma | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step4.new_hypotheses.birthTime | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step4.new_hypotheses.birthLocation | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step5.normalized_hypotheses.w | ✓ sum only | ✓ sum only | TODO: Add BOTH full value comparison |
+| step5.normalized_hypotheses.r | ✗ | ✗ | TODO: Add BOTH |
+| step5.normalized_hypotheses.mu | ✗ | ✗ | TODO: Add BOTH |
+| step5.normalized_hypotheses.Sigma | ✗ | ✗ | TODO: Add BOTH |
+| step5.objects_likely_to_exist | ✓ values | ✗ | TODO: Add Rust value comparison |
+| step6.cardinality_estimate | ✓ values | ✓ structure | TODO: Add Rust value comparison |
+| step6.extraction_indices | ✓ values | ✓ structure | TODO: Add Rust value comparison |
 
-### Phase 1: Rust Core Changes - COMPLETE
+### MULTISENSOR LMB FIXTURE (multisensor_lmb_step_by_step_seed42.json)
 
-- [x] **1.1** Add `StepDetailedOutput` struct to `src/lmb/types.rs`
-- [x] **1.2** Add `set_tracks()` method to `LmbFilter` in `src/lmb/singlesensor/lmb.rs`
-- [x] **1.3** Add `step_detailed()` method to `LmbFilter` in `src/lmb/singlesensor/lmb.rs`
-- [x] **1.4** Add `set_tracks()` and `step_detailed()` to `MultisensorLmbFilter` in `src/lmb/multisensor/lmb.rs`
-- [x] **1.5** Add `set_hypotheses()` and `step_detailed()` to `LmbmFilter` in `src/lmb/singlesensor/lmbm.rs`
-- [x] **1.6** Add `set_hypotheses()` and `step_detailed()` to `MultisensorLmbmFilter` in `src/lmb/multisensor/lmbm.rs`
-- [x] **1.7** Run `cargo test` to verify Rust changes compile and pass (22 pass, 2 ignored)
+| Field | Python | Rust | Action |
+|-------|--------|------|--------|
+| step1.predicted_objects | ✓ values | ✓ values | COMPLETE |
+| sensorUpdates[0].association.C | ✗ | ✓ values | TODO: Add Python |
+| sensorUpdates[0].association.L | ✗ | ✗ | TODO: Add BOTH |
+| sensorUpdates[0].association.R | ✗ | ✗ | TODO: Add BOTH |
+| sensorUpdates[0].association.P | ✗ | ✓ values | TODO: Add Python |
+| sensorUpdates[0].association.eta | ✗ | ✓ values | TODO: Add Python |
+| sensorUpdates[0].posteriorParameters.w | ✗ | ✗ | TODO: Add BOTH |
+| sensorUpdates[0].posteriorParameters.mu | ✗ | ✗ | TODO: Add BOTH |
+| sensorUpdates[0].posteriorParameters.Sigma | ✗ | ✗ | TODO: Add BOTH |
+| sensorUpdates[0].dataAssociation.r | ✗ | ✗ | TODO: Add BOTH |
+| sensorUpdates[0].dataAssociation.W | ✗ | ✗ | TODO: Add BOTH |
+| sensorUpdates[0].output.updated_objects | ✗ | ✓ structure | TODO: Add BOTH value comparison |
+| sensorUpdates[1].* | same as [0] | same as [0] | Same TODOs as sensor 0 |
+| stepFinal.n_estimated | ✓ values | ✓ structure | TODO: Add Rust value comparison |
+| stepFinal.map_indices | ✗ | ✓ structure | TODO: Add BOTH value comparison |
 
-### Phase 2: Python Bindings - COMPLETE
+### MULTISENSOR LMBM FIXTURE (multisensor_lmbm_step_by_step_seed42.json)
 
-- [x] **2.1** Add `_TrackData.__new__()` constructor in `src/python/intermediate.rs`
-- [x] **2.2** Add `to_track()` conversion method in `src/python/intermediate.rs`
-- [x] **2.3** Update `PyStepOutput` to handle optional fields in `src/python/intermediate.rs`
-- [x] **2.4** Add `set_tracks()`, `get_tracks()`, `step_detailed()` to `PyFilterLmb` in `src/python/filters.rs`
-- [x] **2.5** Add same methods to `PyFilterAaLmb`, `PyFilterGaLmb`, `PyFilterPuLmb`, `PyFilterIcLmb`
-- [x] **2.6** Add `get_tracks()`, `step_detailed()` to `PyFilterLmbm`
-- [x] **2.7** Add same methods to `PyFilterMultisensorLmbm`
-- [x] **2.8** Register new types in `src/python/mod.rs`
-- [x] **2.9** Export `_TrackData` etc. in `python/__init__.py`
-- [x] **2.10** Run `cargo test` and `uvx maturin develop` to verify bindings build
-
-### Phase 3: Python Test Infrastructure - COMPLETE
-
-- [x] **3.1** Add `make_track_data()` function to `tests/conftest.py`
-- [x] **3.2** Add `load_prior_tracks()` function to `tests/conftest.py`
-- [x] **3.3** Add `compare_tracks()` function to `tests/conftest.py`
-- [x] **3.4** Add `compare_association_matrices()` function to `tests/conftest.py`
-- [x] **3.5** Add `make_birth_model_empty()` helper to `tests/conftest.py`
-- [x] **3.6** Add `make_birth_model_from_fixture()` helper to `tests/conftest.py`
-
-### Phase 4: Update Rust Fixture Tests - SKIPPED
-
-Rust tests already exist in `tests/lmb/matlab_equivalence.rs` and pass.
-
-### Phase 5: Rewrite Python Equivalence Tests - COMPLETE
-
-- [x] **5.1** Rewrite `TestLmbFixtureEquivalence` with full intermediate validation
-- [x] **5.2** Rewrite `TestLmbmFixtureEquivalence` with full intermediate validation
-- [x] **5.3** Rewrite `TestMultisensorLmbFixtureEquivalence` with full intermediate validation
-- [x] **5.4** Rewrite `TestMultisensorLmbmFixtureEquivalence` with full intermediate validation
-- [x] **5.5** Run `uv run pytest tests/ -v` - 22 pass, 3 fail (numerical divergences)
-
-### Phase 6: Verification - PARTIAL
-
-- [x] **6.1** Verify all Rust tests pass: `cargo test`
-- [x] **6.2** Python tests: 22 pass, 3 fail with numerical divergences
-- [x] **6.3** Tests properly fail on numerical divergence - verified by failures
+| Field | Python | Rust | Action |
+|-------|--------|------|--------|
+| step1.predicted_hypothesis.w | ✗ | ✗ | TODO: Add BOTH |
+| step1.predicted_hypothesis.r | ✗ | ✓ values | TODO: Add Python |
+| step1.predicted_hypothesis.mu | ✗ | ✗ | TODO: Add BOTH |
+| step1.predicted_hypothesis.Sigma | ✗ | ✗ | TODO: Add BOTH |
+| step1.predicted_hypothesis.birthTime | ✗ | ✓ values | TODO: Add Python |
+| step1.predicted_hypothesis.birthLocation | ✗ | ✗ | TODO: Add BOTH |
+| step2.L | ✗ | ✓ structure | TODO: Add BOTH value comparison |
+| step2.posteriorParameters.r | ✗ | ✓ structure | TODO: Add BOTH value comparison |
+| step2.posteriorParameters.mu | ✗ | ✗ | TODO: Add BOTH |
+| step2.posteriorParameters.Sigma | ✗ | ✗ | TODO: Add BOTH |
+| step3_gibbs.A | ✗ | ✓ structure | TODO: Add BOTH value comparison |
+| step4.new_hypotheses.w | ✗ | ✓ structure | TODO: Add BOTH value comparison |
+| step4.new_hypotheses.r | ✗ | ✓ structure | TODO: Add BOTH value comparison |
+| step4.new_hypotheses.mu | ✗ | ✗ | TODO: Add BOTH |
+| step4.new_hypotheses.Sigma | ✗ | ✗ | TODO: Add BOTH |
+| step5.normalized_hypotheses.w | ✗ | ✓ sum only | TODO: Add BOTH full value comparison |
+| step5.normalized_hypotheses.r | ✗ | ✗ | TODO: Add BOTH |
+| step5.objects_likely_to_exist | ✗ | ✗ | TODO: Add BOTH |
+| step6.cardinality_estimate | ✗ | ✓ structure | TODO: Add BOTH value comparison |
+| step6.extraction_indices | ✗ | ✓ structure | TODO: Add BOTH value comparison |
 
 ---
 
-## Files to Modify
+## Prioritized TODO List
 
-| File | Status | Changes |
-|------|--------|---------|
-| `src/lmb/types.rs` | DONE | Add `StepDetailedOutput`, `CardinalityEstimate` structs |
-| `src/lmb/singlesensor/lmb.rs` | DONE | Add `set_tracks()`, `get_tracks()`, `step_detailed()` |
-| `src/lmb/singlesensor/lmbm.rs` | DONE | Add `set_hypotheses()`, `get_tracks()`, `step_detailed()` |
-| `src/lmb/multisensor/lmb.rs` | DONE | Add `set_tracks()`, `get_tracks()`, `step_detailed()` |
-| `src/lmb/multisensor/lmbm.rs` | DONE | Add `set_hypotheses()`, `get_tracks()`, `step_detailed()` |
-| `src/python/intermediate.rs` | DONE | Add `to_track()`, `_TrackData.__new__()`, Option fields |
-| `src/python/filters.rs` | DONE | Add `set_tracks()`, `get_tracks()`, `step_detailed()` to all 7 filters |
-| `tests/conftest.py` | TODO | Add comparison and loader functions |
-| `tests/test_equivalence.py` | TODO | Rewrite all tests |
+### HIGH PRIORITY - No Value Comparison Exists
+
+1. **LMBM posteriorParameters.mu and Sigma** - Not compared in EITHER Python or Rust
+2. **LMBM step5.normalized_hypotheses** - Only weight sum checked, not individual r/mu/Sigma
+3. **Multisensor LMB sensorUpdates L, R, posteriorParams, dataAssoc** - Not tested
+4. **Multisensor LMBM** - Most tests are structure-only
+
+### MEDIUM PRIORITY - Missing in Rust (Python has it)
+
+5. **LMB step2.posteriorParameters** - Python has it, add to Rust
+6. **LMB step3b_gibbs, step3c_murtys** - Python has it, add to Rust
+7. **LMB step4.posterior_objects** - Python has it, add to Rust
+8. **LMB step5 cardinality** - Python has it, add to Rust
+9. **LMBM step2.C, L** - Python has it, add to Rust
+10. **LMBM step4/step5/step6** - Python has it (partial), add full to Rust
+
+### LOW PRIORITY - Missing in Python (Rust has it)
+
+11. **Multisensor LMB association.C, P, eta** - Rust has it, add to Python
+12. **LMBM step2.posteriorParameters.r** - Rust has it, add to Python
+13. **LMBM/Multisensor-LMBM prediction step** - Rust has it, add to Python
 
 ---
 
-## Progress Log
+## Implementation Notes
 
-_Updates will be added here as implementation proceeds._
+### What "✓ values" means
+- Actual numerical values are compared against fixture expected values
+- Uses TOLERANCE = 1e-10 per CLAUDE.md
+- Raises AssertionError on first mismatch
+
+### What "✓ structure" means
+- Only checks dimensions, non-null, basic validity
+- Does NOT compare actual numerical values
+- These need to be upgraded to value comparisons
+
+### What "✓ sum only" means
+- For normalized_hypotheses.w: only checks weights sum to 1.0
+- Does not compare individual hypothesis weights
+
+### Required Changes for Full Coverage
+
+**Rust tests need to:**
+1. Actually run the filter with fixture input (not just load fixture)
+2. Get intermediate outputs from filter
+3. Compare each value against fixture expected values
+
+**Python tests already have the infrastructure but need:**
+1. More comprehensive tests for multisensor fixtures
+2. Tests for LMBM posteriorParameters.mu/Sigma
