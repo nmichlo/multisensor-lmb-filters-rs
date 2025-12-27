@@ -268,12 +268,19 @@ impl CardinalityEstimate {
 /// This is used for fixture validation and testing. It contains the state
 /// after each major step of the filter algorithm:
 ///
+/// ## LMB Filter Steps
 /// 1. **Predicted tracks** - after prediction step (motion model + birth)
 /// 2. **Association matrices** - likelihood ratios, costs, sampling probs
 /// 3. **Association result** - marginal weights from data association
 /// 4. **Updated tracks** - after measurement update step
 /// 5. **Cardinality estimate** - MAP cardinality extraction
 /// 6. **Final estimate** - extracted state estimates
+///
+/// ## LMBM Filter Additional Steps
+/// For LMBM filters, additional intermediate data is exposed:
+/// - **Pre-normalization hypotheses** - hypotheses after association, before normalization (step4)
+/// - **Normalized hypotheses** - hypotheses after normalization and gating (step5)
+/// - **Objects likely to exist** - mask of which tracks have weighted existence > threshold (step5)
 #[derive(Debug, Clone)]
 pub struct StepDetailedOutput {
     /// Tracks after prediction step (before measurement update).
@@ -288,6 +295,21 @@ pub struct StepDetailedOutput {
     pub cardinality: CardinalityEstimate,
     /// Final state estimate after gating.
     pub final_estimate: super::output::StateEstimate,
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LMBM-specific fields (None for LMB filters)
+    // ═══════════════════════════════════════════════════════════════════════
+    /// LMBM hypotheses after association, before normalization (step4_hypothesis in MATLAB).
+    /// Contains `new_hypotheses` with unnormalized weights.
+    pub pre_normalization_hypotheses: Option<Vec<LmbmHypothesis>>,
+
+    /// LMBM hypotheses after normalization and weight gating (step5_normalization in MATLAB).
+    /// Contains `normalized_hypotheses` with sum-to-one weights.
+    pub normalized_hypotheses: Option<Vec<LmbmHypothesis>>,
+
+    /// Mask of which tracks have weighted total existence > threshold (step5 in MATLAB).
+    /// True means the track "likely exists" and is kept; False means it's pruned.
+    pub objects_likely_to_exist: Option<Vec<bool>>,
 }
 
 /// LMBM Hypothesis - represents a single hypothesis in LMBM filter

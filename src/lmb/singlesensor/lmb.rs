@@ -318,6 +318,10 @@ impl<A: Associator> LmbFilter<A> {
             updated_tracks,
             cardinality,
             final_estimate,
+            // LMB doesn't have LMBM-specific fields
+            pre_normalization_hypotheses: None,
+            normalized_hypotheses: None,
+            objects_likely_to_exist: None,
         })
     }
 }

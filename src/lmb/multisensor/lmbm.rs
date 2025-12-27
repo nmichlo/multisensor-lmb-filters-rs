@@ -637,6 +637,11 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             updated_tracks,
             cardinality,
             final_estimate,
+            // Multisensor LMBM doesn't expose intermediate hypotheses yet
+            // TODO: Add intermediate hypothesis exposure for fixture validation
+            pre_normalization_hypotheses: None,
+            normalized_hypotheses: None,
+            objects_likely_to_exist: None,
         })
     }
 }

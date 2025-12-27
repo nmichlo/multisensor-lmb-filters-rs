@@ -433,13 +433,31 @@ impl<A: Associator> LmbmFilter<A> {
         };
 
         // ══════════════════════════════════════════════════════════════════════
-        // STEP 4-5: Hypothesis normalization, gating, and track pruning
+        // STEP 4: Capture pre-normalization hypotheses (MATLAB step4_hypothesis)
+        // ══════════════════════════════════════════════════════════════════════
+        // Clone hypotheses BEFORE normalization for fixture validation
+        let pre_normalization_hypotheses = self.hypotheses.clone();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Hypothesis normalization, gating, and track pruning
         // ══════════════════════════════════════════════════════════════════════
         // MATLAB's lmbmNormalisationAndGating.m performs BOTH hypothesis gating
         // AND track pruning in a single function. Track pruning (lines 40-51)
         // happens AFTER hypothesis normalization (lines 22-39) but BEFORE
         // cardinality extraction. This is critical for matching MATLAB exactly.
-        self.normalize_gate_and_prune_tracks();
+        //
+        // Returns the objects_likely_to_exist mask for fixture validation.
+        let objects_likely_to_exist = super::super::common_ops::normalize_gate_and_prune_tracks(
+            &mut self.hypotheses,
+            &mut self.trajectories,
+            self.lmbm_config.hypothesis_weight_threshold,
+            self.lmbm_config.max_hypotheses,
+            self.existence_threshold,
+            self.min_trajectory_length,
+        );
+
+        // Capture normalized hypotheses AFTER normalization but BEFORE extraction
+        let normalized_hypotheses = self.hypotheses.clone();
         let updated_tracks = self.get_tracks();
 
         // ══════════════════════════════════════════════════════════════════════
@@ -465,6 +483,10 @@ impl<A: Associator> LmbmFilter<A> {
             updated_tracks,
             cardinality,
             final_estimate,
+            // LMBM-specific intermediate data for fixture validation
+            pre_normalization_hypotheses: Some(pre_normalization_hypotheses),
+            normalized_hypotheses: Some(normalized_hypotheses),
+            objects_likely_to_exist: Some(objects_likely_to_exist),
         })
     }
 }
