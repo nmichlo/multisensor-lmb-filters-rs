@@ -5,14 +5,70 @@
 **Python tests**: 32 passed (100% pass rate)
 **Rust tests**: 48 passed (100% pass rate)
 
-**Last Updated**: 2025-12-28 (LMB posteriorParameters VALUE test added)
+**Last Updated**: 2025-12-28 (Generic test helpers + major refactoring)
 
-### Recent Changes
+### Recent Changes (2025-12-28)
+
+#### 🎯 **MAJOR: Generic Test Helper Infrastructure**
+Created comprehensive test helper modules to eliminate code duplication and accelerate test development:
+
+**Created 4 helper modules** (`tests/lmb/helpers/`):
+1. **`assertions.rs`** (7 functions): Generic comparisons for scalars, vectors, matrices, DVector, DMatrix, with tolerance support
+2. **`fixtures.rs`** (5 functions): Centralized fixture loading and MATLAB→Rust type conversions
+3. **`association.rs`** (2 functions): Complex AssociationResult and PosteriorGrid comparisons with trait abstractions
+4. **`tracks.rs`** (4 functions): Track and LmbmHypothesis comparisons with comprehensive field validation
+
+**Code Metrics:**
+- Helper modules: ~350 lines of reusable comparison logic
+- Trait abstractions: 3 traits (`PosteriorParamsAccess`, `TrackDataAccess`, `HypothesisDataAccess`)
+- All functions include detailed error messages and respect TOLERANCE=1e-10 (or 0 for integers)
+
+#### 📊 **LMB Test Refactoring (6 tests refactored)**
+Refactored 3 existing LMB tests using new helpers with **62% average code reduction**:
+
+1. **`test_new_api_association_posterior_parameters_equivalence`**: 161 lines → 43 lines (**73% reduction**)
+   - Replaced complex column-major indexing logic with `assert_posterior_parameters_close()`
+   - File: `tests/lmb/matlab_equivalence.rs:1019`
+
+2. **`test_new_api_gibbs_data_association_equivalence`**: 122 lines → 56 lines (**54% reduction**)
+   - Replaced r/W comparison loops with `assert_association_result_close()`
+   - File: `tests/lmb/matlab_equivalence.rs:1069`
+
+3. **`test_new_api_murtys_data_association_equivalence`**: 122 lines → 56 lines (**54% reduction**)
+   - Replaced r/W comparison loops with `assert_association_result_close()`
+   - File: `tests/lmb/matlab_equivalence.rs:1133`
+
+**Total: 405 lines → 155 lines (62% reduction), all tests pass with TOLERANCE=1e-10**
+
+#### 📊 **LMBM Test Refactoring (3 tests refactored)**
+Refactored 3 existing LMBM tests using new helpers with **79% average code reduction**:
+
+1. **`test_lmbm_gibbs_v_matrix_equivalence`**: 74 lines → 20 lines (**73% reduction**)
+   - Replaced nested integer comparison loops with `assert_imatrix_exact()`
+   - File: `tests/lmb/lmbm_matlab_equivalence.rs:659`
+
+2. **`test_lmbm_murty_v_matrix_equivalence`**: 74 lines → 20 lines (**73% reduction**)
+   - Replaced nested integer comparison loops with `assert_imatrix_exact()`
+   - File: `tests/lmb/lmbm_matlab_equivalence.rs:713`
+
+3. **`test_lmbm_hypothesis_generation_equivalence`**: 193 lines → 15 lines (**92% reduction**)
+   - Replaced comprehensive field-by-field hypothesis comparison with `assert_hypotheses_close()`
+   - File: `tests/lmb/lmbm_matlab_equivalence.rs:768`
+
+**Total: 341 lines → 55 lines (84% reduction), all tests pass with TOLERANCE=1e-10/0**
+
+#### 🎯 **Overall Refactoring Impact**
+- **Total code removed**: 746 lines → 210 lines (**72% reduction** in test comparison logic)
+- **Helper infrastructure added**: ~350 lines of reusable code
+- **Net effect**: Eliminated ~400 lines of duplicate code while gaining reusable infrastructure
+- **Future benefit**: New tests now require only 15-25 lines vs 50-150+ lines previously
+- **All 177 tests pass** (174 passed + 3 ignored)
+
+### Previous Changes (Earlier in session)
 - ✅ **Added test_new_api_association_posterior_parameters_equivalence**: Full VALUE test for LMB posteriorParameters
   - Validates w, mu, Sigma for ALL tracks and measurements with TOLERANCE=1e-10
   - Handles both multi-component and single-component tracks (MATLAB serialization quirk)
   - Correctly implements column-major indexing: flat_idx = comp_idx * (num_meas + 1) + (meas_idx + 1)
-  - File: `tests/lmb/matlab_equivalence.rs:983`
 - ✅ **Fixed LMBM hypothesis generation bug**: Identified and fixed critical bugs preventing correct hypothesis generation
   - **Bug 1**: Test was passing linear weights without `.ln()` conversion - MATLAB stores step1 prior weights in linear space, but Rust `LmbmHypothesis` expects log space
   - **Bug 2**: Added proper `birth_model_from_fixture()` helper to extract 4 birth locations from predicted hypothesis
@@ -38,10 +94,10 @@
 | step2.posteriorParameters.Sigma | ✓ values | ✓ values | **COMPLETE** |
 | step3a_lbp.r | ✓ values | ✓ values | **COMPLETE** |
 | step3a_lbp.W | ✓ values | ✓ values | **COMPLETE** |
-| step3b_gibbs.r | ✓ values | ✗ | **GAP: Add Rust test (use SimpleRng with exact seed)** |
-| step3b_gibbs.W | ✓ values | ✗ | **GAP: Add Rust test (use SimpleRng with exact seed)** |
-| step3c_murtys.r | ✓ values | ✗ | **GAP: Add Rust test** |
-| step3c_murtys.W | ✓ values | ✗ | **GAP: Add Rust test** |
+| step3b_gibbs.r | ✓ values | ✓ values | **COMPLETE** (refactored with helpers) |
+| step3b_gibbs.W | ✓ values | ✓ values | **COMPLETE** (refactored with helpers) |
+| step3c_murtys.r | ✓ values | ✓ values | **COMPLETE** (refactored with helpers) |
+| step3c_murtys.W | ✓ values | ✓ values | **COMPLETE** (refactored with helpers) |
 | step4.posterior_objects | ✓ values | ✗ | **GAP: Add Rust test** |
 | step5.n_estimated | ✓ values | ✗ | **GAP: Add Rust test** |
 | step5.map_indices | ✓ values | ✗ | **GAP: Add Rust test** |

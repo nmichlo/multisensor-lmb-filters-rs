@@ -693,35 +693,17 @@ fn test_lmbm_gibbs_v_matrix_equivalence() {
     let mut rng = SimpleRng::new(gibbs_input.rng_seed);
     let result = lmb_gibbs_sampling(&mut rng, &matrices, gibbs_input.number_of_samples);
 
-    // Compare V matrix VALUES (exact integers, TOLERANCE=0)
-    let actual_rows = result.v_samples.nrows();
-    let actual_cols = result.v_samples.ncols();
-    println!(
-        "  Expected V: {} rows x {} cols",
-        expected_v.len(),
-        expected_v[0].len()
-    );
-    println!("  Actual V:   {} rows x {} cols", actual_rows, actual_cols);
+    // Convert DMatrix to nested Vec for comparison
+    let actual_v: Vec<Vec<i32>> = (0..result.v_samples.nrows())
+        .map(|i| {
+            (0..result.v_samples.ncols())
+                .map(|j| result.v_samples[(i, j)] as i32)
+                .collect()
+        })
+        .collect();
 
-    assert_eq!(actual_rows, expected_v.len(), "V matrix row count mismatch");
-    assert_eq!(
-        actual_cols,
-        expected_v[0].len(),
-        "V matrix column count mismatch"
-    );
-
-    // Compare each assignment (exact integer match)
-    for i in 0..actual_rows {
-        for j in 0..actual_cols {
-            let actual_val = result.v_samples[(i, j)];
-            let expected_val = expected_v[i][j];
-            assert_eq!(
-                actual_val as i32, expected_val,
-                "V[{},{}]: expected {}, got {}",
-                i, j, expected_val, actual_val
-            );
-        }
-    }
+    // Use helper to compare V matrix (exact integers, TOLERANCE=0)
+    helpers::assertions::assert_imatrix_exact(&actual_v, expected_v, "V matrix");
 
     println!("  ✓ LMBM Gibbs V matrix VALUES match MATLAB exactly (TOLERANCE=0)");
 }
@@ -748,35 +730,17 @@ fn test_lmbm_murty_v_matrix_equivalence() {
     // Run Murty's algorithm
     let result = murtys_algorithm_wrapper(&c_matrix, murty_input.number_of_assignments);
 
-    // Compare V matrix VALUES (exact integers, TOLERANCE=0)
-    let actual_rows = result.assignments.nrows();
-    let actual_cols = result.assignments.ncols();
-    println!(
-        "  Expected V: {} rows x {} cols",
-        expected_v.len(),
-        expected_v[0].len()
-    );
-    println!("  Actual V:   {} rows x {} cols", actual_rows, actual_cols);
+    // Convert DMatrix to nested Vec for comparison
+    let actual_v: Vec<Vec<i32>> = (0..result.assignments.nrows())
+        .map(|i| {
+            (0..result.assignments.ncols())
+                .map(|j| result.assignments[(i, j)] as i32)
+                .collect()
+        })
+        .collect();
 
-    assert_eq!(actual_rows, expected_v.len(), "V matrix row count mismatch");
-    assert_eq!(
-        actual_cols,
-        expected_v[0].len(),
-        "V matrix column count mismatch"
-    );
-
-    // Compare each assignment (exact integer match)
-    for i in 0..actual_rows {
-        for j in 0..actual_cols {
-            let actual_val = result.assignments[(i, j)];
-            let expected_val = expected_v[i][j];
-            assert_eq!(
-                actual_val as i32, expected_val,
-                "V[{},{}]: expected {}, got {}",
-                i, j, expected_val, actual_val
-            );
-        }
-    }
+    // Use helper to compare V matrix (exact integers, TOLERANCE=0)
+    helpers::assertions::assert_imatrix_exact(&actual_v, expected_v, "V matrix");
 
     println!("  ✓ LMBM Murty V matrix VALUES match MATLAB exactly (TOLERANCE=0)");
 }
@@ -835,136 +799,8 @@ fn test_lmbm_hypothesis_generation_equivalence() {
     println!("  Expected {} hypotheses", expected_hyps.len());
     println!("  Actual   {} hypotheses", actual_hyps.len());
 
-    assert_eq!(
-        actual_hyps.len(),
-        expected_hyps.len(),
-        "Number of hypotheses mismatch"
-    );
-
-    // Compare ALL fields for each hypothesis with TOLERANCE=1e-10
-    for (i, (actual, expected)) in actual_hyps.iter().zip(expected_hyps.iter()).enumerate() {
-        println!("  Comparing hypothesis {}...", i);
-
-        // Compare log-weight (w in fixture is already log-weight for step4 output)
-        let diff_w = (actual.log_weight - expected.w).abs();
-        assert!(
-            diff_w <= TOLERANCE,
-            "Hypothesis {} log_weight: expected {}, got {} (diff: {:.2e})",
-            i,
-            expected.w,
-            actual.log_weight,
-            diff_w
-        );
-
-        // Compare number of tracks
-        assert_eq!(
-            actual.tracks.len(),
-            expected.r.len(),
-            "Hypothesis {} track count mismatch",
-            i
-        );
-
-        // Compare existence probabilities (r)
-        for (j, (track, &expected_r)) in actual.tracks.iter().zip(&expected.r).enumerate() {
-            let diff_r = (track.existence - expected_r).abs();
-            assert!(
-                diff_r <= TOLERANCE,
-                "Hypothesis {} track {} existence: expected {}, got {} (diff: {:.2e})",
-                i,
-                j,
-                expected_r,
-                track.existence,
-                diff_r
-            );
-        }
-
-        // Compare means (mu)
-        for (j, (track, expected_mu)) in actual.tracks.iter().zip(&expected.mu).enumerate() {
-            assert_eq!(
-                track.components.len(),
-                1,
-                "LMBM track should have exactly 1 component"
-            );
-            let actual_mu = &track.components[0].mean;
-            assert_eq!(
-                actual_mu.len(),
-                expected_mu.len(),
-                "Hypothesis {} track {} state dimension mismatch",
-                i,
-                j
-            );
-            for (k, (&actual_val, &expected_val)) in
-                actual_mu.iter().zip(expected_mu.iter()).enumerate()
-            {
-                let diff = (actual_val - expected_val).abs();
-                assert!(
-                    diff <= TOLERANCE,
-                    "Hypothesis {} track {} mu[{}]: expected {}, got {} (diff: {:.2e})",
-                    i,
-                    j,
-                    k,
-                    expected_val,
-                    actual_val,
-                    diff
-                );
-            }
-        }
-
-        // Compare covariances (Sigma)
-        for (j, (track, expected_sigma)) in actual.tracks.iter().zip(&expected.sigma).enumerate() {
-            let actual_sigma = &track.components[0].covariance;
-            let dim = actual_sigma.nrows();
-            assert_eq!(
-                dim,
-                expected_sigma.len(),
-                "Hypothesis {} track {} covariance dimension mismatch",
-                i,
-                j
-            );
-            for row in 0..dim {
-                for col in 0..dim {
-                    let actual_val = actual_sigma[(row, col)];
-                    let expected_val = expected_sigma[row][col];
-                    let diff = (actual_val - expected_val).abs();
-                    assert!(
-                        diff <= TOLERANCE,
-                        "Hypothesis {} track {} Sigma[{},{}]: expected {}, got {} (diff: {:.2e})",
-                        i,
-                        j,
-                        row,
-                        col,
-                        expected_val,
-                        actual_val,
-                        diff
-                    );
-                }
-            }
-        }
-
-        // Compare birthTime
-        for (j, (track, &expected_bt)) in actual.tracks.iter().zip(&expected.birth_time).enumerate()
-        {
-            assert_eq!(
-                track.label.birth_time, expected_bt,
-                "Hypothesis {} track {} birthTime mismatch",
-                i, j
-            );
-        }
-
-        // Compare birthLocation
-        for (j, (track, &expected_bl)) in actual
-            .tracks
-            .iter()
-            .zip(&expected.birth_location)
-            .enumerate()
-        {
-            assert_eq!(
-                track.label.birth_location, expected_bl,
-                "Hypothesis {} track {} birthLocation mismatch",
-                i, j
-            );
-        }
-    }
+    // Use helper to compare hypotheses
+    helpers::tracks::assert_hypotheses_close(&actual_hyps, expected_hyps, TOLERANCE);
 
     println!(
         "  ✓ LMBM hypothesis generation VALUES match MATLAB exactly (TOLERANCE={:.0e})",
