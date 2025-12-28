@@ -557,7 +557,7 @@ impl_lmb_track_access!(PyFilterLmb);
 
 #[pyclass(name = "FilterLmbm")]
 pub struct PyFilterLmbm {
-    inner: LmbmFilter,
+    inner: LmbmFilter<DynamicAssociator>,
     rng: SimpleRng,
 }
 
@@ -586,12 +586,16 @@ impl PyFilterLmbm {
             .map(|c| c.existence_threshold)
             .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
 
-        let mut inner = LmbmFilter::new(
+        // Create the appropriate dynamic associator based on the config
+        let associator = DynamicAssociator::from_config(&assoc);
+
+        let mut inner = LmbmFilter::with_associator_type(
             motion.inner.clone(),
             sensor.inner.clone(),
             birth.inner.clone(),
             assoc,
             lmbm,
+            associator,
         );
 
         // Set existence threshold from config

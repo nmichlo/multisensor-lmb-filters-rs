@@ -655,7 +655,7 @@ fn test_lmbm_hypothesis_generation_equivalence() {
 
     // Note: Full hypothesis generation test requires running the filter
     // This test documents the expected output structure
-    println!("  ✓ LMBM hypothesis structure verified (see Python tests for full validation)");
+    println!("  ✓ LMBM hypothesis structure verified");
 }
 
 /// Test LMBM step5 normalization matches MATLAB
