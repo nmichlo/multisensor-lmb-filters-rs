@@ -3,11 +3,87 @@
 ## Current Status
 
 **Python tests**: 32 passed (100% pass rate)
-**Rust tests**: 48 passed (100% pass rate)
+**Rust tests**: 51 passed, 1 failing (pre-existing fixture bug in multisensor LMBM)
+**Total**: 83 tests (51 Rust + 32 Python)
 
-**Last Updated**: 2025-12-28 (Generic test helpers + major refactoring)
+**Single-Sensor LMB**: ✅ **100% Rust VALUE coverage** (13/13 fields)
+**Single-Sensor LMBM**: ⚠️ Python tests blocked by API limitations, normalization bug found
+**Multisensor LMBM**: ❌ **Fixture corruption detected** - needs MATLAB regeneration
 
-### Recent Changes (2025-12-28)
+**Last Updated**: 2025-12-28 (Added 3 LMB VALUE tests, identified fixture bugs, Python API limitations)
+
+### Recent Changes (2025-12-28 - Latest Session)
+
+#### ✅ **NEW: 3 LMB Rust VALUE Tests Completed**
+
+Added final 3 missing LMB Rust tests to achieve **100% LMB fixture coverage in Rust**:
+
+1. **`test_lmb_update_posterior_objects_equivalence`** (lines 1193-1247)
+   - Tests LMB update step producing posterior track distributions
+   - **Critical fix**: Must use MATLAB-equivalent MarginalUpdater parameters:
+     - `weight_threshold: 1e-6` (not default 1e-4)
+     - `max_components: 5` (not default 100)
+     - `merge_threshold: f64::INFINITY` (no Mahalanobis merging)
+   - Without correct parameters, test fails with component count mismatch (1 vs 5 expected)
+   - File: `tests/lmb/matlab_equivalence.rs:1236`
+
+2. **`test_lmb_cardinality_n_estimated_equivalence`** (lines 1249-1281)
+   - Tests MAP cardinality estimation (integer exact match)
+   - Uses `lmb_map_cardinality_estimate()` function
+   - Passes with TOLERANCE=0 (exact integer match)
+
+3. **`test_lmb_cardinality_map_indices_equivalence`** (lines 1283-1335)
+   - Tests MAP cardinality indices (which tracks are estimated to exist)
+   - **Index conversion required**: MATLAB uses 1-indexed, Rust uses 0-indexed
+   - Converts Rust indices via `actual + 1` for comparison
+   - Passes with TOLERANCE=0 (exact integer match)
+
+**Result**: LMB fixture now has **100% Rust VALUE coverage** (all 13 fields)
+
+#### ⚠️ **Python LMBM Tests: API Limitations Identified**
+
+Investigation revealed that 3 of 5 requested Python tests **cannot be implemented** without API changes:
+
+1. **step1.predicted_hypothesis fields** - ❌ **BLOCKED**
+   - Predicted hypothesis (post-prediction, pre-association) is NOT exposed in Python API
+   - Only `normalized_hypotheses` and `pre_normalization_hypotheses` are exposed
+   - Would require modifying `src/filters/lmbm.rs` and `src/python/filters.rs`
+
+2. **step2.posteriorParameters.r** - ❌ **BLOCKED**
+   - LMBM has different `posteriorParameters` structure than LMB
+   - LMBM fixture format: `{r: [...], mu: [...], Sigma: [...]}`
+   - Current Python API only exposes LMB-style per-track posteriorParameters
+   - LMBM posterior existence probabilities are NOT exposed
+
+3. **step5.normalized_hypotheses fields** - ⚠️ **REVEALS BUG**
+   - API DOES expose `normalized_hypotheses`
+   - Test CAN be written but FAILS with numerical differences
+   - Example: expected weight `0.7733`, got `0.7725` (diff ~0.0008 >> 1e-10)
+   - According to GOLDEN RULE: This indicates a normalization bug, not a test issue
+   - Requires debugging normalization logic before adding test
+
+**Recommendation**: Mark these as "Requires API enhancement" in PLAN.md (see TODOs below)
+
+#### 🐛 **Critical Bug Found: Multisensor LMBM Fixture Integrity**
+
+Pre-existing test `test_multisensor_lmbm_association_l_matrix_equivalence` is FAILING:
+
+**Error**:
+```
+assertion failed: L should have 2 sensors
+  left: 3  (actual L matrix dimension)
+ right: 2  (fixture.model.numberOfSensors)
+```
+
+**Root Cause**: MATLAB fixture has internal inconsistency
+- `model.numberOfSensors: 2`
+- L matrix dimensions: 3 × 12 × 4 (3 sensors!)
+- measurements: 2 sensors
+- P_d: 2 sensors
+
+**Impact**: Multisensor LMBM fixture is **corrupted** and needs regeneration from MATLAB
+
+### Previous Changes (Earlier Session - 2025-12-28)
 
 #### 🎯 **MAJOR: Generic Test Helper Infrastructure**
 Created comprehensive test helper modules to eliminate code duplication and accelerate test development:
@@ -98,9 +174,9 @@ Refactored 3 existing LMBM tests using new helpers with **79% average code reduc
 | step3b_gibbs.W | ✓ values | ✓ values | **COMPLETE** (refactored with helpers) |
 | step3c_murtys.r | ✓ values | ✓ values | **COMPLETE** (refactored with helpers) |
 | step3c_murtys.W | ✓ values | ✓ values | **COMPLETE** (refactored with helpers) |
-| step4.posterior_objects | ✓ values | ✗ | **GAP: Add Rust test** |
-| step5.n_estimated | ✓ values | ✗ | **GAP: Add Rust test** |
-| step5.map_indices | ✓ values | ✗ | **GAP: Add Rust test** |
+| step4.posterior_objects | ✓ values | ✓ values | **COMPLETE** (requires MATLAB-equivalent MarginalUpdater params: weight_threshold=1e-6, max_components=5, merge_threshold=INFINITY) |
+| step5.n_estimated | ✓ values | ✓ values | **COMPLETE** |
+| step5.map_indices | ✓ values | ✓ values | **COMPLETE** (MATLAB 1-indexed, Rust 0-indexed conversion) |
 
 ### LMBM FIXTURE (lmbm_step_by_step_seed42.json)
 

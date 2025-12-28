@@ -1190,6 +1190,149 @@ fn test_new_api_murtys_data_association_equivalence() {
     );
 }
 
+/// Test that LMB update step produces MATLAB-equivalent posterior_objects
+#[test]
+fn test_lmb_update_posterior_objects_equivalence() {
+    use multisensor_lmb_filters_rs::lmb::{MarginalUpdater, Updater};
+
+    let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
+    let fixture_data = fs::read_to_string(fixture_path)
+        .unwrap_or_else(|e| panic!("Failed to read fixture {}: {}", fixture_path, e));
+    let fixture: LmbFixture = serde_json::from_str(&fixture_data)
+        .unwrap_or_else(|e| panic!("Failed to parse fixture: {}", e));
+
+    println!("Testing LMB update step posterior_objects against MATLAB...");
+
+    let sensor = model_to_sensor(&fixture.model);
+
+    // Convert predicted tracks
+    let mut tracks: Vec<Track> = fixture
+        .step2_association
+        .input
+        .predicted_objects
+        .iter()
+        .map(object_data_to_track)
+        .collect();
+
+    let measurements = measurements_to_dvectors(&fixture.step2_association.input.measurements);
+
+    // Build association matrices and run LBP
+    let mut builder = AssociationBuilder::new(&tracks, &sensor);
+    let matrices = builder.build(&measurements);
+
+    let config = AssociationConfig {
+        method: DataAssociationMethod::Lbp,
+        lbp_max_iterations: fixture.step3a_lbp.input.max_iterations,
+        lbp_tolerance: fixture.step3a_lbp.input.convergence_tolerance,
+        ..Default::default()
+    };
+
+    let associator = LbpAssociator;
+    let mut rng = rand::thread_rng();
+    let result = associator.associate(&matrices, &config, &mut rng).unwrap();
+
+    // Apply update to get posterior objects
+    // Use MATLAB-equivalent parameters: gmWeightThreshold=1e-6, maxComponents=5, no merging
+    let updater = MarginalUpdater::with_thresholds(1e-6, 5, f64::INFINITY);
+    updater.update(&mut tracks, &result, &matrices.posteriors);
+
+    // Update existence probabilities from association result
+    use multisensor_lmb_filters_rs::lmb::common_ops::update_existence_from_marginals;
+    update_existence_from_marginals(&mut tracks, &result);
+
+    // Compare using helper
+    let expected = &fixture.step4_update.output.posterior_objects;
+    helpers::tracks::assert_tracks_close(&tracks, expected, TOLERANCE);
+
+    println!("  ✓ LMB posterior_objects match MATLAB with TOLERANCE=1e-10");
+}
+
+/// Test that LMB cardinality estimation produces MATLAB-equivalent n_estimated
+#[test]
+fn test_lmb_cardinality_n_estimated_equivalence() {
+    use multisensor_lmb_filters_rs::lmb::cardinality::lmb_map_cardinality_estimate;
+
+    let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
+    let fixture_data = fs::read_to_string(fixture_path)
+        .unwrap_or_else(|e| panic!("Failed to read fixture {}: {}", fixture_path, e));
+    let fixture: LmbFixture = serde_json::from_str(&fixture_data)
+        .unwrap_or_else(|e| panic!("Failed to parse fixture: {}", e));
+
+    println!("Testing LMB cardinality n_estimated against MATLAB...");
+
+    // Get existence probabilities from step4 output
+    let existence_probs: Vec<f64> = fixture
+        .step4_update
+        .output
+        .posterior_objects
+        .iter()
+        .map(|obj| obj.r)
+        .collect();
+
+    // Compute MAP cardinality estimate
+    let (n_estimated, _map_indices) = lmb_map_cardinality_estimate(&existence_probs);
+
+    let expected_n = fixture.step5_cardinality.output.n_estimated;
+
+    assert_eq!(
+        n_estimated, expected_n,
+        "n_estimated: expected {}, got {}",
+        expected_n, n_estimated
+    );
+
+    println!("  ✓ LMB n_estimated matches MATLAB exactly");
+}
+
+/// Test that LMB cardinality estimation produces MATLAB-equivalent map_indices
+#[test]
+fn test_lmb_cardinality_map_indices_equivalence() {
+    use multisensor_lmb_filters_rs::lmb::cardinality::lmb_map_cardinality_estimate;
+
+    let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
+    let fixture_data = fs::read_to_string(fixture_path)
+        .unwrap_or_else(|e| panic!("Failed to read fixture {}: {}", fixture_path, e));
+    let fixture: LmbFixture = serde_json::from_str(&fixture_data)
+        .unwrap_or_else(|e| panic!("Failed to parse fixture: {}", e));
+
+    println!("Testing LMB cardinality map_indices against MATLAB...");
+
+    // Get existence probabilities from step4 output
+    let existence_probs: Vec<f64> = fixture
+        .step4_update
+        .output
+        .posterior_objects
+        .iter()
+        .map(|obj| obj.r)
+        .collect();
+
+    // Compute MAP cardinality estimate
+    let (_n_estimated, map_indices) = lmb_map_cardinality_estimate(&existence_probs);
+
+    let expected_indices = &fixture.step5_cardinality.output.map_indices;
+
+    assert_eq!(
+        map_indices.len(),
+        expected_indices.len(),
+        "map_indices length mismatch"
+    );
+
+    // MATLAB uses 1-indexed arrays, Rust uses 0-indexed
+    // Convert Rust indices to MATLAB format for comparison
+    for (i, (&actual, &expected)) in map_indices.iter().zip(expected_indices.iter()).enumerate() {
+        assert_eq!(
+            actual + 1, // Convert 0-indexed to 1-indexed
+            expected,
+            "map_indices[{}]: expected {}, got {} (Rust 0-indexed: {})",
+            i,
+            expected,
+            actual + 1,
+            actual
+        );
+    }
+
+    println!("  ✓ LMB map_indices match MATLAB exactly");
+}
+
 //=============================================================================
 // NEW API LBP Data Association Tests
 //=============================================================================
