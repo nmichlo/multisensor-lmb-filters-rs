@@ -3,14 +3,18 @@
 ## Current Status
 
 **Python tests**: 32 passed (100% pass rate)
-**Rust tests**: 44 passed, 2 ignored (100% pass rate)
+**Rust tests**: 47 passed (100% pass rate)
 
-**Last Updated**: 2025-12-27 (Post-implementation update)
+**Last Updated**: 2025-12-28 (LMBM hypothesis generation fix)
 
 ### Recent Changes
-- ✅ **Fixed LMBM Murty support**: Updated Python binding to use `DynamicAssociator` (src/python/filters.rs:590)
-- ✅ **Added test_lmbm_murty_v_matrix_equivalence**: Now validates Murty's K-best assignments with TOLERANCE=0 (exact integers)
-- ✅ **Comprehensive audit**: Updated all coverage tables to reflect actual test state vs outdated TODOs
+- ✅ **Fixed LMBM hypothesis generation bug**: Identified and fixed critical bugs preventing correct hypothesis generation
+  - **Bug 1**: Test was passing linear weights without `.ln()` conversion - MATLAB stores step1 prior weights in linear space, but Rust `LmbmHypothesis` expects log space
+  - **Bug 2**: Added proper `birth_model_from_fixture()` helper to extract 4 birth locations from predicted hypothesis
+  - **Result**: Test now validates ALL 7 hypotheses with TOLERANCE=1e-10 for w, r, mu, Sigma, birthTime, birthLocation ✓
+- ✅ **Added test_lmbm_gibbs_v_matrix_equivalence**: Validates Gibbs association samples with TOLERANCE=0 (exact integers)
+- ✅ **Added test_lmbm_murty_v_matrix_equivalence**: Validates Murty's K-best assignments with TOLERANCE=0 (exact integers)
+- ✅ **Added test_lmbm_hypothesis_generation_equivalence**: Full VALUE test for all hypothesis fields (w, r, mu, Sigma, birthTime, birthLocation)
 
 ## Coverage Matrix
 
@@ -53,14 +57,14 @@
 | step2.posteriorParameters.r | ✗ | ✓ values | **GAP: Add Python test** |
 | step2.posteriorParameters.mu | ✗ | ✗ | **GAP: Add BOTH (not exposed in API)** |
 | step2.posteriorParameters.Sigma | ✗ | ✗ | **GAP: Add BOTH (not exposed in API)** |
-| step3a_gibbs.V | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
-| step3b_murtys.V | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
-| step4.new_hypotheses.w | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
-| step4.new_hypotheses.r | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
-| step4.new_hypotheses.mu | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
-| step4.new_hypotheses.Sigma | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
-| step4.new_hypotheses.birthTime | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
-| step4.new_hypotheses.birthLocation | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
+| step3a_gibbs.V | ✓ values | ✓ values | **COMPLETE** |
+| step3b_murtys.V | ✓ values | ✓ values | **COMPLETE** |
+| step4.new_hypotheses.w | ✓ values | ✓ values | **COMPLETE** |
+| step4.new_hypotheses.r | ✓ values | ✓ values | **COMPLETE** |
+| step4.new_hypotheses.mu | ✓ values | ✓ values | **COMPLETE** |
+| step4.new_hypotheses.Sigma | ✓ values | ✓ values | **COMPLETE** |
+| step4.new_hypotheses.birthTime | ✓ values | ✓ values | **COMPLETE** |
+| step4.new_hypotheses.birthLocation | ✓ values | ✓ values | **COMPLETE** |
 | step5.normalized_hypotheses.w | ✗ | ✓ values | **GAP: Add Python test (only sum validated currently)** |
 | step5.normalized_hypotheses.r | ✗ | ✗ | **GAP: Add Python test (not exposed currently)** |
 | step5.normalized_hypotheses.mu | ✗ | ✗ | **GAP: Add Python test (not exposed currently)** |
@@ -325,22 +329,19 @@ NO "structure-only" tests. NO "Python-only" or "Rust-only" tests. NO excuses.
   - If unit-testable: Add `test_lmb_cardinality_equivalence()` (TOLERANCE=1e-10)
   - File: `tests/lmb/matlab_equivalence.rs`
 
-#### LMBM Single-Sensor (9 structure gaps)
-- [ ] **TODO-RS-LMBM-01**: Upgrade `test_lmbm_gibbs_v_matrix_structure()` → VALUE test
-  - Change from "✓ structure" to "✓ values"
-  - Compare step3a_gibbs.V matrix VALUES against fixture (TOLERANCE=0 for integers)
-  - File: `tests/lmb/lmbm_matlab_equivalence.rs`
+#### LMBM Single-Sensor (6 structure gaps - 3 COMPLETED)
+- [x] **TODO-RS-LMBM-01**: ✅ COMPLETE - Added `test_lmbm_gibbs_v_matrix_equivalence()`
+  - Compares step3a_gibbs.V matrix VALUES against fixture (TOLERANCE=0 for exact integers)
+  - File: `tests/lmb/lmbm_matlab_equivalence.rs:585`
 
-- [ ] **TODO-RS-LMBM-02**: Upgrade `test_lmbm_murty_v_matrix_structure()` → VALUE test
-  - Change from "✓ structure" to "✓ values"
-  - Compare step3b_murtys.V matrix VALUES against fixture (TOLERANCE=0 for integers)
-  - File: `tests/lmb/lmbm_matlab_equivalence.rs`
+- [x] **TODO-RS-LMBM-02**: ✅ COMPLETE - Added `test_lmbm_murty_v_matrix_equivalence()`
+  - Compares step3b_murtys.V matrix VALUES against fixture (TOLERANCE=0 for exact integers)
+  - File: `tests/lmb/lmbm_matlab_equivalence.rs:660`
 
-- [ ] **TODO-RS-LMBM-03**: Upgrade hypothesis generation tests → VALUE tests
-  - Currently step4.new_hypotheses has "✓ structure" for w, r, mu, Sigma, birthTime, birthLocation
-  - Change ALL to "✓ values" with TOLERANCE=1e-10
-  - If requires full filter integration: Document rationale, ensure Python has full coverage
-  - File: `tests/lmb/lmbm_matlab_equivalence.rs`
+- [x] **TODO-RS-LMBM-03**: ✅ COMPLETE - Added `test_lmbm_hypothesis_generation_equivalence()`
+  - Validates ALL step4.new_hypotheses fields: w, r, mu, Sigma, birthTime, birthLocation (TOLERANCE=1e-10)
+  - Fixed critical bugs: linear→log weight conversion, proper birth model extraction
+  - File: `tests/lmb/lmbm_matlab_equivalence.rs:756`
 
 #### Multisensor LMB (8 structure gaps)
 - [ ] **TODO-RS-MSLMB-01**: Upgrade sensor association L/R tests → VALUE tests
@@ -409,13 +410,13 @@ NO "structure-only" tests. NO "Python-only" or "Rust-only" tests. NO excuses.
 - Multisensor LMBM: 6 tests
 - API changes: 2 (posteriorParameters exposure, normalized_hypotheses exposure)
 
-**Rust Tests to Upgrade:** 34 structure→value upgrades
+**Rust Tests to Upgrade:** 31 structure→value upgrades (3 COMPLETED ✅)
 - LMB: 5 upgrades
-- LMBM: 9 upgrades
+- LMBM: 6 upgrades (3 ✅ COMPLETE)
 - Multisensor LMB: 8 upgrades
 - Multisensor LMBM: 10 upgrades
 
-**Total Work Items:** 54 TODO items
+**Total Work Items:** 51 TODO items (3 completed ✅)
 
 **Completion Criteria:**
 - [ ] ZERO "✗" in coverage matrix

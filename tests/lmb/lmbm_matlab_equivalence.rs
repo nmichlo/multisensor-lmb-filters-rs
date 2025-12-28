@@ -12,8 +12,13 @@ use smallvec::SmallVec;
 use std::fs;
 
 use multisensor_lmb_filters_rs::association::AssociationBuilder;
+use multisensor_lmb_filters_rs::common::association::gibbs::{
+    lmb_gibbs_sampling, GibbsAssociationMatrices,
+};
+use multisensor_lmb_filters_rs::common::rng::SimpleRng;
 use multisensor_lmb_filters_rs::lmb::{
-    GaussianComponent, MotionModel, SensorModel, Track, TrackLabel,
+    AssociationConfig, BirthLocation, BirthModel, Filter, GaussianComponent, GibbsAssociator,
+    LmbmConfig, LmbmFilter, MotionModel, SensorModel, Track, TrackLabel,
 };
 
 const TOLERANCE: f64 = 1e-10;
@@ -335,6 +340,56 @@ fn hypothesis_to_tracks(hyp: &HypothesisData) -> Vec<Track> {
     tracks
 }
 
+fn hypothesis_data_to_lmbm_hypothesis(
+    hyp: &HypothesisData,
+) -> multisensor_lmb_filters_rs::lmb::LmbmHypothesis {
+    let tracks = hypothesis_to_tracks(hyp);
+    // MATLAB stores hypothesis weights in LINEAR space in the fixture,
+    // but Rust LmbmHypothesis stores them in LOG space.
+    // See MATLAB determinePosteriorHypothesisParameters.m line 40:
+    //   posteriorHypotheses(i).w = log(priorHypothesis.w) + sum(L(ell));
+    multisensor_lmb_filters_rs::lmb::LmbmHypothesis::new(hyp.w.ln(), tracks)
+}
+
+/// Create BirthModel from fixture by extracting new birth tracks from predicted hypothesis
+fn birth_model_from_fixture(fixture: &LmbmFixture) -> BirthModel {
+    // Get prior and predicted hypotheses
+    let prior_hyp = &fixture.step1_prediction.input.prior_hypothesis;
+    let predicted_hyp = &fixture.step1_prediction.output.predicted_hypothesis;
+
+    let n_prior = prior_hyp.r.len();
+    let n_predicted = predicted_hyp.r.len();
+
+    // Extract new birth locations (tracks that appear in predicted but not in prior)
+    let mut locations = Vec::new();
+    for i in n_prior..n_predicted {
+        let mu = &predicted_hyp.mu[i];
+        let sigma = &predicted_hyp.sigma[i];
+        let birth_location = predicted_hyp.birth_location[i];
+
+        // Convert to DVector and DMatrix
+        let mean = DVector::from_vec(mu.clone());
+        let cov_data: Vec<f64> = sigma.iter().flatten().copied().collect();
+        let covariance = DMatrix::from_row_slice(mu.len(), mu.len(), &cov_data);
+
+        locations.push(BirthLocation {
+            label: birth_location,
+            mean,
+            covariance,
+        });
+    }
+
+    // Use the existence probability from the predicted hypothesis for births
+    // MATLAB sets new birth existence to a constant (typically 0.045)
+    let birth_existence = if n_predicted > n_prior {
+        predicted_hyp.r[n_prior] // Use the first birth's existence probability
+    } else {
+        0.045 // Default if no births
+    };
+
+    BirthModel::new(locations, birth_existence, birth_existence)
+}
+
 fn model_to_motion(model: &ModelData) -> MotionModel {
     let x_dim = model.a.len();
     let a = DMatrix::from_row_slice(
@@ -572,90 +627,322 @@ fn test_lmbm_association_matrices_equivalence() {
     println!("  ✓ LMBM association matrices match MATLAB");
 }
 
-/// Test LMBM Gibbs sampling V matrix structure from fixture
-/// Note: The V matrix equivalence is tested in the Python tests since the
-/// Gibbs sampling function is integrated into the filter and not separately exposed.
+/// Test LMBM Gibbs V matrix VALUES match MATLAB exactly (TOLERANCE=0 for integers)
 #[test]
-fn test_lmbm_gibbs_v_matrix_structure() {
+fn test_lmbm_gibbs_v_matrix_equivalence() {
     let fixture = load_lmbm_fixture();
 
-    println!("Testing LMBM Gibbs V matrix structure...");
+    println!("Testing LMBM Gibbs V matrix against MATLAB...");
 
+    let gibbs_input = &fixture.step3a_gibbs.input;
     let expected_v = &fixture.step3a_gibbs.output.v;
 
-    println!(
-        "  V matrix dimensions: {} rows x {} cols",
-        expected_v.len(),
-        if expected_v.is_empty() {
-            0
-        } else {
-            expected_v[0].len()
-        }
+    // Build GibbsAssociationMatrices from fixture
+    let p_matrix = DMatrix::from_row_slice(
+        gibbs_input.p.len(),
+        gibbs_input.p[0].len(),
+        &gibbs_input.p.iter().flatten().copied().collect::<Vec<_>>(),
+    );
+    let c_matrix = DMatrix::from_row_slice(
+        gibbs_input.c.len(),
+        gibbs_input.c[0].len(),
+        &gibbs_input.c.iter().flatten().copied().collect::<Vec<_>>(),
     );
 
-    // Verify V matrix structure: each row is an assignment (track -> measurement)
-    // Values: 0 means miss, >0 means measurement index (1-indexed in MATLAB)
-    for (i, row) in expected_v.iter().enumerate() {
-        for (j, &val) in row.iter().enumerate() {
-            // Each value should be >= 0 (0=miss, 1..m=measurement indices)
-            assert!(val >= 0, "V[{},{}] should be >= 0, got {}", i, j, val);
+    // Create dummy L and R matrices (not used by Gibbs, but required by struct)
+    let n = p_matrix.nrows();
+    let m = p_matrix.ncols();
+    let l_matrix = DMatrix::zeros(n, m + 1);
+    let r_matrix = DMatrix::zeros(n, m + 1);
+
+    let matrices = GibbsAssociationMatrices {
+        p: p_matrix,
+        l: l_matrix,
+        r: r_matrix,
+        c: c_matrix,
+    };
+
+    // Run Gibbs sampling with EXACT seed from fixture
+    let mut rng = SimpleRng::new(gibbs_input.rng_seed);
+    let result = lmb_gibbs_sampling(&mut rng, &matrices, gibbs_input.number_of_samples);
+
+    // Compare V matrix VALUES (exact integers, TOLERANCE=0)
+    let actual_rows = result.v_samples.nrows();
+    let actual_cols = result.v_samples.ncols();
+    println!(
+        "  Expected V: {} rows x {} cols",
+        expected_v.len(),
+        expected_v[0].len()
+    );
+    println!("  Actual V:   {} rows x {} cols", actual_rows, actual_cols);
+
+    assert_eq!(actual_rows, expected_v.len(), "V matrix row count mismatch");
+    assert_eq!(
+        actual_cols,
+        expected_v[0].len(),
+        "V matrix column count mismatch"
+    );
+
+    // Compare each assignment (exact integer match)
+    for i in 0..actual_rows {
+        for j in 0..actual_cols {
+            let actual_val = result.v_samples[(i, j)];
+            let expected_val = expected_v[i][j];
+            assert_eq!(
+                actual_val as i32, expected_val,
+                "V[{},{}]: expected {}, got {}",
+                i, j, expected_val, actual_val
+            );
         }
     }
 
-    println!("  ✓ LMBM Gibbs V matrix structure verified");
-    println!("    (Full equivalence tested via Python integration tests)");
+    println!("  ✓ LMBM Gibbs V matrix VALUES match MATLAB exactly (TOLERANCE=0)");
 }
 
-/// Test LMBM Murty V matrix structure from fixture
-/// Note: Murty equivalence is tested in Python tests.
+/// Test LMBM Murty V matrix VALUES match MATLAB exactly (TOLERANCE=0 for integers)
 #[test]
-fn test_lmbm_murty_v_matrix_structure() {
+fn test_lmbm_murty_v_matrix_equivalence() {
+    use multisensor_lmb_filters_rs::common::association::murtys::murtys_algorithm_wrapper;
+
     let fixture = load_lmbm_fixture();
 
-    println!("Testing LMBM Murty V matrix structure...");
+    println!("Testing LMBM Murty V matrix against MATLAB...");
 
+    let murty_input = &fixture.step3b_murtys.input;
     let expected_v = &fixture.step3b_murtys.output.v;
 
-    println!(
-        "  V matrix dimensions: {} rows x {} cols",
-        expected_v.len(),
-        if expected_v.is_empty() {
-            0
-        } else {
-            expected_v[0].len()
-        }
+    // Build cost matrix from fixture
+    let c_matrix = DMatrix::from_row_slice(
+        murty_input.c.len(),
+        murty_input.c[0].len(),
+        &murty_input.c.iter().flatten().copied().collect::<Vec<_>>(),
     );
 
-    // Verify V matrix structure
-    for (i, row) in expected_v.iter().enumerate() {
-        for (j, &val) in row.iter().enumerate() {
-            assert!(val >= 0, "V[{},{}] should be >= 0, got {}", i, j, val);
+    // Run Murty's algorithm
+    let result = murtys_algorithm_wrapper(&c_matrix, murty_input.number_of_assignments);
+
+    // Compare V matrix VALUES (exact integers, TOLERANCE=0)
+    let actual_rows = result.assignments.nrows();
+    let actual_cols = result.assignments.ncols();
+    println!(
+        "  Expected V: {} rows x {} cols",
+        expected_v.len(),
+        expected_v[0].len()
+    );
+    println!("  Actual V:   {} rows x {} cols", actual_rows, actual_cols);
+
+    assert_eq!(actual_rows, expected_v.len(), "V matrix row count mismatch");
+    assert_eq!(
+        actual_cols,
+        expected_v[0].len(),
+        "V matrix column count mismatch"
+    );
+
+    // Compare each assignment (exact integer match)
+    for i in 0..actual_rows {
+        for j in 0..actual_cols {
+            let actual_val = result.assignments[(i, j)];
+            let expected_val = expected_v[i][j];
+            assert_eq!(
+                actual_val as i32, expected_val,
+                "V[{},{}]: expected {}, got {}",
+                i, j, expected_val, actual_val
+            );
         }
     }
 
-    println!("  ✓ LMBM Murty V matrix structure verified");
-    println!("    (Full equivalence tested via Python integration tests)");
+    println!("  ✓ LMBM Murty V matrix VALUES match MATLAB exactly (TOLERANCE=0)");
 }
 
-/// Test LMBM step4 hypothesis generation matches MATLAB
+/// Test LMBM hypothesis generation (step4) VALUES match MATLAB exactly
 #[test]
 fn test_lmbm_hypothesis_generation_equivalence() {
+    use multisensor_lmb_filters_rs::lmb::builder::FilterBuilder;
+
     let fixture = load_lmbm_fixture();
 
     println!("Testing LMBM hypothesis generation (step4) against MATLAB...");
 
+    // Build models from fixture
+    let motion = model_to_motion(&fixture.model);
+    let sensor = model_to_sensor(&fixture.model);
+    let birth = birth_model_from_fixture(&fixture);
+
+    // Get Gibbs configuration from fixture
+    let gibbs_input = &fixture.step3a_gibbs.input;
+    let association_config = AssociationConfig::gibbs(gibbs_input.number_of_samples);
+
+    // Get LMBM configuration from fixture
+    let step5_input = &fixture.step5_normalization.input;
+    let lmbm_config = LmbmConfig {
+        max_hypotheses: step5_input.model_maximum_number_of_posterior_hypotheses,
+        hypothesis_weight_threshold: step5_input.model_posterior_hypothesis_weight_threshold,
+        use_eap: false,
+    };
+
+    // Create filter with existence threshold from fixture
+    let mut filter =
+        LmbmFilter::<GibbsAssociator>::new(motion, sensor, birth, association_config, lmbm_config)
+            .with_existence_threshold(step5_input.model_existence_threshold);
+
+    // Set PRIOR hypothesis (before prediction, 5 tracks)
+    // step_detailed() will run prediction to get to 9 tracks (5 + 4 births)
+    let prior_hyp = &fixture.step1_prediction.input.prior_hypothesis;
+    let prior_hypothesis = hypothesis_data_to_lmbm_hypothesis(prior_hyp);
+    filter.set_hypotheses(vec![prior_hypothesis]);
+
+    // Run step_detailed with exact RNG seed from fixture
+    let measurements = measurements_to_dvectors(&fixture.measurements);
+    let mut rng = SimpleRng::new(gibbs_input.rng_seed);
+    let output = filter
+        .step_detailed(&mut rng, &measurements, fixture.timestep)
+        .expect("step_detailed should succeed");
+
+    // Get pre-normalization hypotheses (step4 output)
+    let actual_hyps = output
+        .pre_normalization_hypotheses
+        .expect("pre_normalization_hypotheses should exist");
+
     let expected_hyps = &fixture.step4_hypothesis.output.new_hypotheses;
 
     println!("  Expected {} hypotheses", expected_hyps.len());
+    println!("  Actual   {} hypotheses", actual_hyps.len());
 
-    // Verify hypothesis weights (log-weights in fixture)
-    for (i, hyp) in expected_hyps.iter().enumerate() {
-        println!("  Hypothesis {}: w={:.6}, {} tracks", i, hyp.w, hyp.r.len());
+    assert_eq!(
+        actual_hyps.len(),
+        expected_hyps.len(),
+        "Number of hypotheses mismatch"
+    );
+
+    // Compare ALL fields for each hypothesis with TOLERANCE=1e-10
+    for (i, (actual, expected)) in actual_hyps.iter().zip(expected_hyps.iter()).enumerate() {
+        println!("  Comparing hypothesis {}...", i);
+
+        // Compare log-weight (w in fixture is already log-weight for step4 output)
+        let diff_w = (actual.log_weight - expected.w).abs();
+        assert!(
+            diff_w <= TOLERANCE,
+            "Hypothesis {} log_weight: expected {}, got {} (diff: {:.2e})",
+            i,
+            expected.w,
+            actual.log_weight,
+            diff_w
+        );
+
+        // Compare number of tracks
+        assert_eq!(
+            actual.tracks.len(),
+            expected.r.len(),
+            "Hypothesis {} track count mismatch",
+            i
+        );
+
+        // Compare existence probabilities (r)
+        for (j, (track, &expected_r)) in actual.tracks.iter().zip(&expected.r).enumerate() {
+            let diff_r = (track.existence - expected_r).abs();
+            assert!(
+                diff_r <= TOLERANCE,
+                "Hypothesis {} track {} existence: expected {}, got {} (diff: {:.2e})",
+                i,
+                j,
+                expected_r,
+                track.existence,
+                diff_r
+            );
+        }
+
+        // Compare means (mu)
+        for (j, (track, expected_mu)) in actual.tracks.iter().zip(&expected.mu).enumerate() {
+            assert_eq!(
+                track.components.len(),
+                1,
+                "LMBM track should have exactly 1 component"
+            );
+            let actual_mu = &track.components[0].mean;
+            assert_eq!(
+                actual_mu.len(),
+                expected_mu.len(),
+                "Hypothesis {} track {} state dimension mismatch",
+                i,
+                j
+            );
+            for (k, (&actual_val, &expected_val)) in
+                actual_mu.iter().zip(expected_mu.iter()).enumerate()
+            {
+                let diff = (actual_val - expected_val).abs();
+                assert!(
+                    diff <= TOLERANCE,
+                    "Hypothesis {} track {} mu[{}]: expected {}, got {} (diff: {:.2e})",
+                    i,
+                    j,
+                    k,
+                    expected_val,
+                    actual_val,
+                    diff
+                );
+            }
+        }
+
+        // Compare covariances (Sigma)
+        for (j, (track, expected_sigma)) in actual.tracks.iter().zip(&expected.sigma).enumerate() {
+            let actual_sigma = &track.components[0].covariance;
+            let dim = actual_sigma.nrows();
+            assert_eq!(
+                dim,
+                expected_sigma.len(),
+                "Hypothesis {} track {} covariance dimension mismatch",
+                i,
+                j
+            );
+            for row in 0..dim {
+                for col in 0..dim {
+                    let actual_val = actual_sigma[(row, col)];
+                    let expected_val = expected_sigma[row][col];
+                    let diff = (actual_val - expected_val).abs();
+                    assert!(
+                        diff <= TOLERANCE,
+                        "Hypothesis {} track {} Sigma[{},{}]: expected {}, got {} (diff: {:.2e})",
+                        i,
+                        j,
+                        row,
+                        col,
+                        expected_val,
+                        actual_val,
+                        diff
+                    );
+                }
+            }
+        }
+
+        // Compare birthTime
+        for (j, (track, &expected_bt)) in actual.tracks.iter().zip(&expected.birth_time).enumerate()
+        {
+            assert_eq!(
+                track.label.birth_time, expected_bt,
+                "Hypothesis {} track {} birthTime mismatch",
+                i, j
+            );
+        }
+
+        // Compare birthLocation
+        for (j, (track, &expected_bl)) in actual
+            .tracks
+            .iter()
+            .zip(&expected.birth_location)
+            .enumerate()
+        {
+            assert_eq!(
+                track.label.birth_location, expected_bl,
+                "Hypothesis {} track {} birthLocation mismatch",
+                i, j
+            );
+        }
     }
 
-    // Note: Full hypothesis generation test requires running the filter
-    // This test documents the expected output structure
-    println!("  ✓ LMBM hypothesis structure verified");
+    println!(
+        "  ✓ LMBM hypothesis generation VALUES match MATLAB exactly (TOLERANCE={:.0e})",
+        TOLERANCE
+    );
 }
 
 /// Test LMBM step5 normalization matches MATLAB
