@@ -357,6 +357,62 @@ class TestLmbFixtureEquivalence:
 class TestLmbmFixtureEquivalence:
     """Test FilterLmbm against LMBM step-by-step fixture with FULL intermediate validation."""
 
+    def test_lmbm_prediction_equivalence(self, lmbm_fixture):
+        """Verify LMBM prediction step matches MATLAB exactly.
+
+        Validates step1.predicted_hypothesis ALL fields:
+        - w: hypothesis log-weight
+        - r: existence probabilities per track
+        - mu: state means per track
+        - Sigma: state covariances per track
+        - birthTime: birth timesteps per track
+        - birthLocation: birth locations per track
+
+        TODO-PY-LMBM-01
+        """
+        from conftest import compare_lmbm_hypothesis
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+
+        model = lmbm_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+        birth = make_birth_model_from_fixture(lmbm_fixture)
+
+        filter = FilterLmbm(
+            motion, sensor, birth, AssociatorConfig.gibbs(100), seed=lmbm_fixture["seed"]
+        )
+
+        # Load PRIOR hypothesis - step_detailed will run prediction
+        prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
+        hypothesis = _LmbmHypothesis.from_matlab(
+            w=prior_hyp["w"],
+            r=prior_hyp["r"],
+            mu=prior_hyp["mu"],
+            sigma=prior_hyp["Sigma"],
+            birth_time=prior_hyp["birthTime"],
+            birth_location=prior_hyp["birthLocation"],
+        )
+        filter.set_hypotheses([hypothesis])
+
+        measurements = measurements_to_numpy(lmbm_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=lmbm_fixture["timestep"])
+
+        # ═══════════════════════════════════════════════════════════════
+        # STEP 1: Verify predicted hypothesis matches MATLAB exactly
+        # ═══════════════════════════════════════════════════════════════
+        expected_predicted = lmbm_fixture["step1_prediction"]["output"]["predicted_hypothesis"]
+
+        assert output.predicted_hypotheses is not None, "predicted_hypotheses should exist"
+        assert len(output.predicted_hypotheses) == 1, "Should have single predicted hypothesis"
+
+        # Compare ALL fields with TOLERANCE=1e-10
+        compare_lmbm_hypothesis(
+            "step1.predicted_hypothesis",
+            expected_predicted,
+            output.predicted_hypotheses[0],
+            TOLERANCE,
+        )
+
     def test_lmbm_association_matrices_equivalence(self, lmbm_fixture):
         """Verify LMBM association matrices match MATLAB exactly.
 
@@ -491,6 +547,52 @@ class TestLmbmFixtureEquivalence:
 
         # Compare unique V matrices
         compare_array("step3a.V", expected_v, actual_v_unique, 0)  # Exact match for integers
+
+    def test_lmbm_murty_v_matrix_equivalence(self, lmbm_fixture):
+        """Verify LMBM Murty's algorithm produces identical K-best assignment samples.
+
+        The V matrix contains distinct association vectors where V[i,j] indicates
+        which measurement (1-indexed) or miss (0) track j is assigned to in sample i.
+
+        Murty's algorithm finds the K-best assignments deterministically.
+        """
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+
+        model = lmbm_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+        birth = make_birth_model_from_fixture(lmbm_fixture)
+
+        murty_input = lmbm_fixture["step3b_murtys"]["input"]
+        num_assignments = murty_input["numberOfAssignments"]
+
+        filter = FilterLmbm(
+            motion,
+            sensor,
+            birth,
+            AssociatorConfig.murty(num_assignments),
+            seed=lmbm_fixture["seed"],
+        )
+
+        prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
+        hypothesis = _LmbmHypothesis.from_matlab(
+            w=prior_hyp["w"],
+            r=prior_hyp["r"],
+            mu=prior_hyp["mu"],
+            sigma=prior_hyp["Sigma"],
+            birth_time=prior_hyp["birthTime"],
+            birth_location=prior_hyp["birthLocation"],
+        )
+        filter.set_hypotheses([hypothesis])
+
+        measurements = measurements_to_numpy(lmbm_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=lmbm_fixture["timestep"])
+
+        expected_murty = lmbm_fixture["step3b_murtys"]["output"]
+        expected_v = np.array(expected_murty["V"], dtype=np.int32)
+        actual_v = output.association_result.assignments
+        actual_v_matlab = actual_v + 1
+        compare_array("step3b.V", expected_v, actual_v_matlab, 0)
 
     def test_lmbm_cardinality_equivalence(self, lmbm_fixture):
         """Verify LMBM cardinality estimation matches MATLAB exactly.
