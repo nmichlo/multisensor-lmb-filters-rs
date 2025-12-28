@@ -9,6 +9,8 @@
 //! These tests complement step_by_step_validation.rs (which tests legacy Rust)
 //! by verifying the NEW API against the same MATLAB ground truth.
 
+mod helpers;
+
 use nalgebra::{DMatrix, DVector};
 use serde::Deserialize;
 use smallvec::SmallVec;
@@ -528,6 +530,40 @@ fn measurements_to_dvectors(measurements: &[Vec<f64>]) -> Vec<DVector<f64>> {
 }
 
 //=============================================================================
+// Trait Implementations for Helper Functions
+//=============================================================================
+
+impl helpers::association::PosteriorParamsAccess for PosteriorParams {
+    fn w(&self) -> &[Vec<f64>] {
+        &self.w
+    }
+    fn mu(&self) -> &[Vec<f64>] {
+        &self.mu
+    }
+    fn sigma(&self) -> &[Vec<Vec<f64>>] {
+        &self.sigma
+    }
+}
+
+impl helpers::tracks::TrackDataAccess for ObjectData {
+    fn r(&self) -> f64 {
+        self.r
+    }
+    fn mu(&self) -> &[Vec<f64>] {
+        &self.mu
+    }
+    fn sigma(&self) -> &[Vec<Vec<f64>>] {
+        &self.sigma
+    }
+    fn w(&self) -> &[f64] {
+        &self.w
+    }
+    fn label(&self) -> Option<&[usize]> {
+        Some(&self.label)
+    }
+}
+
+//=============================================================================
 // Assertion Helpers
 //=============================================================================
 
@@ -961,6 +997,197 @@ fn test_new_api_association_matrices_cost_equivalence() {
     }
 
     println!("  ✓ Cost matrix matches MATLAB (log-space avoids underflow where MATLAB has inf)");
+}
+
+/// Test that new API AssociationBuilder produces MATLAB-equivalent posteriorParameters.
+///
+/// This test validates the Kalman-updated posterior means, covariances, and
+/// likelihood-normalized component weights for all (track, measurement) pairs.
+///
+/// MATLAB fixture structure:
+/// - posteriorParameters[track].mu: shape (num_meas * num_comp, state_dim)
+/// - posteriorParameters[track].Sigma: shape (num_meas * num_comp, state_dim, state_dim)
+/// - posteriorParameters[track].w: shape (num_meas + 1, num_comp)
+///   - Row 0: miss hypothesis (equals prior weights)
+///   - Row j+1: detection with measurement j (likelihood-normalized)
+///
+/// Rust PosteriorGrid stores only detection hypotheses indexed as:
+/// - means[track][measurement][component]
+/// - covariances[track][measurement][component]
+/// - component_weights[track][measurement][component]
+#[test]
+fn test_new_api_association_posterior_parameters_equivalence() {
+    let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
+    let fixture_data = fs::read_to_string(fixture_path)
+        .unwrap_or_else(|e| panic!("Failed to read fixture {}: {}", fixture_path, e));
+    let fixture: LmbFixture = serde_json::from_str(&fixture_data)
+        .unwrap_or_else(|e| panic!("Failed to parse fixture: {}", e));
+
+    println!("Testing NEW API AssociationBuilder posteriorParameters against MATLAB...");
+
+    let sensor = model_to_sensor(&fixture.model);
+
+    // Convert tracks
+    let tracks: Vec<Track> = fixture
+        .step2_association
+        .input
+        .predicted_objects
+        .iter()
+        .map(object_data_to_track)
+        .collect();
+
+    let measurements = measurements_to_dvectors(&fixture.step2_association.input.measurements);
+
+    // Build association matrices using new API
+    let mut builder = AssociationBuilder::new(&tracks, &sensor);
+    let matrices = builder.build(&measurements);
+
+    let expected_params = &fixture.step2_association.output.posterior_parameters;
+    let num_measurements = measurements.len();
+
+    println!(
+        "  Comparing posteriorParameters for {} tracks, {} measurements",
+        tracks.len(),
+        num_measurements
+    );
+
+    // Use helper to compare posterior parameters
+    helpers::association::assert_posterior_parameters_close(
+        &matrices.posteriors,
+        expected_params,
+        num_measurements,
+        TOLERANCE,
+    );
+
+    println!("  ✓ posteriorParameters (w, mu, Sigma) match MATLAB with TOLERANCE=1e-10");
+}
+
+/// Test that new API Gibbs sampling produces MATLAB-equivalent r and W values.
+///
+/// Uses SimpleRng with exact seed from fixture to ensure deterministic results.
+#[test]
+fn test_new_api_gibbs_data_association_equivalence() {
+    use multisensor_lmb_filters_rs::common::rng::SimpleRng;
+    use multisensor_lmb_filters_rs::lmb::GibbsAssociator;
+
+    let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
+    let fixture_data = fs::read_to_string(fixture_path)
+        .unwrap_or_else(|e| panic!("Failed to read fixture {}: {}", fixture_path, e));
+    let fixture: LmbFixture = serde_json::from_str(&fixture_data)
+        .unwrap_or_else(|e| panic!("Failed to parse fixture: {}", e));
+
+    println!("Testing NEW API Gibbs sampling against MATLAB...");
+
+    let sensor = model_to_sensor(&fixture.model);
+
+    // Convert tracks
+    let tracks: Vec<Track> = fixture
+        .step2_association
+        .input
+        .predicted_objects
+        .iter()
+        .map(object_data_to_track)
+        .collect();
+
+    let measurements = measurements_to_dvectors(&fixture.step2_association.input.measurements);
+
+    // Build association matrices
+    let mut builder = AssociationBuilder::new(&tracks, &sensor);
+    let matrices = builder.build(&measurements);
+
+    // Run Gibbs sampling with exact seed from fixture
+    let gibbs_input = &fixture.step3b_gibbs.input;
+    let config = AssociationConfig {
+        method: DataAssociationMethod::Gibbs,
+        gibbs_samples: gibbs_input.number_of_samples,
+        ..Default::default()
+    };
+
+    let associator = GibbsAssociator;
+    let mut rng = SimpleRng::new(gibbs_input.rng_seed);
+    let result = associator.associate(&matrices, &config, &mut rng).unwrap();
+
+    let expected = &fixture.step3b_gibbs.output;
+
+    // Use helper to compare AssociationResult
+    helpers::association::assert_association_result_close(
+        &result,
+        &expected.r,
+        &expected.w,
+        TOLERANCE,
+        "Gibbs",
+    );
+
+    println!("  ✓ Gibbs r and W match MATLAB with TOLERANCE=1e-10");
+    println!(
+        "    - {} samples, seed {}, {} tracks × {} measurements",
+        gibbs_input.number_of_samples,
+        gibbs_input.rng_seed,
+        tracks.len(),
+        measurements.len()
+    );
+}
+
+/// Test that new API Murty's algorithm produces MATLAB-equivalent r and W values.
+#[test]
+fn test_new_api_murtys_data_association_equivalence() {
+    use multisensor_lmb_filters_rs::lmb::MurtyAssociator;
+
+    let fixture_path = "tests/data/step_by_step/lmb_step_by_step_seed42.json";
+    let fixture_data = fs::read_to_string(fixture_path)
+        .unwrap_or_else(|e| panic!("Failed to read fixture {}: {}", fixture_path, e));
+    let fixture: LmbFixture = serde_json::from_str(&fixture_data)
+        .unwrap_or_else(|e| panic!("Failed to parse fixture: {}", e));
+
+    println!("Testing NEW API Murty's algorithm against MATLAB...");
+
+    let sensor = model_to_sensor(&fixture.model);
+
+    // Convert tracks
+    let tracks: Vec<Track> = fixture
+        .step2_association
+        .input
+        .predicted_objects
+        .iter()
+        .map(object_data_to_track)
+        .collect();
+
+    let measurements = measurements_to_dvectors(&fixture.step2_association.input.measurements);
+
+    // Build association matrices
+    let mut builder = AssociationBuilder::new(&tracks, &sensor);
+    let matrices = builder.build(&measurements);
+
+    // Run Murty's algorithm
+    let murtys_input = &fixture.step3c_murtys.input;
+    let config = AssociationConfig {
+        method: DataAssociationMethod::Murty,
+        murty_assignments: murtys_input.number_of_assignments,
+        ..Default::default()
+    };
+
+    let associator = MurtyAssociator;
+    let mut rng = rand::thread_rng(); // Murty's is deterministic, RNG not used
+    let result = associator.associate(&matrices, &config, &mut rng).unwrap();
+
+    let expected = &fixture.step3c_murtys.output;
+
+    // Use helper to compare AssociationResult
+    helpers::association::assert_association_result_close(
+        &result,
+        &expected.r,
+        &expected.w,
+        TOLERANCE,
+        "Murty",
+    );
+
+    println!("  ✓ Murty's r and W match MATLAB with TOLERANCE=1e-10");
+    println!(
+        "    - {} best assignments, {} tracks × {} measurements",
+        murtys_input.number_of_assignments,
+        tracks.len(),
+        measurements.len()
+    );
 }
 
 //=============================================================================

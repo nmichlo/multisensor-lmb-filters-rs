@@ -3,11 +3,16 @@
 ## Current Status
 
 **Python tests**: 32 passed (100% pass rate)
-**Rust tests**: 47 passed (100% pass rate)
+**Rust tests**: 48 passed (100% pass rate)
 
-**Last Updated**: 2025-12-28 (LMBM hypothesis generation fix)
+**Last Updated**: 2025-12-28 (LMB posteriorParameters VALUE test added)
 
 ### Recent Changes
+- ✅ **Added test_new_api_association_posterior_parameters_equivalence**: Full VALUE test for LMB posteriorParameters
+  - Validates w, mu, Sigma for ALL tracks and measurements with TOLERANCE=1e-10
+  - Handles both multi-component and single-component tracks (MATLAB serialization quirk)
+  - Correctly implements column-major indexing: flat_idx = comp_idx * (num_meas + 1) + (meas_idx + 1)
+  - File: `tests/lmb/matlab_equivalence.rs:983`
 - ✅ **Fixed LMBM hypothesis generation bug**: Identified and fixed critical bugs preventing correct hypothesis generation
   - **Bug 1**: Test was passing linear weights without `.ln()` conversion - MATLAB stores step1 prior weights in linear space, but Rust `LmbmHypothesis` expects log space
   - **Bug 2**: Added proper `birth_model_from_fixture()` helper to extract 4 birth locations from predicted hypothesis
@@ -28,9 +33,9 @@
 | step2.R (miss prob) | ✓ values | ✓ values | **COMPLETE** |
 | step2.P (sampling) | ✓ values | ✓ values | **COMPLETE** |
 | step2.eta | ✓ values | ✓ values | **COMPLETE** |
-| step2.posteriorParameters.w | ✓ values | ✗ | **GAP: Add Rust test** |
-| step2.posteriorParameters.mu | ✓ values | ✗ | **GAP: Add Rust test** |
-| step2.posteriorParameters.Sigma | ✓ values | ✗ | **GAP: Add Rust test** |
+| step2.posteriorParameters.w | ✓ values | ✓ values | **COMPLETE** |
+| step2.posteriorParameters.mu | ✓ values | ✓ values | **COMPLETE** |
+| step2.posteriorParameters.Sigma | ✓ values | ✓ values | **COMPLETE** |
 | step3a_lbp.r | ✓ values | ✓ values | **COMPLETE** |
 | step3a_lbp.W | ✓ values | ✓ values | **COMPLETE** |
 | step3b_gibbs.r | ✓ values | ✗ | **GAP: Add Rust test (use SimpleRng with exact seed)** |
@@ -300,11 +305,11 @@ NO "structure-only" tests. NO "Python-only" or "Rust-only" tests. NO excuses.
 
 ### RUST TESTS - Upgrade Structure-Only to Value Equivalence
 
-#### LMB Single-Sensor (7 structure gaps)
-- [ ] **TODO-RS-LMB-01**: Add posteriorParameters value test to `test_lmb_association_equivalence()`
-  - Currently missing Rust test for step2.posteriorParameters: w, mu, Sigma
-  - Add comparison against fixture (TOLERANCE=1e-10)
-  - File: `tests/lmb/matlab_equivalence.rs`
+#### LMB Single-Sensor (7 structure gaps - 3 COMPLETED)
+- [x] **TODO-RS-LMB-01**: ✅ COMPLETE - Added `test_new_api_association_posterior_parameters_equivalence()`
+  - File: `tests/lmb/matlab_equivalence.rs:983`
+  - Validates ALL posteriorParameters (w, mu, Sigma) with TOLERANCE=1e-10
+  - Handles multi-component and single-component tracks correctly
 
 - [ ] **TODO-RS-LMB-02**: Add Gibbs r/W value test (if deterministic path exists)
   - Currently missing Rust test for step3b_gibbs: r, W
@@ -410,13 +415,13 @@ NO "structure-only" tests. NO "Python-only" or "Rust-only" tests. NO excuses.
 - Multisensor LMBM: 6 tests
 - API changes: 2 (posteriorParameters exposure, normalized_hypotheses exposure)
 
-**Rust Tests to Upgrade:** 31 structure→value upgrades (3 COMPLETED ✅)
-- LMB: 5 upgrades
+**Rust Tests to Upgrade:** 31 structure→value upgrades (4 COMPLETED ✅)
+- LMB: 7 upgrades (1 ✅ COMPLETE)
 - LMBM: 6 upgrades (3 ✅ COMPLETE)
 - Multisensor LMB: 8 upgrades
 - Multisensor LMBM: 10 upgrades
 
-**Total Work Items:** 51 TODO items (3 completed ✅)
+**Total Work Items:** 51 TODO items (4 completed ✅)
 
 **Completion Criteria:**
 - [ ] ZERO "✗" in coverage matrix
