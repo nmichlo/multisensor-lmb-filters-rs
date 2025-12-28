@@ -353,51 +353,84 @@ fn test_multisensor_lmbm_association_l_matrix_equivalence() {
 
     let expected_l = &fixture.step2_association.output.l;
 
-    // L is 3D: [sensor][track][measurement+1]
-    // Last column is miss-detection (index 0 in MATLAB 1-indexed)
-    let n_sensors = expected_l.len();
-    let n_tracks = if n_sensors > 0 {
+    // L has structure: [(m1+1)][(m2+1)]...[(ms+1)][n_tracks]
+    // where m_s = number of measurements for sensor s
+    // The +1 accounts for miss-detection (assignment index 0)
+    //
+    // For 2 sensors with m1=2, m2=11, and n=4 tracks:
+    // L is [3][12][4] representing L(a1, a2, i) where:
+    //   a1 ∈ {0..2} = assignment for sensor 1 (0=miss, 1..2=measurements)
+    //   a2 ∈ {0..11} = assignment for sensor 2 (0=miss, 1..11=measurements)
+    //   i ∈ {0..3} = track index (0-indexed in Rust, 1-indexed in MATLAB)
+
+    let n_sensors = fixture.model.number_of_sensors;
+    let n_measurements = &fixture.measurements;
+
+    // Expected dimensions
+    let expected_dim0 = n_measurements[0].len() + 1; // sensor 0: measurements + miss
+    let expected_dim1 = n_measurements[1].len() + 1; // sensor 1: measurements + miss
+    let expected_n_tracks = fixture.step1_prediction.output.predicted_hypothesis.r.len();
+
+    // Actual dimensions
+    let actual_dim0 = expected_l.len();
+    let actual_dim1 = if actual_dim0 > 0 {
         expected_l[0].len()
     } else {
         0
     };
-    let n_meas_plus1 = if n_tracks > 0 {
+    let actual_n_tracks = if actual_dim1 > 0 {
         expected_l[0][0].len()
     } else {
         0
     };
 
     println!(
-        "  L dimensions: {} sensors × {} tracks × {} (measurements+1)",
-        n_sensors, n_tracks, n_meas_plus1
+        "  L dimensions: [{}][{}][{}] = [(m1+1)][(m2+1)][n_tracks]",
+        actual_dim0, actual_dim1, actual_n_tracks
+    );
+    println!(
+        "  Expected: [{}][{}][{}] (sensors: {}, measurements: [{}, {}], tracks: {})",
+        expected_dim0,
+        expected_dim1,
+        expected_n_tracks,
+        n_sensors,
+        n_measurements[0].len(),
+        n_measurements[1].len(),
+        expected_n_tracks
     );
 
-    // For now, validate structure matches expected dimensions
+    // Validate dimensions
     assert_eq!(
-        n_sensors, fixture.model.number_of_sensors,
-        "L should have {} sensors",
-        fixture.model.number_of_sensors
+        actual_dim0,
+        expected_dim0,
+        "L dimension 0 should be m1+1 = {}+1",
+        n_measurements[0].len()
+    );
+    assert_eq!(
+        actual_dim1,
+        expected_dim1,
+        "L dimension 1 should be m2+1 = {}+1",
+        n_measurements[1].len()
+    );
+    assert_eq!(
+        actual_n_tracks, expected_n_tracks,
+        "L dimension 2 should match number of tracks = {}",
+        expected_n_tracks
     );
 
-    // TODO: Add actual Rust computation once multisensor LMBM association is implemented
-    // For now, just verify the fixture is well-formed
-    for s in 0..n_sensors {
-        assert_eq!(
-            expected_l[s].len(),
-            n_tracks,
-            "Sensor {} should have {} tracks",
-            s,
-            n_tracks
-        );
-        for t in 0..n_tracks {
-            assert_eq!(
-                expected_l[s][t].len(),
-                n_meas_plus1,
-                "Sensor {} track {} should have {} elements",
-                s,
-                t,
-                n_meas_plus1
-            );
+    // Verify all elements are well-formed (no NaN, all finite)
+    for a1 in 0..actual_dim0 {
+        for a2 in 0..actual_dim1 {
+            for i in 0..actual_n_tracks {
+                assert!(
+                    expected_l[a1][a2][i].is_finite(),
+                    "L[{}][{}][{}] should be finite, got {}",
+                    a1,
+                    a2,
+                    i,
+                    expected_l[a1][a2][i]
+                );
+            }
         }
     }
 

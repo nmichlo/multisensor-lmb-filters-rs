@@ -742,6 +742,13 @@ pub fn normalize_and_gate_hypotheses(
         return;
     }
 
+    // Renormalize after gating (MATLAB line 28: w = w(likelyHypotheses) ./ sum(w(likelyHypotheses)))
+    let sum_exp_after_gate: f64 = hypotheses.iter().map(|h| h.log_weight.exp()).sum();
+    let log_normalizer_after_gate = sum_exp_after_gate.ln();
+    for hyp in hypotheses.iter_mut() {
+        hyp.log_weight -= log_normalizer_after_gate;
+    }
+
     // Sort by descending weight (descending log_weight)
     hypotheses.sort_by(|a, b| b.log_weight.partial_cmp(&a.log_weight).unwrap());
 
