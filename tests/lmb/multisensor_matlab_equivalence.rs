@@ -781,31 +781,60 @@ fn test_multisensor_lmb_sensor1_data_association_equivalence() {
 /// Test multisensor LMB final cardinality matches MATLAB
 #[test]
 fn test_multisensor_lmb_cardinality_equivalence() {
+    use multisensor_lmb_filters_rs::lmb::cardinality::lmb_map_cardinality_estimate;
+
     let fixture = load_multisensor_lmb_fixture();
 
     println!("Testing multisensor LMB cardinality against MATLAB...");
 
+    let existence_probs = &fixture.step_final_cardinality.input.existence_probs;
     let expected = &fixture.step_final_cardinality.output;
 
-    println!("  n_estimated: {}", expected.n_estimated);
-    println!("  map_indices: {:?}", expected.map_indices);
-
-    // Verify cardinality is reasonable
-    assert!(
-        expected.n_estimated <= fixture.step_final_cardinality.input.existence_probs.len(),
-        "Cardinality cannot exceed number of tracks"
+    println!(
+        "  Computing MAP cardinality from {} tracks",
+        existence_probs.len()
     );
 
-    // Verify map_indices are valid (1-indexed in MATLAB)
-    for &idx in &expected.map_indices {
-        assert!(
-            idx >= 1 && idx <= fixture.step_final_cardinality.input.existence_probs.len(),
-            "Invalid map_index: {}",
-            idx
+    // Compute MAP cardinality estimate
+    let (n_estimated, map_indices) = lmb_map_cardinality_estimate(existence_probs);
+
+    // Compare n_estimated (exact integer match)
+    assert_eq!(
+        n_estimated, expected.n_estimated,
+        "n_estimated: expected {}, got {}",
+        expected.n_estimated, n_estimated
+    );
+
+    println!("  ✓ n_estimated: {} matches MATLAB", n_estimated);
+
+    // Compare map_indices (MATLAB is 1-indexed, Rust is 0-indexed)
+    assert_eq!(
+        map_indices.len(),
+        expected.map_indices.len(),
+        "map_indices length mismatch"
+    );
+
+    for (i, (&actual, &expected_val)) in map_indices
+        .iter()
+        .zip(expected.map_indices.iter())
+        .enumerate()
+    {
+        assert_eq!(
+            actual + 1, // Convert 0-indexed to 1-indexed
+            expected_val,
+            "map_indices[{}]: expected {}, got {} (Rust 0-indexed: {})",
+            i,
+            expected_val,
+            actual + 1,
+            actual
         );
     }
 
-    println!("  ✓ Multisensor LMB cardinality structure verified");
+    println!(
+        "  ✓ map_indices: {:?} match MATLAB (after index conversion)",
+        map_indices
+    );
+    println!("  ✓ Multisensor LMB cardinality matches MATLAB with TOLERANCE=0");
 }
 
 /// Test multisensor LMB sensor update output matches MATLAB
