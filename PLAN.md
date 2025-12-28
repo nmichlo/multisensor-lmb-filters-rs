@@ -24,43 +24,43 @@
 | step2.R (miss prob) | ✓ values | ✓ values | **COMPLETE** |
 | step2.P (sampling) | ✓ values | ✓ values | **COMPLETE** |
 | step2.eta | ✓ values | ✓ values | **COMPLETE** |
-| step2.posteriorParameters.w | ✓ values | ✗ | Python ONLY (Rust: unit-level, Python: integration) |
-| step2.posteriorParameters.mu | ✓ values | ✗ | Python ONLY (Rust: unit-level, Python: integration) |
-| step2.posteriorParameters.Sigma | ✓ values | ✗ | Python ONLY (Rust: unit-level, Python: integration) |
+| step2.posteriorParameters.w | ✓ values | ✗ | **GAP: Add Rust test** |
+| step2.posteriorParameters.mu | ✓ values | ✗ | **GAP: Add Rust test** |
+| step2.posteriorParameters.Sigma | ✓ values | ✗ | **GAP: Add Rust test** |
 | step3a_lbp.r | ✓ values | ✓ values | **COMPLETE** |
 | step3a_lbp.W | ✓ values | ✓ values | **COMPLETE** |
-| step3b_gibbs.r | ✓ values | ✗ | Python ONLY (RNG-dependent, tested via integration) |
-| step3b_gibbs.W | ✓ values | ✗ | Python ONLY (RNG-dependent, tested via integration) |
-| step3c_murtys.r | ✓ values | ✗ | Python ONLY (RNG-dependent, tested via integration) |
-| step3c_murtys.W | ✓ values | ✗ | Python ONLY (RNG-dependent, tested via integration) |
-| step4.posterior_objects | ✓ values | ✗ | Python ONLY (Requires full filter execution) |
-| step5.n_estimated | ✓ values | ✗ | Python ONLY (Requires full filter execution) |
-| step5.map_indices | ✓ values | ✗ | Python ONLY (Requires full filter execution) |
+| step3b_gibbs.r | ✓ values | ✗ | **GAP: Add Rust test (use SimpleRng with exact seed)** |
+| step3b_gibbs.W | ✓ values | ✗ | **GAP: Add Rust test (use SimpleRng with exact seed)** |
+| step3c_murtys.r | ✓ values | ✗ | **GAP: Add Rust test** |
+| step3c_murtys.W | ✓ values | ✗ | **GAP: Add Rust test** |
+| step4.posterior_objects | ✓ values | ✗ | **GAP: Add Rust test** |
+| step5.n_estimated | ✓ values | ✗ | **GAP: Add Rust test** |
+| step5.map_indices | ✓ values | ✗ | **GAP: Add Rust test** |
 
 ### LMBM FIXTURE (lmbm_step_by_step_seed42.json)
 
 | Field | Python | Rust | Status |
 |-------|--------|------|--------|
-| step1.predicted_hypothesis.w | ✗ | ✓ values | Tested indirectly (step4 validates full hypothesis pipeline) |
-| step1.predicted_hypothesis.r | ✗ | ✓ values | Tested indirectly (step4 validates full hypothesis pipeline) |
-| step1.predicted_hypothesis.mu | ✗ | ✗ | Tested indirectly (step4 validates full hypothesis pipeline) |
-| step1.predicted_hypothesis.Sigma | ✗ | ✗ | Tested indirectly (step4 validates full hypothesis pipeline) |
-| step1.predicted_hypothesis.birthTime | ✗ | ✓ values | Tested indirectly (step4 validates full hypothesis pipeline) |
-| step1.predicted_hypothesis.birthLocation | ✗ | ✗ | Tested indirectly (step4 validates full hypothesis pipeline) |
+| step1.predicted_hypothesis.w | ✗ | ✓ values | **GAP: Add Python test** |
+| step1.predicted_hypothesis.r | ✗ | ✓ values | **GAP: Add Python test** |
+| step1.predicted_hypothesis.mu | ✗ | ✗ | **GAP: Add BOTH tests** |
+| step1.predicted_hypothesis.Sigma | ✗ | ✗ | **GAP: Add BOTH tests** |
+| step1.predicted_hypothesis.birthTime | ✗ | ✓ values | **GAP: Add Python test** |
+| step1.predicted_hypothesis.birthLocation | ✗ | ✗ | **GAP: Add BOTH tests** |
 | step2.C | ✓ values | ✓ values | **COMPLETE** |
 | step2.L | ✓ values | ✓ values | **COMPLETE** |
 | step2.P | ✓ values | ✓ values | **COMPLETE** |
 | step2.posteriorParameters.r | ✗ | ✓ values | **GAP: Add Python test** |
 | step2.posteriorParameters.mu | ✗ | ✗ | **GAP: Add BOTH (not exposed in API)** |
 | step2.posteriorParameters.Sigma | ✗ | ✗ | **GAP: Add BOTH (not exposed in API)** |
-| step3a_gibbs.V | ✓ values | ✓ structure | Python ONLY (Rust: structure validated, RNG-dependent) |
-| step3b_murtys.V | ✓ values | ✓ structure | **COMPLETE** (Fixed src/python/filters.rs to support Murty) |
-| step4.new_hypotheses.w | ✓ values | ✓ structure | Python ONLY (Rust: structure validated, requires filter integration) |
-| step4.new_hypotheses.r | ✓ values | ✓ structure | Python ONLY (Rust: structure validated, requires filter integration) |
-| step4.new_hypotheses.mu | ✓ values | ✓ structure | Python ONLY (Rust: structure validated, requires filter integration) |
-| step4.new_hypotheses.Sigma | ✓ values | ✓ structure | Python ONLY (Rust: structure validated, requires filter integration) |
-| step4.new_hypotheses.birthTime | ✓ values | ✓ structure | Python ONLY (Rust: structure validated, requires filter integration) |
-| step4.new_hypotheses.birthLocation | ✓ values | ✓ structure | Python ONLY (Rust: structure validated, requires filter integration) |
+| step3a_gibbs.V | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
+| step3b_murtys.V | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
+| step4.new_hypotheses.w | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
+| step4.new_hypotheses.r | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
+| step4.new_hypotheses.mu | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
+| step4.new_hypotheses.Sigma | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
+| step4.new_hypotheses.birthTime | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
+| step4.new_hypotheses.birthLocation | ✓ values | ✗ | **GAP: Upgrade Rust to VALUE test** |
 | step5.normalized_hypotheses.w | ✗ | ✓ values | **GAP: Add Python test (only sum validated currently)** |
 | step5.normalized_hypotheses.r | ✗ | ✗ | **GAP: Add Python test (not exposed currently)** |
 | step5.normalized_hypotheses.mu | ✗ | ✗ | **GAP: Add Python test (not exposed currently)** |
@@ -160,11 +160,10 @@
 7. **LMBM posteriorParameters.r** - Python test missing
    - Add to `test_lmbm_association_matrices_equivalence()`
 
-### ACCEPTED LIMITATIONS (Not Gaps)
+### NO ACCEPTED LIMITATIONS
 
-- **Python-only tests**: Gibbs/Murty/full filter execution require RNG seeding
-- **Rust structure-only tests**: Documented rationale in test comments
-- **Indirect testing**: Prediction validated through downstream hypothesis tests
+ALL tests must be VALUE-based with TOLERANCE=1e-10 (or 0 for integers) in BOTH Rust AND Python.
+NO "structure-only" tests. NO "Python-only" or "Rust-only" tests. NO excuses.
 
 ---
 
@@ -424,4 +423,5 @@
 - [ ] ALL tests use TOLERANCE=1e-10 (or 0 for integers)
 - [ ] ALL Python tests pass
 - [ ] ALL Rust tests pass
-- [ ] Coverage matrix shows 100% "✓ values" or documented "Python ONLY" with rationale
+- [ ] Coverage matrix shows 100% "✓ values" in BOTH Python AND Rust columns
+- [ ] NO "GAP" entries remaining
