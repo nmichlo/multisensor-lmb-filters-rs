@@ -233,6 +233,89 @@ impl TrajectoryHistory {
     }
 }
 
+/// Cardinality estimation result from MAP cardinality extraction.
+///
+/// This is the result of applying the LMB cardinality estimation algorithm,
+/// which determines how many objects exist and which tracks represent them.
+#[derive(Debug, Clone)]
+pub struct CardinalityEstimate {
+    /// MAP estimate of the number of objects.
+    pub n_estimated: usize,
+    /// Indices of the tracks selected for the MAP estimate.
+    pub map_indices: Vec<usize>,
+}
+
+impl CardinalityEstimate {
+    /// Create a new cardinality estimate.
+    pub fn new(n_estimated: usize, map_indices: Vec<usize>) -> Self {
+        Self {
+            n_estimated,
+            map_indices,
+        }
+    }
+
+    /// Create an empty cardinality estimate.
+    pub fn empty() -> Self {
+        Self {
+            n_estimated: 0,
+            map_indices: Vec::new(),
+        }
+    }
+}
+
+/// Detailed output from a single filter step, exposing all intermediate data.
+///
+/// This is used for fixture validation and testing. It contains the state
+/// after each major step of the filter algorithm:
+///
+/// ## LMB Filter Steps
+/// 1. **Predicted tracks** - after prediction step (motion model + birth)
+/// 2. **Association matrices** - likelihood ratios, costs, sampling probs
+/// 3. **Association result** - marginal weights from data association
+/// 4. **Updated tracks** - after measurement update step
+/// 5. **Cardinality estimate** - MAP cardinality extraction
+/// 6. **Final estimate** - extracted state estimates
+///
+/// ## LMBM Filter Additional Steps
+/// For LMBM filters, additional intermediate data is exposed:
+/// - **Pre-normalization hypotheses** - hypotheses after association, before normalization (step4)
+/// - **Normalized hypotheses** - hypotheses after normalization and gating (step5)
+/// - **Objects likely to exist** - mask of which tracks have weighted existence > threshold (step5)
+#[derive(Debug, Clone)]
+pub struct StepDetailedOutput {
+    /// Tracks after prediction step (before measurement update).
+    pub predicted_tracks: Vec<Track>,
+    /// Association matrices from the association builder (None if no measurements).
+    pub association_matrices: Option<crate::association::AssociationMatrices>,
+    /// Association result from the data association algorithm (None if no measurements).
+    pub association_result: Option<super::traits::AssociationResult>,
+    /// Tracks after measurement update step.
+    pub updated_tracks: Vec<Track>,
+    /// Cardinality estimation result.
+    pub cardinality: CardinalityEstimate,
+    /// Final state estimate after gating.
+    pub final_estimate: super::output::StateEstimate,
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LMBM-specific fields (None for LMB filters)
+    // ═══════════════════════════════════════════════════════════════════════
+    /// LMBM predicted hypothesis after prediction step (step1_prediction in MATLAB).
+    /// For LMBM, this contains a single hypothesis representing the predicted state.
+    pub predicted_hypotheses: Option<Vec<LmbmHypothesis>>,
+
+    /// LMBM hypotheses after association, before normalization (step4_hypothesis in MATLAB).
+    /// Contains `new_hypotheses` with unnormalized weights.
+    pub pre_normalization_hypotheses: Option<Vec<LmbmHypothesis>>,
+
+    /// LMBM hypotheses after normalization and weight gating (step5_normalization in MATLAB).
+    /// Contains `normalized_hypotheses` with sum-to-one weights.
+    pub normalized_hypotheses: Option<Vec<LmbmHypothesis>>,
+
+    /// Mask of which tracks have weighted total existence > threshold (step5 in MATLAB).
+    /// True means the track "likely exists" and is kept; False means it's pruned.
+    pub objects_likely_to_exist: Option<Vec<bool>>,
+}
+
 /// LMBM Hypothesis - represents a single hypothesis in LMBM filter
 ///
 /// Unlike LMB which maintains a single track set with Gaussian mixtures,

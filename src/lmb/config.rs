@@ -323,6 +323,9 @@ pub struct FilterThresholds {
     pub max_gm_components: usize,
     /// Minimum trajectory length for output
     pub min_trajectory_length: usize,
+    /// Mahalanobis distance threshold for GM component merging (MATLAB-compatible).
+    /// Set to `f64::INFINITY` to disable merging (faster but not MATLAB-equivalent).
+    pub gm_merge_threshold: f64,
 }
 
 impl FilterThresholds {
@@ -338,6 +341,24 @@ impl FilterThresholds {
             gm_weight_threshold,
             max_gm_components,
             min_trajectory_length,
+            gm_merge_threshold: super::DEFAULT_GM_MERGE_THRESHOLD,
+        }
+    }
+
+    /// Create with custom merge threshold
+    pub fn with_merge_threshold(
+        existence_threshold: f64,
+        gm_weight_threshold: f64,
+        max_gm_components: usize,
+        min_trajectory_length: usize,
+        gm_merge_threshold: f64,
+    ) -> Self {
+        Self {
+            existence_threshold,
+            gm_weight_threshold,
+            max_gm_components,
+            min_trajectory_length,
+            gm_merge_threshold,
         }
     }
 }
@@ -349,6 +370,7 @@ impl Default for FilterThresholds {
             gm_weight_threshold: 1e-4,
             max_gm_components: 100,
             min_trajectory_length: 3,
+            gm_merge_threshold: super::DEFAULT_GM_MERGE_THRESHOLD,
         }
     }
 }

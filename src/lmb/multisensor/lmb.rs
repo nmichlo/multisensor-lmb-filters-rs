@@ -38,7 +38,7 @@ use super::super::config::{AssociationConfig, BirthModel, MotionModel, Multisens
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
-use super::super::types::Track;
+use super::super::types::{StepDetailedOutput, Track};
 
 // Re-export fusion strategies for backwards compatibility
 pub use super::fusion::{
@@ -90,6 +90,8 @@ pub struct MultisensorLmbFilter<A: Associator = LbpAssociator, M: Merger = Arith
     /// GM component pruning parameters
     gm_weight_threshold: f64,
     max_gm_components: usize,
+    /// Mahalanobis distance threshold for GM component merging
+    gm_merge_threshold: f64,
 
     /// The associator to use
     associator: A,
@@ -119,6 +121,7 @@ impl<M: Merger> MultisensorLmbFilter<LbpAssociator, M> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
             max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: super::super::DEFAULT_GM_MERGE_THRESHOLD,
             associator: LbpAssociator,
             merger,
             updater: MarginalUpdater::new(),
@@ -147,6 +150,7 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
             max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: super::super::DEFAULT_GM_MERGE_THRESHOLD,
             associator,
             merger,
             updater: MarginalUpdater::new(),
@@ -164,7 +168,27 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
     pub fn with_gm_pruning(mut self, weight_threshold: f64, max_components: usize) -> Self {
         self.gm_weight_threshold = weight_threshold;
         self.max_gm_components = max_components;
-        self.updater = MarginalUpdater::with_thresholds(weight_threshold, max_components);
+        self.updater = MarginalUpdater::with_thresholds(
+            weight_threshold,
+            max_components,
+            self.gm_merge_threshold,
+        );
+        self
+    }
+
+    /// Set the GM component merge threshold for Mahalanobis-distance merging.
+    ///
+    /// This controls how similar components must be (in Mahalanobis distance)
+    /// to be merged together. Set to `f64::INFINITY` to disable merging.
+    ///
+    /// This also updates the internal updater to use the new threshold.
+    pub fn with_gm_merge_threshold(mut self, merge_threshold: f64) -> Self {
+        self.gm_merge_threshold = merge_threshold;
+        self.updater = MarginalUpdater::with_thresholds(
+            self.gm_weight_threshold,
+            self.max_gm_components,
+            merge_threshold,
+        );
         self
     }
 
@@ -207,6 +231,125 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
                 &detection_probs,
             );
         }
+    }
+
+    // ========================================================================
+    // Testing/Fixture Validation Methods
+    // ========================================================================
+
+    /// Set the internal tracks directly (for fixture testing).
+    pub fn set_tracks(&mut self, tracks: Vec<Track>) {
+        self.tracks = tracks;
+    }
+
+    /// Get the current tracks (for fixture testing).
+    pub fn get_tracks(&self) -> Vec<Track> {
+        self.tracks.clone()
+    }
+
+    /// Detailed step that returns all intermediate data for fixture validation.
+    ///
+    /// Note: Multi-sensor step_detailed does NOT return association matrices
+    /// because each sensor produces its own matrices. This returns the fused
+    /// result directly.
+    pub fn step_detailed<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &[Vec<DVector<f64>>],
+        timestep: usize,
+    ) -> Result<StepDetailedOutput, FilterError> {
+        let num_sensors = self.num_sensors();
+
+        // Validate measurements
+        if measurements.len() != num_sensors {
+            return Err(FilterError::InvalidInput(format!(
+                "Expected {} sensors, got {}",
+                num_sensors,
+                measurements.len()
+            )));
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction
+        // ══════════════════════════════════════════════════════════════════════
+        predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
+        let predicted_tracks = self.tracks.clone();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2-3: Per-sensor association and fusion
+        // ══════════════════════════════════════════════════════════════════════
+        let has_any_measurements = measurements.iter().any(|m| !m.is_empty());
+
+        if has_any_measurements && !self.tracks.is_empty() {
+            let prior_tracks = self.tracks.clone();
+            let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
+
+            for (sensor, sensor_measurements) in
+                self.sensors.sensors.iter().zip(measurements.iter())
+            {
+                let mut sensor_tracks = prior_tracks.clone();
+
+                if !sensor_measurements.is_empty() {
+                    let mut builder = AssociationBuilder::new(&sensor_tracks, sensor);
+                    let matrices = builder.build(sensor_measurements);
+                    let result = self
+                        .associator
+                        .associate(&matrices, &self.association_config, rng)
+                        .map_err(FilterError::Association)?;
+
+                    self.updater
+                        .update(&mut sensor_tracks, &result, &matrices.posteriors);
+                    super::super::common_ops::update_existence_from_marginals(
+                        &mut sensor_tracks,
+                        &result,
+                    );
+                } else {
+                    let p_d = sensor.detection_probability;
+                    for track in &mut sensor_tracks {
+                        track.existence = crate::components::update::update_existence_no_detection(
+                            track.existence,
+                            p_d,
+                        );
+                    }
+                }
+
+                per_sensor_tracks.push(sensor_tracks);
+            }
+
+            self.tracks = self.merger.merge(&per_sensor_tracks, None);
+        } else if !has_any_measurements {
+            self.update_existence_no_measurements();
+        }
+        let updated_tracks = self.tracks.clone();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 4: Cardinality extraction
+        // ══════════════════════════════════════════════════════════════════════
+        let cardinality = super::super::common_ops::compute_cardinality(&self.tracks);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Gating
+        // ══════════════════════════════════════════════════════════════════════
+        self.gate_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Extract final estimate
+        // ══════════════════════════════════════════════════════════════════════
+        let final_estimate = self.extract_estimates(timestep);
+
+        Ok(StepDetailedOutput {
+            predicted_tracks,
+            association_matrices: None, // Multi-sensor doesn't expose per-sensor matrices
+            association_result: None,   // Multi-sensor doesn't expose per-sensor results
+            updated_tracks,
+            cardinality,
+            final_estimate,
+            // LMB doesn't have LMBM-specific fields
+            predicted_hypotheses: None,
+            pre_normalization_hypotheses: None,
+            normalized_hypotheses: None,
+            objects_likely_to_exist: None,
+        })
     }
 }
 

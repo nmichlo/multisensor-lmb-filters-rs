@@ -18,7 +18,7 @@ use crate::common::association::lbp as legacy_lbp;
 use crate::common::association::murtys as legacy_murtys;
 use crate::common::rng as legacy_rng;
 
-use super::config::AssociationConfig;
+use super::config::{AssociationConfig, DataAssociationMethod};
 use super::errors::{AssociationError, FilterError};
 use super::output::StateEstimate;
 use super::types::Track;
@@ -104,6 +104,11 @@ pub struct AssociationResult {
     /// Entry `[i]` is P(track i exists but was not detected).
     pub miss_weights: nalgebra::DVector<f64>,
 
+    /// Posterior existence probabilities (n_tracks).
+    /// For LBP, this is the `r` output from belief propagation.
+    /// Entry `[i]` is P(track i exists | measurements).
+    pub posterior_existence: nalgebra::DVector<f64>,
+
     /// Discrete association event samples for hypothesis-based filters (LMBM).
     /// Each inner Vec represents one sampled association: `v[i]` is the measurement
     /// index assigned to track i, or -1 if track i missed detection.
@@ -121,14 +126,34 @@ impl AssociationResult {
     pub fn new(
         marginal_weights: nalgebra::DMatrix<f64>,
         miss_weights: nalgebra::DVector<f64>,
+        posterior_existence: nalgebra::DVector<f64>,
     ) -> Self {
         Self {
             marginal_weights,
             miss_weights,
+            posterior_existence,
             sampled_associations: None,
             iterations: 0,
             converged: true,
         }
+    }
+
+    /// Compute posterior existence from marginal weights.
+    ///
+    /// For Gibbs/Murty, the posterior existence is approximated as the sum of
+    /// miss weight plus all measurement association weights for each track.
+    /// This should sum to ~1 for properly normalized marginals.
+    pub fn posterior_existence_from_marginals(
+        marginal_weights: &nalgebra::DMatrix<f64>,
+        miss_weights: &nalgebra::DVector<f64>,
+    ) -> nalgebra::DVector<f64> {
+        let n = miss_weights.len();
+        let m = marginal_weights.ncols();
+        nalgebra::DVector::from_fn(n, |i, _| {
+            let total: f64 =
+                miss_weights[i] + (0..m).map(|j| marginal_weights[(i, j)]).sum::<f64>();
+            total.min(1.0)
+        })
     }
 
     /// Get the most likely association for a track (MAP estimate).
@@ -284,9 +309,13 @@ impl Associator for LbpAssociator {
             nalgebra::DMatrix::zeros(n, 0)
         };
 
+        // Posterior existence comes directly from LBP's r output
+        let posterior_existence = lbp_result.r;
+
         Ok(AssociationResult {
             marginal_weights,
             miss_weights,
+            posterior_existence,
             sampled_associations: None,
             iterations: config.lbp_max_iterations,
             converged: true, // LBP with convergence check always converges or hits max iters
@@ -329,6 +358,7 @@ impl Associator for GibbsAssociator {
             return Ok(AssociationResult {
                 marginal_weights: nalgebra::DMatrix::zeros(n, m),
                 miss_weights: nalgebra::DVector::zeros(n),
+                posterior_existence: nalgebra::DVector::zeros(n),
                 sampled_associations: Some(Vec::new()),
                 iterations: 0,
                 converged: true,
@@ -399,9 +429,15 @@ impl Associator for GibbsAssociator {
             })
             .collect();
 
+        // Use the posterior existence computed by lmb_gibbs_sampling directly.
+        // The legacy function already computes r = sum(Tau, 2) where Tau = (Sigma .* R) / sum(Sigma, 2)
+        // which correctly accounts for the existence ratio matrix R.
+        let posterior_existence = gibbs_result.r;
+
         Ok(AssociationResult {
             marginal_weights,
             miss_weights,
+            posterior_existence,
             sampled_associations: Some(sampled_associations),
             iterations: config.gibbs_samples,
             converged: true,
@@ -443,6 +479,7 @@ impl Associator for MurtyAssociator {
             return Ok(AssociationResult {
                 marginal_weights: nalgebra::DMatrix::zeros(n, m),
                 miss_weights: nalgebra::DVector::zeros(n),
+                posterior_existence: nalgebra::DVector::zeros(n),
                 sampled_associations: Some(Vec::new()),
                 iterations: 0,
                 converged: true,
@@ -457,47 +494,90 @@ impl Associator for MurtyAssociator {
             return Err(AssociationError::NoValidAssignments);
         }
 
-        // Convert assignments to marginal probabilities
-        // Each assignment has a cost; compute weights as exp(-cost)
         let num_assignments = murty_result.assignments.nrows();
-        let mut assignment_weights: Vec<f64> =
-            murty_result.costs.iter().map(|&c| (-c).exp()).collect();
 
-        // Normalize weights
-        let total_weight: f64 = assignment_weights.iter().sum();
-        if total_weight > super::NUMERICAL_ZERO {
-            for w in &mut assignment_weights {
-                *w /= total_weight;
-            }
-        } else {
-            // Uniform weights if all costs are very high
-            for w in &mut assignment_weights {
-                *w = 1.0 / num_assignments as f64;
+        // Build L matrix (n x (m+1)): [eta, L1, L2, ...] where L_j = psi_j * eta
+        // MATLAB: L = [eta, psi .* eta] where psi contains likelihood ratios
+        let mut l_mat = nalgebra::DMatrix::zeros(n, m + 1);
+        for i in 0..n {
+            l_mat[(i, 0)] = matrices.eta[i]; // miss likelihood
+            for j in 0..m {
+                l_mat[(i, j + 1)] = matrices.psi[(i, j)] * matrices.eta[i];
             }
         }
 
-        // Compute marginal probabilities from weighted assignments
-        let mut marginal_weights = nalgebra::DMatrix::zeros(n, m);
-        let mut miss_weights = nalgebra::DVector::zeros(n);
+        // Build R matrix (n x (m+1)): [phi/eta, 1, 1, ...]
+        // This is the existence ratio matrix
+        let mut r_mat = nalgebra::DMatrix::from_element(n, m + 1, 1.0);
+        for i in 0..n {
+            if matrices.eta[i].abs() > super::NUMERICAL_ZERO {
+                r_mat[(i, 0)] = matrices.phi[i] / matrices.eta[i];
+            } else {
+                r_mat[(i, 0)] = 0.0;
+            }
+        }
 
-        for (k, assignment_weight) in assignment_weights.iter().enumerate() {
+        // Compute Sigma: marginal likelihood sums
+        // MATLAB lines 30-33:
+        // W = repmat(V, 1, 1, m+1) == reshape(0:m, 1, 1, m+1);
+        // J = reshape(L(n * V + (1:n)), size(V, 1), n);
+        // L = permute(sum(prod(J, 2) .* W, 1), [2 1 3]);
+        // Sigma = reshape(L, n, m+1);
+        let mut sigma = nalgebra::DMatrix::zeros(n, m + 1);
+
+        for k in 0..num_assignments {
+            // Compute J for this assignment: product of likelihoods
+            // J(k, i) = L(i, V(k, i)) where V is 0-indexed meas (0=miss, 1+ = meas)
+            let mut j_prod = 1.0;
             for i in 0..n {
-                let assigned_meas = murty_result.assignments[(k, i)];
-                if assigned_meas == 0 {
-                    // Miss/clutter
-                    miss_weights[i] += assignment_weight;
-                } else {
-                    // Assigned to measurement (1-indexed in Murty result)
-                    let j = assigned_meas - 1;
-                    if j < m {
-                        marginal_weights[(i, j)] += assignment_weight;
-                    } else {
-                        // Dummy assignment (clutter)
-                        miss_weights[i] += assignment_weight;
-                    }
+                let v_ki = murty_result.assignments[(k, i)]; // 0=miss, 1+ = meas index
+                j_prod *= l_mat[(i, v_ki)];
+            }
+
+            // Add to sigma for each track-measurement pair in this assignment
+            for i in 0..n {
+                let v_ki = murty_result.assignments[(k, i)];
+                sigma[(i, v_ki)] += j_prod;
+            }
+        }
+
+        // Normalize: Tau = (Sigma .* R) ./ sum(Sigma, 2)
+        // MATLAB line 35
+        let mut tau = nalgebra::DMatrix::zeros(n, m + 1);
+        for i in 0..n {
+            let row_sum: f64 = sigma.row(i).sum();
+            if row_sum > super::NUMERICAL_ZERO {
+                for j in 0..(m + 1) {
+                    tau[(i, j)] = (sigma[(i, j)] * r_mat[(i, j)]) / row_sum;
                 }
             }
         }
+
+        // Existence probabilities: r = sum(Tau, 2)
+        // MATLAB line 37
+        let mut posterior_existence = nalgebra::DVector::zeros(n);
+        for i in 0..n {
+            posterior_existence[i] = tau.row(i).sum();
+        }
+
+        // Marginal association probabilities: W = Tau ./ r
+        // MATLAB line 39
+        let mut w_full = nalgebra::DMatrix::zeros(n, m + 1);
+        for i in 0..n {
+            if posterior_existence[i] > super::NUMERICAL_ZERO {
+                for j in 0..(m + 1) {
+                    w_full[(i, j)] = tau[(i, j)] / posterior_existence[i];
+                }
+            }
+        }
+
+        // Extract miss_weights (column 0) and marginal_weights (columns 1..m+1)
+        let miss_weights = w_full.column(0).into_owned();
+        let marginal_weights = if m > 0 {
+            w_full.columns(1, m).into_owned()
+        } else {
+            nalgebra::DMatrix::zeros(n, 0)
+        };
 
         // Convert assignments to sampled_associations format
         let sampled_associations: Vec<Vec<i32>> = (0..num_assignments)
@@ -518,6 +598,7 @@ impl Associator for MurtyAssociator {
         Ok(AssociationResult {
             marginal_weights,
             miss_weights,
+            posterior_existence,
             sampled_associations: Some(sampled_associations),
             iterations: num_assignments,
             converged: true,
@@ -526,6 +607,67 @@ impl Associator for MurtyAssociator {
 
     fn name(&self) -> &'static str {
         "Murty"
+    }
+}
+
+// ============================================================================
+// Dynamic Associator (for Python bindings)
+// ============================================================================
+
+/// Dynamic associator that can be any of the three associator types.
+///
+/// This enum allows runtime selection of the associator algorithm, which is
+/// necessary for Python bindings where the associator type is determined at
+/// runtime based on `AssociationConfig`.
+#[derive(Debug, Clone)]
+pub enum DynamicAssociator {
+    /// Loopy Belief Propagation
+    Lbp(LbpAssociator),
+    /// Gibbs Sampling
+    Gibbs(GibbsAssociator),
+    /// Murty's Algorithm
+    Murty(MurtyAssociator),
+}
+
+impl Default for DynamicAssociator {
+    fn default() -> Self {
+        DynamicAssociator::Lbp(LbpAssociator)
+    }
+}
+
+impl DynamicAssociator {
+    /// Create a dynamic associator from an association config.
+    pub fn from_config(config: &AssociationConfig) -> Self {
+        match config.method {
+            DataAssociationMethod::Lbp | DataAssociationMethod::LbpFixed => {
+                DynamicAssociator::Lbp(LbpAssociator)
+            }
+            DataAssociationMethod::Gibbs => DynamicAssociator::Gibbs(GibbsAssociator),
+            DataAssociationMethod::Murty => DynamicAssociator::Murty(MurtyAssociator),
+        }
+    }
+}
+
+impl Associator for DynamicAssociator {
+    fn associate<R: rand::Rng>(
+        &self,
+        matrices: &AssociationMatrices,
+        config: &AssociationConfig,
+        rng: &mut R,
+    ) -> Result<AssociationResult, AssociationError> {
+        match self {
+            DynamicAssociator::Lbp(a) => a.associate(matrices, config, rng),
+            DynamicAssociator::Gibbs(a) => a.associate(matrices, config, rng),
+            DynamicAssociator::Murty(a) => a.associate(matrices, config, rng),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            DynamicAssociator::Lbp(a) => a.name(),
+            DynamicAssociator::Gibbs(a) => a.name(),
+            DynamicAssociator::Murty(a) => a.name(),
+        }
     }
 }
 
@@ -549,28 +691,43 @@ impl Associator for MurtyAssociator {
 /// This approach preserves uncertainty about associations, which is important when
 /// measurements are ambiguous. However, it can lead to component explosion in
 /// dense scenarios.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct MarginalUpdater {
     /// Components with weight below this threshold are pruned.
     pub weight_threshold: f64,
     /// Maximum number of Gaussian components to retain per track.
     pub max_components: usize,
+    /// Mahalanobis distance threshold for merging similar components (MATLAB-style).
+    /// Set to `f64::INFINITY` to disable merging (faster but not MATLAB-equivalent).
+    pub merge_threshold: f64,
+}
+
+impl Default for MarginalUpdater {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MarginalUpdater {
-    /// Create a new marginal updater with default settings
+    /// Create a new marginal updater with default settings (MATLAB-compatible).
     pub fn new() -> Self {
         Self {
             weight_threshold: 1e-4,
             max_components: 100,
+            merge_threshold: 4.0, // MATLAB default
         }
     }
 
-    /// Create with custom thresholds
-    pub fn with_thresholds(weight_threshold: f64, max_components: usize) -> Self {
+    /// Create with custom thresholds.
+    pub fn with_thresholds(
+        weight_threshold: f64,
+        max_components: usize,
+        merge_threshold: f64,
+    ) -> Self {
         Self {
             weight_threshold,
             max_components,
+            merge_threshold,
         }
     }
 }
@@ -598,19 +755,27 @@ impl Updater for MarginalUpdater {
             }
 
             // Measurement cases: posterior components weighted by marginal probabilities
+            // Uses likelihood-normalized component weights from PosteriorGrid, matching
+            // MATLAB's posteriorParameters.w[meas][comp] (see fixture file structure docs).
             for j in 0..m {
                 let meas_prob = result.marginal_weights[(i, j)];
                 if meas_prob < super::NUMERICAL_ZERO {
                     continue; // Skip negligible associations
                 }
 
-                // For each prior component, create a posterior component
+                // For each prior component, use its OWN posterior (not shared)
                 for comp_idx in 0..num_prior_components {
-                    if let (Some(post_mean), Some(post_cov)) =
-                        (posteriors.get_mean(i, j), posteriors.get_covariance(i, j))
-                    {
-                        let prior_weight = track.components[comp_idx].weight;
-                        new_weights.push(meas_prob * prior_weight);
+                    if let (Some(post_mean), Some(post_cov)) = (
+                        posteriors.get_mean_for_component(i, j, comp_idx),
+                        posteriors.get_covariance_for_component(i, j, comp_idx),
+                    ) {
+                        // Use likelihood-normalized component weight instead of prior weight.
+                        // This matches MATLAB: w_posterior = meas_prob * posteriorParameters.w[j][k]
+                        // where posteriorParameters.w[j][k] = prior[k] * L[j][k] / sum_c(prior[c] * L[j][c])
+                        let comp_weight = posteriors
+                            .get_component_weight(i, j, comp_idx)
+                            .unwrap_or(track.components[comp_idx].weight);
+                        new_weights.push(meas_prob * comp_weight);
                         new_means.push(post_mean.clone());
                         new_covs.push(post_cov.clone());
                     }
@@ -630,6 +795,7 @@ impl Updater for MarginalUpdater {
                 weighted_components,
                 self.weight_threshold,
                 self.max_components,
+                self.merge_threshold,
             );
         }
     }
@@ -775,8 +941,9 @@ mod tests {
     fn test_association_result() {
         let weights = nalgebra::DMatrix::from_row_slice(2, 3, &[0.1, 0.8, 0.1, 0.2, 0.3, 0.5]);
         let miss = nalgebra::DVector::from_vec(vec![0.0, 0.0]);
+        let posterior_existence = nalgebra::DVector::from_vec(vec![0.9, 0.8]);
 
-        let result = AssociationResult::new(weights, miss);
+        let result = AssociationResult::new(weights, miss, posterior_existence);
 
         // Track 0 best association is measurement 1 (weight 0.8)
         assert_eq!(result.best_association(0), Some(1));
@@ -789,6 +956,10 @@ mod tests {
         assert_eq!(LbpAssociator.name(), "LBP");
         assert_eq!(GibbsAssociator.name(), "Gibbs");
         assert_eq!(MurtyAssociator.name(), "Murty");
+        // Test DynamicAssociator names
+        assert_eq!(DynamicAssociator::Lbp(LbpAssociator).name(), "LBP");
+        assert_eq!(DynamicAssociator::Gibbs(GibbsAssociator).name(), "Gibbs");
+        assert_eq!(DynamicAssociator::Murty(MurtyAssociator).name(), "Murty");
     }
 
     #[test]

@@ -91,11 +91,9 @@ impl Merger for ArithmeticAverageMerger {
                 }
             }
 
-            // Merge, truncate, and normalize using shared helper
-            fused_tracks[i].components = super::super::common_ops::merge_and_truncate_components(
-                all_components,
-                self.max_components,
-            );
+            // Truncate to max components and normalize (no Mahalanobis merging)
+            fused_tracks[i].components =
+                super::super::common_ops::truncate_components(all_components, self.max_components);
         }
 
         fused_tracks

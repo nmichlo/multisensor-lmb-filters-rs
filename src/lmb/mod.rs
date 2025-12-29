@@ -54,6 +54,7 @@ pub mod singlesensor;
 
 // Utilities
 pub mod cardinality;
+pub mod simple_rng;
 
 // Re-export all public types from submodules
 
@@ -75,8 +76,8 @@ pub use errors::{AssociationError, FilterError};
 
 // Traits and implementations
 pub use traits::{
-    AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, LbpAssociator,
-    MarginalUpdater, Merger, MurtyAssociator, Updater,
+    AssociationResult, Associator, DynamicAssociator, Filter, GibbsAssociator,
+    HardAssignmentUpdater, LbpAssociator, MarginalUpdater, Merger, MurtyAssociator, Updater,
 };
 
 // Builder traits
@@ -92,6 +93,9 @@ pub use multisensor::{
     MultisensorGibbsAssociator, MultisensorLmbFilter, MultisensorLmbmFilter,
     MultisensorMeasurements, ParallelUpdateMerger, PuLmbFilter,
 };
+
+// Utilities
+pub use simple_rng::{SimpleRng, Uniform01};
 
 // ============================================================================
 // Default Filter Constants
@@ -111,6 +115,13 @@ pub const DEFAULT_GM_WEIGHT_THRESHOLD: f64 = 1e-4;
 
 /// Default maximum number of GM components per track.
 pub const DEFAULT_MAX_GM_COMPONENTS: usize = 100;
+
+/// Default Mahalanobis distance threshold for GM component merging.
+/// Components closer than this threshold are merged.
+/// Set to `f64::INFINITY` to disable merging (matches MATLAB behavior).
+/// MATLAB does not perform Mahalanobis merging by default - it uses
+/// weight-based pruning only. To match MATLAB exactly, use infinity.
+pub const DEFAULT_GM_MERGE_THRESHOLD: f64 = f64::INFINITY;
 
 /// Default maximum number of hypotheses for LMBM filters.
 pub const DEFAULT_LMBM_MAX_HYPOTHESES: usize = 100;

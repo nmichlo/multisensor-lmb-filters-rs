@@ -24,7 +24,7 @@ use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{
     AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Updater,
 };
-use super::super::types::Track;
+use super::super::types::{StepDetailedOutput, Track};
 
 /// Single-sensor LMB filter.
 ///
@@ -75,6 +75,8 @@ pub struct LmbFilter<A: Associator = LbpAssociator> {
     gm_weight_threshold: f64,
     /// Maximum GM components per track
     max_gm_components: usize,
+    /// Mahalanobis distance threshold for GM component merging
+    gm_merge_threshold: f64,
 
     /// The associator to use
     associator: A,
@@ -103,6 +105,7 @@ impl LmbFilter<LbpAssociator> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
             max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: super::super::DEFAULT_GM_MERGE_THRESHOLD,
             associator: LbpAssociator,
             updater,
         }
@@ -144,6 +147,7 @@ impl<A: Associator> LmbFilter<A> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
             max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: super::super::DEFAULT_GM_MERGE_THRESHOLD,
             associator,
             updater,
         }
@@ -155,7 +159,27 @@ impl<A: Associator> LmbFilter<A> {
     pub fn with_gm_pruning(mut self, weight_threshold: f64, max_components: usize) -> Self {
         self.gm_weight_threshold = weight_threshold;
         self.max_gm_components = max_components;
-        self.updater = MarginalUpdater::with_thresholds(weight_threshold, max_components);
+        self.updater = MarginalUpdater::with_thresholds(
+            weight_threshold,
+            max_components,
+            self.gm_merge_threshold,
+        );
+        self
+    }
+
+    /// Set the GM component merge threshold for Mahalanobis-distance merging.
+    ///
+    /// This controls how similar components must be (in Mahalanobis distance)
+    /// to be merged together. Set to `f64::INFINITY` to disable merging.
+    ///
+    /// This also updates the internal updater to use the new threshold.
+    pub fn with_gm_merge_threshold(mut self, merge_threshold: f64) -> Self {
+        self.gm_merge_threshold = merge_threshold;
+        self.updater = MarginalUpdater::with_thresholds(
+            self.gm_weight_threshold,
+            self.max_gm_components,
+            merge_threshold,
+        );
         self
     }
 
@@ -196,6 +220,110 @@ impl<A: Associator> LmbFilter<A> {
             track.existence =
                 crate::components::update::update_existence_no_detection(track.existence, p_d);
         }
+    }
+
+    // ========================================================================
+    // Testing/Fixture Validation Methods
+    // ========================================================================
+
+    /// Set the internal tracks directly (for fixture testing).
+    ///
+    /// This allows tests to initialize the filter with a known prior state
+    /// from fixture data, enabling comparison of intermediate outputs.
+    pub fn set_tracks(&mut self, tracks: Vec<Track>) {
+        self.tracks = tracks;
+    }
+
+    /// Get the current tracks (for fixture testing).
+    ///
+    /// Returns a clone of all internal tracks with full Gaussian mixture data.
+    pub fn get_tracks(&self) -> Vec<Track> {
+        self.tracks.clone()
+    }
+
+    /// Detailed step that returns all intermediate data for fixture validation.
+    ///
+    /// Unlike `step()`, this method returns the state after each major step:
+    /// 1. Predicted tracks (after motion model + birth)
+    /// 2. Association matrices (likelihood ratios, costs, etc.)
+    /// 3. Association result (marginal weights)
+    /// 4. Updated tracks (after measurement update)
+    /// 5. Cardinality estimate (MAP extraction)
+    /// 6. Final state estimate
+    ///
+    /// This is useful for step-by-step validation against MATLAB fixture outputs.
+    pub fn step_detailed<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &[DVector<f64>],
+        timestep: usize,
+    ) -> Result<StepDetailedOutput, FilterError> {
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction - propagate tracks forward and add birth components
+        // ══════════════════════════════════════════════════════════════════════
+        predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
+        let predicted_tracks = self.tracks.clone();
+
+        // (Skip trajectory init for detailed output - not needed for comparison)
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2-3: Association - build matrices and run data association
+        // ══════════════════════════════════════════════════════════════════════
+        let (association_matrices, association_result) = if !measurements.is_empty() {
+            let mut builder = AssociationBuilder::new(&self.tracks, &self.sensor);
+            let matrices = builder.build(measurements);
+
+            let result = self
+                .associator
+                .associate(&matrices, &self.association_config, rng)
+                .map_err(FilterError::Association)?;
+
+            (Some(matrices), Some(result))
+        } else {
+            (None, None)
+        };
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 4: Update - update existence and spatial distributions
+        // ══════════════════════════════════════════════════════════════════════
+        if let (Some(ref result), Some(ref matrices)) = (&association_result, &association_matrices)
+        {
+            self.update_existence_from_association(result);
+            self.updater
+                .update(&mut self.tracks, result, &matrices.posteriors);
+        } else {
+            self.update_existence_no_measurements();
+        }
+        let updated_tracks = self.tracks.clone();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Cardinality extraction (before gating)
+        // ══════════════════════════════════════════════════════════════════════
+        let cardinality = super::super::common_ops::compute_cardinality(&self.tracks);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Gating - prune low-existence tracks
+        // ══════════════════════════════════════════════════════════════════════
+        self.gate_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract final state estimate
+        // ══════════════════════════════════════════════════════════════════════
+        let final_estimate = self.extract_estimates(timestep);
+
+        Ok(StepDetailedOutput {
+            predicted_tracks,
+            association_matrices,
+            association_result,
+            updated_tracks,
+            cardinality,
+            final_estimate,
+            // LMB doesn't have LMBM-specific fields
+            predicted_hypotheses: None,
+            pre_normalization_hypotheses: None,
+            normalized_hypotheses: None,
+            objects_likely_to_exist: None,
+        })
     }
 }
 
