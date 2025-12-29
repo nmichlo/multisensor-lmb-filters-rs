@@ -286,15 +286,8 @@ impl MultisensorAssociator for MultisensorGibbsAssociator {
             unique_samples.insert(sample);
         }
 
-        let result: Vec<Vec<usize>> = unique_samples.into_iter().collect();
-        eprintln!(
-            "[DEBUG] MultisensorGibbs: {} Gibbs iterations -> {} unique samples",
-            config.gibbs_samples,
-            result.len()
-        );
-
         Ok(MultisensorAssociationResult::new(
-            result,
+            unique_samples.into_iter().collect(),
             config.gibbs_samples,
         ))
     }

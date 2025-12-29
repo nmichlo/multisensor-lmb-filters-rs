@@ -774,7 +774,24 @@ fn test_multisensor_lmbm_hypothesis_generation_equivalence() {
 }
 
 /// Test multisensor LMBM end-to-end pipeline comparing normalized hypotheses
+///
+/// **BLOCKED**: This test requires an end-to-end fixture that cannot be created from
+/// the step-by-step fixture. See PLAN.md section "CRITICAL: Fixture Incompatibility".
+///
+/// **Why blocked**:
+/// - Step-by-step fixture uses independent RNG seeds per step (step3: seed+2000)
+/// - End-to-end filter uses one continuous RNG (starts at seed+1000)
+/// - These produce different random sequences → incompatible for end-to-end testing
+///
+/// **Required to unblock**:
+/// 1. Generate new fixture: multisensor_lmbm_end_to_end_seed42.json
+/// 2. MATLAB: Create trials/generateMultisensorLmbmEndToEndFixture.m
+/// 3. Run full runMultisensorLmbmFilter() with continuous RNG
+/// 4. Update this test to load the new end-to-end fixture
+///
+/// **DO NOT** attempt to fix by adjusting RNG seeds - the fixture type is fundamentally wrong.
 #[test]
+#[ignore = "Requires end-to-end fixture - see PLAN.md 'CRITICAL: Fixture Incompatibility'"]
 fn test_multisensor_lmbm_normalization_equivalence() {
     use multisensor_lmb_filters_rs::lmb::{
         AssociationConfig, BirthLocation, BirthModel, LmbmConfig, MultisensorLmbmFilter, SimpleRng,
@@ -790,26 +807,27 @@ fn test_multisensor_lmbm_normalization_equivalence() {
 
     // Birth model - multisensor model uses 4 birth locations (from generateMultisensorModel.m)
     // rBLmbm = 0.06 for each location, muB at specific positions, SigmaB = diag(10^2)
+    // birthLocations = [-80 -20 0 40; 0 0 0 0; 0 0 0 0; 0 0 0 0] (MATLAB: columns = locations)
     let x_dim = motion.x_dim();
     let birth_locations = vec![
         BirthLocation::new(
             0,
-            DVector::zeros(x_dim),
+            DVector::from_vec(vec![-80.0, 0.0, 0.0, 0.0]),
             DMatrix::identity(x_dim, x_dim) * 100.0,
         ),
         BirthLocation::new(
             1,
-            DVector::zeros(x_dim),
+            DVector::from_vec(vec![-20.0, 0.0, 0.0, 0.0]),
             DMatrix::identity(x_dim, x_dim) * 100.0,
         ),
         BirthLocation::new(
             2,
-            DVector::zeros(x_dim),
+            DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]),
             DMatrix::identity(x_dim, x_dim) * 100.0,
         ),
         BirthLocation::new(
             3,
-            DVector::zeros(x_dim),
+            DVector::from_vec(vec![40.0, 0.0, 0.0, 0.0]),
             DMatrix::identity(x_dim, x_dim) * 100.0,
         ),
     ];
@@ -844,10 +862,9 @@ fn test_multisensor_lmbm_normalization_equivalence() {
     filter.set_hypotheses(vec![prior_hypothesis]);
 
     // Run filter with measurements
-    // CRITICAL: For end-to-end testing with step-by-step fixture, we need to use the
-    // SAME RNG seed that the Gibbs step used (seed + 2000), not the filter RNG (seed + 1000).
-    // This is because the step-by-step fixture was generated with independent RNG seeds per step.
-    let mut rng = SimpleRng::new(fixture.seed + 2000);
+    // CRITICAL: Use seed + 1000 to match MATLAB's filter RNG (see generateMultisensorLmbmDebugFixture.m)
+    // The step-by-step fixture uses seed + 2000 for ISOLATED Gibbs testing, but the filter uses seed + 1000
+    let mut rng = SimpleRng::new(fixture.seed + 1000);
     let measurements = measurements_to_multisensor(&fixture.measurements);
 
     // Debug: Check predicted tracks
