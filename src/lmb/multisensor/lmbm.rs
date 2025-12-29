@@ -588,8 +588,9 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         let has_measurements = measurements.iter().any(|m| !m.is_empty());
 
-        if has_measurements && !self.hypotheses.is_empty() && !self.hypotheses[0].tracks.is_empty()
-        {
+        // CRITICAL: Always run association when measurements are available, even with 0 tracks
+        // (births can generate new hypotheses). Matches MATLAB behavior (runMultisensorLmbmFilter.m:51).
+        if has_measurements && !self.hypotheses.is_empty() {
             let (log_likelihoods, posteriors, dimensions) =
                 self.generate_association_matrices(&self.hypotheses[0].tracks, measurements);
 
@@ -704,8 +705,9 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         let has_measurements = measurements.iter().any(|m| !m.is_empty());
 
-        if has_measurements && !self.hypotheses.is_empty() && !self.hypotheses[0].tracks.is_empty()
-        {
+        // CRITICAL: Always run association when measurements are available, even with 0 tracks
+        // (births can generate new hypotheses). Matches MATLAB behavior (runMultisensorLmbmFilter.m:51).
+        if has_measurements && !self.hypotheses.is_empty() {
             // Generate joint association matrices across all sensors
             let (log_likelihoods, posteriors, dimensions) =
                 self.generate_association_matrices(&self.hypotheses[0].tracks, measurements);

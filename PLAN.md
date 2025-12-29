@@ -382,12 +382,14 @@ Refactored 3 existing LMBM tests using new helpers with **79% average code reduc
 | sensorUpdates[0].posteriorParameters.w | ✗ | ✗ | **GAP: Add Python test** |
 | sensorUpdates[0].posteriorParameters.mu | ✗ | ✗ | **GAP: Add Python test** |
 | sensorUpdates[0].posteriorParameters.Sigma | ✗ | ✗ | **GAP: Add Python test** |
-| sensorUpdates[0].dataAssociation.r | ✗ | ✓ values | **COMPLETE** (Rust VALUE test added, runs LBP and compares marginals) |
-| sensorUpdates[0].dataAssociation.W | ✗ | ✓ values | **COMPLETE** (Rust VALUE test added, runs LBP and compares marginals) |
-| sensorUpdates[0].output.updated_objects | ✗ | ✓ values | **COMPLETE** (Rust VALUE test added, uses max_components=20) |
-| sensorUpdates[1].* | same as [0] | same as [0] | Same status as sensor 0 (all VALUE tests) |
+| sensorUpdates[0].dataAssociation.r | ✗ | ✓ values | **COMPLETE (Rust)** - VALUE test runs LBP and compares marginals (TOLERANCE=1e-10) |
+| sensorUpdates[0].dataAssociation.W | ✗ | ✓ values | **COMPLETE (Rust)** - VALUE test runs LBP and compares marginals (TOLERANCE=1e-10) |
+| sensorUpdates[0].output.updated_objects | ✗ | ✓ values | **COMPLETE (Rust)** - VALUE test uses max_components=20, validates all track fields (TOLERANCE=1e-10) |
+| sensorUpdates[1].dataAssociation.r | ✗ | ✓ values | **COMPLETE (Rust)** - VALUE test runs LBP and compares marginals (TOLERANCE=1e-10) |
+| sensorUpdates[1].dataAssociation.W | ✗ | ✓ values | **COMPLETE (Rust)** - VALUE test runs LBP and compares marginals (TOLERANCE=1e-10) |
+| sensorUpdates[1].output.updated_objects | ✗ | ✓ values | **COMPLETE (Rust)** - VALUE test uses max_components=20, validates all track fields (TOLERANCE=1e-10) |
 | stepFinal.n_estimated | ✓ values | ✓ values | **COMPLETE** |
-| stepFinal.map_indices | ✗ | ✓ values | **COMPLETE** (MATLAB 1-indexed, Rust 0-indexed conversion) |
+| stepFinal.map_indices | ✗ | ✓ values | **COMPLETE (Rust)** - VALUE test with exact integer match (TOLERANCE=0) |
 
 ### MULTISENSOR LMBM FIXTURE (multisensor_lmbm_step_by_step_seed42.json)
 
@@ -639,26 +641,28 @@ NO "structure-only" tests. NO "Python-only" or "Rust-only" tests. NO excuses.
   - Fixed critical bugs: linear→log weight conversion, proper birth model extraction
   - File: `tests/lmb/lmbm_matlab_equivalence.rs:756`
 
-#### Multisensor LMB (8 structure gaps)
+#### Multisensor LMB (8 structure gaps - 4 COMPLETED ✅)
 - [ ] **TODO-RS-MSLMB-01**: Upgrade sensor association L/R tests → VALUE tests
   - Currently sensorUpdates[0/1].association.L/R are "✓ structure"
   - Change to "✓ values" with TOLERANCE=1e-10
   - File: `tests/lmb/multisensor_matlab_equivalence.rs`
 
-- [ ] **TODO-RS-MSLMB-02**: Upgrade sensor data association r/W tests → VALUE tests
-  - Currently sensorUpdates[0/1].dataAssociation.r/W are "✓ structure"
-  - Change to "✓ values" with TOLERANCE=1e-10
-  - File: `tests/lmb/multisensor_matlab_equivalence.rs`
+- [x] **TODO-RS-MSLMB-02**: ✅ COMPLETE - Upgraded sensor data association r/W tests → VALUE tests
+  - Compares sensorUpdates[0/1].dataAssociation: r, W VALUES (TOLERANCE=1e-10)
+  - Uses `helpers::association::assert_association_result_close()`
+  - Runs LBP association and compares marginals for both sensors
+  - File: `tests/lmb/multisensor_matlab_equivalence.rs:727-829`
 
-- [ ] **TODO-RS-MSLMB-03**: Upgrade sensor updated_objects tests → VALUE tests
-  - Currently sensorUpdates[0/1].output.updated_objects are "✓ structure"
-  - Change to "✓ values" using `compare_tracks()` equivalent (TOLERANCE=1e-10)
-  - File: `tests/lmb/multisensor_matlab_equivalence.rs`
+- [x] **TODO-RS-MSLMB-03**: ✅ COMPLETE - Upgraded sensor updated_objects tests → VALUE tests
+  - Compares sensorUpdates[0/1].output.updated_objects VALUES (TOLERANCE=1e-10)
+  - Uses `helpers::tracks::assert_tracks_close()` for full validation
+  - Critical fixes: max_components=20 (multisensor), label[1]=birth_time, label[0]=birth_location
+  - File: `tests/lmb/multisensor_matlab_equivalence.rs:892-1012`
 
-- [ ] **TODO-RS-MSLMB-04**: Upgrade stepFinal.map_indices test → VALUE test
-  - Currently "✓ structure"
-  - Change to "✓ values" with TOLERANCE=0 (exact integer match)
-  - File: `tests/lmb/multisensor_matlab_equivalence.rs`
+- [x] **TODO-RS-MSLMB-04**: ✅ COMPLETE - Upgraded stepFinal.map_indices test → VALUE test
+  - Compares stepFinal.map_indices VALUES (TOLERANCE=0 for exact integer match)
+  - Includes MATLAB 1-indexed → Rust 0-indexed conversion
+  - File: `tests/lmb/multisensor_matlab_equivalence.rs:781-830`
 
 #### Multisensor LMBM (10 structure gaps)
 - [ ] **TODO-RS-MSLMBM-01**: Upgrade step2.L test → VALUE test
@@ -706,13 +710,13 @@ NO "structure-only" tests. NO "Python-only" or "Rust-only" tests. NO excuses.
 - Multisensor LMBM: 6 tests
 - API changes: 2 (posteriorParameters exposure, normalized_hypotheses exposure)
 
-**Rust Tests to Upgrade:** 31 structure→value upgrades (4 COMPLETED ✅)
+**Rust Tests to Upgrade:** 31 structure→value upgrades (8 COMPLETED ✅)
 - LMB: 7 upgrades (1 ✅ COMPLETE)
 - LMBM: 6 upgrades (3 ✅ COMPLETE)
-- Multisensor LMB: 8 upgrades
+- Multisensor LMB: 8 upgrades (4 ✅ COMPLETE)
 - Multisensor LMBM: 10 upgrades
 
-**Total Work Items:** 51 TODO items (4 completed ✅)
+**Total Work Items:** 51 TODO items (8 completed ✅)
 
 **Completion Criteria:**
 - [ ] ZERO "✗" in coverage matrix

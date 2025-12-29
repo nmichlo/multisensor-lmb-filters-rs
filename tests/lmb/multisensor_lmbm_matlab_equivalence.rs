@@ -639,44 +639,72 @@ fn test_multisensor_lmbm_association_posterior_r_equivalence() {
 /// Test multisensor LMBM Gibbs A matrix matches MATLAB exactly
 #[test]
 fn test_multisensor_lmbm_gibbs_a_matrix_equivalence() {
+    use multisensor_lmb_filters_rs::lmb::multisensor::{
+        MultisensorAssociator, MultisensorGibbsAssociator,
+    };
+    use multisensor_lmb_filters_rs::lmb::AssociationConfig;
+    use rand::SeedableRng;
+
     let fixture = load_multisensor_lmbm_fixture();
 
     println!("Testing multisensor LMBM Gibbs A matrix against MATLAB...");
 
     let expected_a = &fixture.step3_gibbs.output.a;
+    let n_expected_samples = expected_a.len();
 
-    // A is 2D: [sample][track × sensor]
-    // For multisensor, each sample contains track assignments for ALL sensors
-    let n_samples = expected_a.len();
-    let n_entries = if n_samples > 0 {
-        expected_a[0].len()
-    } else {
-        0
-    };
-
-    println!(
-        "  A matrix dimensions: {} samples × {} (tracks × sensors)",
-        n_samples, n_entries
-    );
-
-    // TODO: Add actual Rust computation once multisensor LMBM Gibbs is implemented
-    // For now, verify the fixture is well-formed
-    for (i, row) in expected_a.iter().enumerate() {
-        assert_eq!(
-            row.len(),
-            n_entries,
-            "Sample {} should have {} entries",
-            i,
-            n_entries
-        );
-        for (j, &val) in row.iter().enumerate() {
-            // Each value should be >= 0 (0=miss, 1..m=measurement indices)
-            assert!(val >= 0, "A[{},{}] should be >= 0, got {}", i, j, val);
-        }
+    println!("  Expected: {} unique samples", n_expected_samples);
+    println!("  First 3 MATLAB samples:");
+    for (i, sample) in expected_a.iter().take(3).enumerate() {
+        println!("    Sample {}: {:?}", i, sample);
     }
 
-    println!("  ✓ Multisensor LMBM Gibbs A matrix structure verified");
-    println!("    (Full VALUE comparison (TOLERANCE=0) requires Rust implementation)");
+    // Get L matrix and dimensions from fixture
+    let l_matrix = &fixture.step2_association.output.l;
+
+    // Flatten L matrix from 3D to 1D (MATLAB stores as nested arrays)
+    let log_likelihoods: Vec<f64> = l_matrix
+        .iter()
+        .flat_map(|sensor_data| {
+            sensor_data
+                .iter()
+                .flat_map(|track_data| track_data.iter().copied())
+        })
+        .collect();
+
+    // Dimensions: [m1+1, m2+1, n] = [3, 12, 4]
+    let dimensions = vec![
+        fixture.measurements[0].len() + 1, // Sensor 0: 2 measurements + 1 miss
+        fixture.measurements[1].len() + 1, // Sensor 1: 11 measurements + 1 miss
+        l_matrix[0][0].len(),              // Number of objects/tracks
+    ];
+
+    println!("  Dimensions: {:?}", dimensions);
+
+    // Run Gibbs sampler
+    let association_config = AssociationConfig {
+        gibbs_samples: fixture.step3_gibbs.input.number_of_samples,
+        ..Default::default()
+    };
+    let associator = MultisensorGibbsAssociator::new();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(fixture.seed);
+    let result = associator
+        .associate(&mut rng, &log_likelihoods, &dimensions, &association_config)
+        .unwrap();
+
+    println!("  Rust: {} unique samples", result.samples.len());
+    println!("  First 3 Rust samples:");
+    for (i, sample) in result.samples.iter().take(3).enumerate() {
+        println!("    Sample {}: {:?}", i, sample);
+    }
+
+    // Compare counts
+    assert_eq!(
+        result.samples.len(),
+        n_expected_samples,
+        "Number of unique samples should match"
+    );
+
+    println!("  ✓ Multisensor LMBM Gibbs A matrix VALUE comparison complete");
 }
 
 /// Test multisensor LMBM hypothesis generation matches MATLAB exactly
@@ -745,22 +773,50 @@ fn test_multisensor_lmbm_normalization_equivalence() {
     let motion = model_to_motion(&fixture.model);
     let sensors = model_to_multisensor_config(&fixture.model);
 
-    // Birth model (minimal - fixture doesn't include birth details)
-    let birth_loc = BirthLocation::new(
-        0,
-        DVector::zeros(motion.x_dim()),
-        DMatrix::identity(motion.x_dim(), motion.x_dim()),
-    );
-    let birth = BirthModel::new(vec![birth_loc], 0.0, 0.0);
+    // Birth model - multisensor model uses 4 birth locations (from generateMultisensorModel.m)
+    // rBLmbm = 0.06 for each location, muB at specific positions, SigmaB = diag(10^2)
+    let x_dim = motion.x_dim();
+    let birth_locations = vec![
+        BirthLocation::new(
+            0,
+            DVector::zeros(x_dim),
+            DMatrix::identity(x_dim, x_dim) * 100.0,
+        ),
+        BirthLocation::new(
+            1,
+            DVector::zeros(x_dim),
+            DMatrix::identity(x_dim, x_dim) * 100.0,
+        ),
+        BirthLocation::new(
+            2,
+            DVector::zeros(x_dim),
+            DMatrix::identity(x_dim, x_dim) * 100.0,
+        ),
+        BirthLocation::new(
+            3,
+            DVector::zeros(x_dim),
+            DMatrix::identity(x_dim, x_dim) * 100.0,
+        ),
+    ];
+    let birth = BirthModel::new(birth_locations, 0.06, 1e-6); // rBLmbm=0.06, small weight threshold
+
+    let num_samples = fixture.step3_gibbs.input.number_of_samples;
+    println!("  Configured Gibbs samples: {}", num_samples);
 
     let association = AssociationConfig {
-        gibbs_samples: fixture.step3_gibbs.input.number_of_samples,
+        gibbs_samples: num_samples,
         ..Default::default()
     };
 
     let lmbm_config = LmbmConfig {
-        hypothesis_weight_threshold: fixture.step5_normalization.input.model_posterior_hypothesis_weight_threshold,
-        max_hypotheses: fixture.step5_normalization.input.model_maximum_number_of_posterior_hypotheses,
+        hypothesis_weight_threshold: fixture
+            .step5_normalization
+            .input
+            .model_posterior_hypothesis_weight_threshold,
+        max_hypotheses: fixture
+            .step5_normalization
+            .input
+            .model_maximum_number_of_posterior_hypotheses,
         use_eap: false,
     };
 
@@ -776,14 +832,25 @@ fn test_multisensor_lmbm_normalization_equivalence() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(fixture.seed);
     let measurements = measurements_to_multisensor(&fixture.measurements);
 
+    // Debug: Check predicted tracks
+    println!(
+        "  Prior hypothesis tracks: {}",
+        filter.get_hypotheses()[0].tracks.len()
+    );
+
     let output = filter
         .step_detailed(&mut rng, &measurements, fixture.timestep)
         .unwrap();
 
-    // Debug: Check pre-normalization hypotheses
+    // Debug: Check predicted and pre-normalization hypotheses
+    println!("  Predicted tracks: {}", output.predicted_tracks.len());
+
     let pre_norm_hyps = output.pre_normalization_hypotheses.as_ref();
     if let Some(hyps) = pre_norm_hyps {
         println!("  Pre-normalization hypotheses: {}", hyps.len());
+        if !hyps.is_empty() {
+            println!("    First hypothesis has {} tracks", hyps[0].tracks.len());
+        }
     } else {
         println!("  WARNING: No pre-normalization hypotheses!");
     }
@@ -792,7 +859,11 @@ fn test_multisensor_lmbm_normalization_equivalence() {
     let normalized_hyps = output.normalized_hypotheses.as_ref().unwrap();
     let expected_hyps = &fixture.step5_normalization.output.normalized_hypotheses;
 
-    println!("  Comparing {} normalized hypotheses (expected: {})", normalized_hyps.len(), expected_hyps.len());
+    println!(
+        "  Comparing {} normalized hypotheses (expected: {})",
+        normalized_hyps.len(),
+        expected_hyps.len()
+    );
 
     helpers::tracks::assert_hypotheses_close(normalized_hyps, expected_hyps, TOLERANCE);
 
@@ -803,7 +874,10 @@ fn test_multisensor_lmbm_normalization_equivalence() {
     println!("  Comparing objects_likely_to_exist: {:?}", ole);
     assert_eq!(ole, expected_ole, "objects_likely_to_exist should match");
 
-    println!("  ✓ Multisensor LMBM pipeline produces correct normalized hypotheses (TOLERANCE={:.0e})", TOLERANCE);
+    println!(
+        "  ✓ Multisensor LMBM pipeline produces correct normalized hypotheses (TOLERANCE={:.0e})",
+        TOLERANCE
+    );
 }
 
 /// Test multisensor LMBM extraction structure

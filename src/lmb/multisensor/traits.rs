@@ -156,20 +156,35 @@ impl MultisensorGibbsAssociator {
         let num_sensors = m.len();
         let num_objects = dimensions[num_sensors];
 
+        let debug = false; // Set to true for detailed debugging
+
         for s in 0..num_sensors {
             for i in 0..num_objects {
                 // Starting measurement index
                 let k = if v[(i, s)] == 0 { 0 } else { v[(i, s)] - 1 };
 
+                if debug {
+                    eprintln!(
+                        "[GEN] sensor={}, object={}, v[(i,s)]={}, k={}, m[s]={}",
+                        s,
+                        i,
+                        v[(i, s)],
+                        k,
+                        m[s]
+                    );
+                }
+
                 // Build association vector u (1-indexed for internal indexing)
                 let mut u: Vec<usize> = (0..num_sensors).map(|s_idx| v[(i, s_idx)] + 1).collect();
                 u.push(i + 1); // Object index
 
+                let mut found_association = false;
+
                 for j in k..m[s] {
                     // Check if measurement j is available
                     if w[(j, s)] == 0 || w[(j, s)] == i + 1 {
-                        // Detection case
-                        u[s] = j + 2; // j is 0-indexed, detection is j+1 in 1-indexed, +1 for offset
+                        // Detection case: j is 0-indexed, MATLAB uses (j+1)+1 for 1-indexed measurement
+                        u[s] = j + 2;
                         let q_idx = Self::cartesian_to_linear(&u, dimensions);
 
                         // Miss case
@@ -180,17 +195,39 @@ impl MultisensorGibbsAssociator {
                         let p =
                             1.0 / ((log_likelihoods[r_idx] - log_likelihoods[q_idx]).exp() + 1.0);
 
-                        if rng.gen::<f64>() < p {
+                        let sample = rng.gen::<f64>();
+
+                        if debug {
+                            eprintln!("  [LOOP] j={}, w[(j,s)]={}, L[r]={:.3}, L[q]={:.3}, p={:.3}, sample={:.3}",
+                                j, w[(j, s)], log_likelihoods[r_idx], log_likelihoods[q_idx], p, sample);
+                        }
+
+                        if sample < p {
                             // Associate object i with measurement j
                             v[(i, s)] = j + 1;
                             w[(j, s)] = i + 1;
+                            found_association = true;
+                            if debug {
+                                eprintln!("    -> ASSOCIATED v[(i,s)]={}", j + 1);
+                            }
                             break;
                         } else {
                             // No association
                             v[(i, s)] = 0;
                             w[(j, s)] = 0;
+                            if debug {
+                                eprintln!("    -> MISS");
+                            }
+                        }
+                    } else {
+                        if debug {
+                            eprintln!("  [SKIP] j={}, w[(j,s)]={} (not available)", j, w[(j, s)]);
                         }
                     }
+                }
+
+                if debug && !found_association {
+                    eprintln!("  [END] No association made, v[(i,s)]={}", v[(i, s)]);
                 }
             }
         }
@@ -223,19 +260,35 @@ impl MultisensorAssociator for MultisensorGibbsAssociator {
 
         let mut unique_samples = std::collections::HashSet::new();
 
-        for _ in 0..config.gibbs_samples {
+        for iter in 0..config.gibbs_samples {
             // Generate one Gibbs sample
             Self::generate_association_event(rng, log_likelihoods, dimensions, &m, &mut v, &mut w);
 
-            // Flatten V column-major and store
+            // Flatten V row-major (objects first, then sensors) to match MATLAB reshape
             let mut sample = Vec::with_capacity(num_objects * num_sensors);
-            for s in 0..num_sensors {
-                for i in 0..num_objects {
+            for i in 0..num_objects {
+                for s in 0..num_sensors {
                     sample.push(v[(i, s)]);
                 }
             }
+
+            // DEBUG: Print first few samples
+            if iter < 20 || unique_samples.len() <= 2 {
+                eprintln!(
+                    "[DEBUG] Iteration {}: sample = {:?}, unique_count = {}",
+                    iter,
+                    sample,
+                    unique_samples.len()
+                );
+            }
+
             unique_samples.insert(sample);
         }
+
+        eprintln!(
+            "[DEBUG] Final unique sample count: {}",
+            unique_samples.len()
+        );
 
         Ok(MultisensorAssociationResult::new(
             unique_samples.into_iter().collect(),
