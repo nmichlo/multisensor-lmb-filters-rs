@@ -8,6 +8,100 @@ from numpy.typing import NDArray
 __version__: str
 
 # =============================================================================
+# Intermediate Types (for step_detailed output)
+# =============================================================================
+
+class _TrackData:
+    """Full track data matching fixture format."""
+
+    label: tuple[int, int]
+    existence: float
+    mu: NDArray[np.float64]  # [n_components x state_dim]
+    sigma: NDArray[np.float64]  # [n_components x state_dim x state_dim]
+    w: NDArray[np.float64]  # [n_components]
+
+    def __init__(
+        self,
+        label: tuple[int, int],
+        existence: float,
+        means: list[list[float]],
+        covariances: list[list[list[float]]],
+        weights: list[float],
+    ) -> None: ...
+
+class _PosteriorParameters:
+    """Posterior parameters for a single track."""
+
+    w: NDArray[np.float64]  # [num_meas + 1, num_comp]
+    mu: NDArray[np.float64]  # [num_meas * num_comp, state_dim]
+    sigma: NDArray[np.float64]  # [num_meas * num_comp, state_dim, state_dim]
+
+class _AssociationMatrices:
+    """Matrices from association builder."""
+
+    cost: NDArray[np.float64]  # [n_tracks x n_measurements]
+    likelihood: NDArray[np.float64]  # [n_tracks x (n_measurements + 1)]
+    miss_prob: NDArray[np.float64]  # [n_tracks x (n_measurements + 1)]
+    sampling_prob: NDArray[np.float64]  # [n_tracks x n_measurements]
+    eta: NDArray[np.float64]  # [n_tracks]
+    posterior_parameters: list[_PosteriorParameters]
+
+class _AssociationResult:
+    """Result from data association algorithm."""
+
+    marginal_weights: NDArray[np.float64]  # [n_tracks x n_measurements]
+    miss_weights: NDArray[np.float64]  # [n_tracks]
+    posterior_existence: NDArray[np.float64]  # [n_tracks]
+    assignments: NDArray[np.int32] | None  # [n_samples x n_tracks] (Gibbs/Murty only)
+
+class _CardinalityEstimate:
+    """Cardinality extraction result."""
+
+    n_estimated: int
+    map_indices: NDArray[np.intp]
+
+class _LmbmHypothesis:
+    """LMBM hypothesis for setting filter state."""
+
+    log_weight: float
+    weight: float
+    num_tracks: int
+    r: list[float]
+    mu: list[list[float]]
+    sigma: list[list[list[float]]]
+    birth_time: list[int]
+    birth_location: list[int]
+
+    def __init__(
+        self,
+        log_weight: float,
+        tracks: list[_TrackData],
+    ) -> None: ...
+    @staticmethod
+    def from_matlab(
+        w: float,
+        r: list[float],
+        mu: list[list[float]],
+        sigma: list[list[list[float]]],
+        birth_time: list[int],
+        birth_location: list[int],
+    ) -> _LmbmHypothesis: ...
+
+class _StepOutput:
+    """Full step output for fixture comparison."""
+
+    predicted_tracks: list[_TrackData]
+    association_matrices: _AssociationMatrices | None
+    association_result: _AssociationResult | None
+    updated_tracks: list[_TrackData]
+    cardinality: _CardinalityEstimate
+    # LMBM-specific fields (None for LMB filters)
+    predicted_hypotheses: list[_LmbmHypothesis] | None
+    pre_normalization_hypotheses: list[_LmbmHypothesis] | None
+    normalized_hypotheses: list[_LmbmHypothesis] | None
+    objects_likely_to_exist: list[bool] | None
+
+# =============================================================================
 # Models
 # =============================================================================
 
@@ -123,6 +217,7 @@ class FilterThresholds:
     existence_threshold: float
     gm_weight_threshold: float
     max_gm_components: int
+    gm_merge_threshold: float
 
     def __init__(
         self,
@@ -130,6 +225,7 @@ class FilterThresholds:
         gm_weight: float = 1e-4,
         max_components: int = 100,
         min_trajectory_length: int = 3,
+        gm_merge: float = ...,  # Default is f64::INFINITY
     ) -> None: ...
 
 class FilterLmbmConfig:
@@ -140,6 +236,7 @@ class FilterLmbmConfig:
         max_hypotheses: int = 1000,
         hypothesis_weight_threshold: float = 1e-6,
         use_eap: bool = False,
+        existence_threshold: float | None = None,
     ) -> None: ...
 
 # =============================================================================
@@ -206,6 +303,13 @@ class FilterLmb:
         measurements: Sequence[NDArray[np.float64]],
         timestep: int,
     ) -> StateEstimate: ...
+    def step_detailed(
+        self,
+        measurements: Sequence[NDArray[np.float64]],
+        timestep: int,
+    ) -> _StepOutput: ...
+    def get_tracks(self) -> list[_TrackData]: ...
+    def set_tracks(self, tracks: list[_TrackData]) -> None: ...
     def reset(self) -> None: ...
 
 class FilterLmbm:
@@ -229,6 +333,13 @@ class FilterLmbm:
         measurements: Sequence[NDArray[np.float64]],
         timestep: int,
     ) -> StateEstimate: ...
+    def step_detailed(
+        self,
+        measurements: Sequence[NDArray[np.float64]],
+        timestep: int,
+    ) -> _StepOutput: ...
+    def get_tracks(self) -> list[_TrackData]: ...
+    def set_hypotheses(self, hypotheses: list[_LmbmHypothesis]) -> None: ...
     def reset(self) -> None: ...
 
 # =============================================================================
@@ -254,6 +365,13 @@ class FilterAaLmb:
         measurements: Sequence[Sequence[NDArray[np.float64]]],
         timestep: int,
     ) -> StateEstimate: ...
+    def step_detailed(
+        self,
+        measurements: Sequence[Sequence[NDArray[np.float64]]],
+        timestep: int,
+    ) -> _StepOutput: ...
+    def get_tracks(self) -> list[_TrackData]: ...
+    def set_tracks(self, tracks: list[_TrackData]) -> None: ...
     def reset(self) -> None: ...
 
 class FilterGaLmb:
@@ -275,6 +393,13 @@ class FilterGaLmb:
         measurements: Sequence[Sequence[NDArray[np.float64]]],
         timestep: int,
     ) -> StateEstimate: ...
+    def step_detailed(
+        self,
+        measurements: Sequence[Sequence[NDArray[np.float64]]],
+        timestep: int,
+    ) -> _StepOutput: ...
+    def get_tracks(self) -> list[_TrackData]: ...
+    def set_tracks(self, tracks: list[_TrackData]) -> None: ...
     def reset(self) -> None: ...
 
 class FilterPuLmb:
@@ -296,6 +421,13 @@ class FilterPuLmb:
         measurements: Sequence[Sequence[NDArray[np.float64]]],
         timestep: int,
     ) -> StateEstimate: ...
+    def step_detailed(
+        self,
+        measurements: Sequence[Sequence[NDArray[np.float64]]],
+        timestep: int,
+    ) -> _StepOutput: ...
+    def get_tracks(self) -> list[_TrackData]: ...
+    def set_tracks(self, tracks: list[_TrackData]) -> None: ...
     def reset(self) -> None: ...
 
 class FilterIcLmb:
@@ -317,6 +449,13 @@ class FilterIcLmb:
         measurements: Sequence[Sequence[NDArray[np.float64]]],
         timestep: int,
     ) -> StateEstimate: ...
+    def step_detailed(
+        self,
+        measurements: Sequence[Sequence[NDArray[np.float64]]],
+        timestep: int,
+    ) -> _StepOutput: ...
+    def get_tracks(self) -> list[_TrackData]: ...
+    def set_tracks(self, tracks: list[_TrackData]) -> None: ...
     def reset(self) -> None: ...
 
 class FilterMultisensorLmbm:
@@ -340,4 +479,11 @@ class FilterMultisensorLmbm:
         measurements: Sequence[Sequence[NDArray[np.float64]]],
         timestep: int,
     ) -> StateEstimate: ...
+    def step_detailed(
+        self,
+        measurements: Sequence[Sequence[NDArray[np.float64]]],
+        timestep: int,
+    ) -> _StepOutput: ...
+    def get_tracks(self) -> list[_TrackData]: ...
+    def set_hypotheses(self, hypotheses: list[_LmbmHypothesis]) -> None: ...
     def reset(self) -> None: ...
