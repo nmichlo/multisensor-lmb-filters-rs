@@ -561,8 +561,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
     /// Detailed step for fixture validation.
     ///
-    /// Note: Multi-sensor LMBM uses joint association matrices across all sensors,
-    /// which are too complex to expose. Returns tracks from the highest-weight hypothesis.
+    /// Exposes intermediate hypothesis states for testing against MATLAB fixtures.
     pub fn step_detailed<R: rand::Rng>(
         &mut self,
         rng: &mut R,
@@ -609,10 +608,37 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             self.update_existence_no_measurements();
         }
 
+        // Capture pre-normalization hypotheses (step4 in MATLAB)
+        let pre_normalization_hypotheses = Some(self.hypotheses.clone());
+
         // ══════════════════════════════════════════════════════════════════════
         // STEP 4: Hypothesis management
         // ══════════════════════════════════════════════════════════════════════
         self.normalize_and_gate_hypotheses();
+
+        // Capture normalized hypotheses (step5 in MATLAB)
+        let normalized_hypotheses = Some(self.hypotheses.clone());
+
+        // Compute objects_likely_to_exist (existence > threshold check)
+        let objects_likely_to_exist = if !self.hypotheses.is_empty() {
+            let num_tracks = self.hypotheses[0].tracks.len();
+            let mut ole = vec![false; num_tracks];
+
+            // Compute weighted sum of existence probabilities across all hypotheses
+            for i in 0..num_tracks {
+                let mut weighted_existence = 0.0;
+                for hyp in &self.hypotheses {
+                    if i < hyp.tracks.len() {
+                        weighted_existence += hyp.log_weight.exp() * hyp.tracks[i].existence;
+                    }
+                }
+                ole[i] = weighted_existence > self.existence_threshold;
+            }
+            Some(ole)
+        } else {
+            Some(Vec::new())
+        };
+
         let updated_tracks = self.get_tracks();
 
         // ══════════════════════════════════════════════════════════════════════
@@ -632,16 +658,14 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
 
         Ok(StepDetailedOutput {
             predicted_tracks,
-            association_matrices: None,
-            association_result: None,
+            association_matrices: None, // Too complex for multisensor (Cartesian product tensor)
+            association_result: None,   // Association samples are internal to hypothesis generation
             updated_tracks,
             cardinality,
             final_estimate,
-            // Multisensor LMBM doesn't expose intermediate hypotheses yet
-            // TODO: Add intermediate hypothesis exposure for fixture validation
-            pre_normalization_hypotheses: None,
-            normalized_hypotheses: None,
-            objects_likely_to_exist: None,
+            pre_normalization_hypotheses,
+            normalized_hypotheses,
+            objects_likely_to_exist,
         })
     }
 }

@@ -285,6 +285,151 @@ impl helpers::tracks::HypothesisDataAccess for HypothesisData {
 }
 
 //=============================================================================
+// Helper Functions for Converting Fixture Data
+//=============================================================================
+
+use multisensor_lmb_filters_rs::lmb::{
+    LmbmHypothesis, MotionModel, MultisensorConfig, SensorModel, Track, TrackLabel,
+};
+use nalgebra::{DMatrix, DVector};
+use smallvec::SmallVec;
+
+use multisensor_lmb_filters_rs::lmb::types::GaussianComponent;
+
+/// Convert fixture HypothesisData to LmbmHypothesis
+fn hypothesis_to_lmbm_hypothesis(hyp: &HypothesisData) -> LmbmHypothesis {
+    let mut tracks = Vec::new();
+
+    for i in 0..hyp.r.len() {
+        let label = TrackLabel {
+            birth_time: hyp.birth_time[i],
+            birth_location: hyp.birth_location[i],
+        };
+
+        // Create single-component track (LMBM uses single component per track per hypothesis)
+        let mean = DVector::from_vec(hyp.mu[i].clone());
+        let n = hyp.sigma[i].len();
+        let covariance = DMatrix::from_row_slice(
+            n,
+            n,
+            &hyp.sigma[i]
+                .iter()
+                .flat_map(|row| row.iter())
+                .copied()
+                .collect::<Vec<_>>(),
+        );
+
+        let mut components = SmallVec::new();
+        components.push(GaussianComponent {
+            weight: 1.0,
+            mean,
+            covariance,
+        });
+
+        tracks.push(Track {
+            label,
+            existence: hyp.r[i],
+            components,
+            trajectory: None,
+        });
+    }
+
+    LmbmHypothesis {
+        log_weight: hyp.w.ln(), // Convert to log space
+        tracks,
+    }
+}
+
+/// Convert fixture model to MultisensorConfig
+fn model_to_multisensor_config(model: &MultisensorLmbmModelData) -> MultisensorConfig {
+    let mut sensors = Vec::new();
+
+    for s in 0..model.number_of_sensors {
+        let c_sensor = &model.c[s];
+        let q_sensor = &model.q[s];
+        let p_d = model.p_d[s];
+        let clutter_rate = model.clutter_per_unit_volume[s];
+
+        let z_dim = c_sensor.len();
+        let x_dim = c_sensor[0].len();
+        let c = DMatrix::from_row_slice(
+            z_dim,
+            x_dim,
+            &c_sensor
+                .iter()
+                .flat_map(|row| row.iter())
+                .copied()
+                .collect::<Vec<_>>(),
+        );
+
+        let q = DMatrix::from_row_slice(
+            z_dim,
+            z_dim,
+            &q_sensor
+                .iter()
+                .flat_map(|row| row.iter())
+                .copied()
+                .collect::<Vec<_>>(),
+        );
+
+        let sensor = SensorModel {
+            observation_matrix: c,
+            measurement_noise: q,
+            detection_probability: p_d,
+            clutter_rate,
+            observation_volume: 100.0, // Not specified in fixture, use default
+        };
+
+        sensors.push(sensor);
+    }
+
+    MultisensorConfig::new(sensors)
+}
+
+/// Convert fixture model to MotionModel
+fn model_to_motion(model: &MultisensorLmbmModelData) -> MotionModel {
+    let x_dim = model.a.len();
+    let a = DMatrix::from_row_slice(
+        x_dim,
+        x_dim,
+        &model
+            .a
+            .iter()
+            .flat_map(|row| row.iter())
+            .copied()
+            .collect::<Vec<_>>(),
+    );
+    let r = DMatrix::from_row_slice(
+        x_dim,
+        x_dim,
+        &model
+            .r
+            .iter()
+            .flat_map(|row| row.iter())
+            .copied()
+            .collect::<Vec<_>>(),
+    );
+
+    // MotionModel::new requires control_input
+    let control_input = DVector::zeros(x_dim);
+
+    MotionModel::new(a, r, control_input, model.p_s)
+}
+
+/// Convert fixture measurements to Vec<Vec<DVector<f64>>>
+fn measurements_to_multisensor(measurements: &[Vec<Vec<f64>>]) -> Vec<Vec<DVector<f64>>> {
+    measurements
+        .iter()
+        .map(|sensor_meas| {
+            sensor_meas
+                .iter()
+                .map(|m| DVector::from_vec(m.clone()))
+                .collect()
+        })
+        .collect()
+}
+
+//=============================================================================
 // Multisensor LMBM Fixture Tests
 //=============================================================================
 
@@ -584,30 +729,81 @@ fn test_multisensor_lmbm_hypothesis_generation_equivalence() {
     );
 }
 
-/// Test multisensor LMBM normalization structure
+/// Test multisensor LMBM end-to-end pipeline comparing normalized hypotheses
 #[test]
-fn test_multisensor_lmbm_normalization_structure() {
+fn test_multisensor_lmbm_normalization_equivalence() {
+    use multisensor_lmb_filters_rs::lmb::{
+        AssociationConfig, BirthLocation, BirthModel, LmbmConfig, MultisensorLmbmFilter,
+    };
+    use rand::SeedableRng;
+
     let fixture = load_multisensor_lmbm_fixture();
 
-    println!("Testing multisensor LMBM normalization (step5) structure...");
+    println!("Testing multisensor LMBM end-to-end pipeline (normalized hypotheses from step5)...");
 
-    let expected_ole = &fixture.step5_normalization.output.objects_likely_to_exist;
+    // Create filter with parameters from fixture
+    let motion = model_to_motion(&fixture.model);
+    let sensors = model_to_multisensor_config(&fixture.model);
+
+    // Birth model (minimal - fixture doesn't include birth details)
+    let birth_loc = BirthLocation::new(
+        0,
+        DVector::zeros(motion.x_dim()),
+        DMatrix::identity(motion.x_dim(), motion.x_dim()),
+    );
+    let birth = BirthModel::new(vec![birth_loc], 0.0, 0.0);
+
+    let association = AssociationConfig {
+        gibbs_samples: fixture.step3_gibbs.input.number_of_samples,
+        ..Default::default()
+    };
+
+    let lmbm_config = LmbmConfig {
+        hypothesis_weight_threshold: fixture.step5_normalization.input.model_posterior_hypothesis_weight_threshold,
+        max_hypotheses: fixture.step5_normalization.input.model_maximum_number_of_posterior_hypotheses,
+        use_eap: false,
+    };
+
+    let mut filter = MultisensorLmbmFilter::new(motion, sensors, birth, association, lmbm_config);
+
+    // Set prior hypothesis (from step1 input - should be empty or minimal)
+    let prior = &fixture.step1_prediction.input.prior_hypothesis;
+    let prior_hypothesis = hypothesis_to_lmbm_hypothesis(prior);
+
+    filter.set_hypotheses(vec![prior_hypothesis]);
+
+    // Run filter with measurements
+    let mut rng = rand::rngs::StdRng::seed_from_u64(fixture.seed);
+    let measurements = measurements_to_multisensor(&fixture.measurements);
+
+    let output = filter
+        .step_detailed(&mut rng, &measurements, fixture.timestep)
+        .unwrap();
+
+    // Debug: Check pre-normalization hypotheses
+    let pre_norm_hyps = output.pre_normalization_hypotheses.as_ref();
+    if let Some(hyps) = pre_norm_hyps {
+        println!("  Pre-normalization hypotheses: {}", hyps.len());
+    } else {
+        println!("  WARNING: No pre-normalization hypotheses!");
+    }
+
+    // Compare normalized hypotheses
+    let normalized_hyps = output.normalized_hypotheses.as_ref().unwrap();
     let expected_hyps = &fixture.step5_normalization.output.normalized_hypotheses;
 
-    println!("  objects_likely_to_exist: {:?}", expected_ole);
-    println!("  {} normalized hypotheses", expected_hyps.len());
+    println!("  Comparing {} normalized hypotheses (expected: {})", normalized_hyps.len(), expected_hyps.len());
 
-    // Verify normalized weights sum to 1
-    let weight_sum: f64 = expected_hyps.iter().map(|h| h.w).sum();
-    let diff = (weight_sum - 1.0).abs();
-    assert!(
-        diff <= TOLERANCE,
-        "Normalized weights should sum to 1, got {} (diff: {:.2e})",
-        weight_sum,
-        diff
-    );
+    helpers::tracks::assert_hypotheses_close(normalized_hyps, expected_hyps, TOLERANCE);
 
-    println!("  ✓ Multisensor LMBM normalization verified");
+    // Compare objects_likely_to_exist
+    let ole = output.objects_likely_to_exist.as_ref().unwrap();
+    let expected_ole = &fixture.step5_normalization.output.objects_likely_to_exist;
+
+    println!("  Comparing objects_likely_to_exist: {:?}", ole);
+    assert_eq!(ole, expected_ole, "objects_likely_to_exist should match");
+
+    println!("  ✓ Multisensor LMBM pipeline produces correct normalized hypotheses (TOLERANCE={:.0e})", TOLERANCE);
 }
 
 /// Test multisensor LMBM extraction structure
