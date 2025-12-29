@@ -1058,15 +1058,10 @@ class TestMultisensorLmbPerSensorEquivalence:
 
         # Use thresholds matching MATLAB fixture (from Rust test: max_components=20, gm_weight=1e-6)
         thresholds = FilterThresholds(max_components=20, gm_weight=1e-6)
-        # Use LBP config matching Rust component tests (which pass with TOLERANCE=1e-10):
-        # max_iterations=100, tolerance=1e-3
-        #
-        # Note: Using 1e-3 tolerance (not MATLAB's 1e-6) ensures Rust and MATLAB LBP
-        # converge at the same iteration count. With 1e-6 tolerance, tiny floating-point
-        # differences in the convergence check can cause off-by-one iteration differences,
-        # leading to ~1e-9 divergence in final results. The 1e-3 tolerance makes both
-        # implementations converge definitively at the same point.
-        association = AssociatorConfig.lbp(max_iterations=100, tolerance=1e-3)
+        # Use LBP config matching MATLAB exactly:
+        # max_iterations=1000, tolerance=1e-6
+        # (MATLAB default: model.maximumNumberOfLbpIterations=1e3, model.lbpConvergenceTolerance=1e-6)
+        association = AssociatorConfig.lbp(max_iterations=1000, tolerance=1e-6)
         filter = FilterIcLmb(
             motion,
             sensor_config,

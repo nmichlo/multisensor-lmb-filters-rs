@@ -9,7 +9,7 @@
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::common::linalg::{log_sum_exp, normalize_log_weights};
+use crate::common::linalg::normalize_log_weights;
 use crate::lmb::{SensorModel, Track};
 
 use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
@@ -317,9 +317,10 @@ impl<'a> AssociationBuilder<'a> {
                 // So: log_w[k] = log(prior_w[k]) + log_likelihood_ratio
                 let mut log_comp_weights = Vec::with_capacity(num_components);
 
-                // Collect log-terms for log-sum-exp
-                // Each term: log(r * w[k] * exp(log_likelihood_ratio[k])) = log(r) + log(w[k]) + log_likelihood_ratio[k]
-                let mut log_terms = Vec::with_capacity(num_components);
+                // Accumulate L[i,j] in LINEAR SPACE to match MATLAB exactly.
+                // MATLAB (line 61): L(i, k) = L(i, k) + exp(logLikelihoodRatioTerms + gaussianLogLikelihood)
+                // Each term: r * w[k] * exp(log_likelihood_ratio[k]) = exp(log(r) + log(w[k]) + log_likelihood_ratio[k])
+                let mut l_ij: f64 = 0.0;
 
                 for component in track.components.iter() {
                     let prior_mean = &component.mean;
@@ -343,7 +344,8 @@ impl<'a> AssociationBuilder<'a> {
                         f64::NEG_INFINITY
                     };
                     let log_term = log_r + log_w + result.log_likelihood_ratio;
-                    log_terms.push(log_term);
+                    // Accumulate in LINEAR SPACE: L[i,j] += exp(log_term)
+                    l_ij += log_term.exp();
 
                     // Store log-weight for this component (for component weight normalization)
                     log_comp_weights.push(log_w + result.log_likelihood_ratio);
@@ -354,9 +356,13 @@ impl<'a> AssociationBuilder<'a> {
                     meas_gains.push(result.kalman_gain);
                 }
 
-                // Compute log(L[i,j]) = log(sum_k exp(log_term_k)) using log-sum-exp
-                // This is numerically stable and avoids underflow
-                log_l_matrix[(i, j)] = log_sum_exp(&log_terms);
+                // Store log(L[i,j]) = log(sum of exp terms) computed from linear-space accumulation
+                // Using linear-space accumulation matches MATLAB exactly (line 61 of generateLmbSensorAssociationMatrices.m)
+                log_l_matrix[(i, j)] = if l_ij > 0.0 {
+                    l_ij.ln()
+                } else {
+                    f64::NEG_INFINITY
+                };
 
                 // Normalize component weights using log-sum-exp (matches MATLAB lines 68-70)
                 // This avoids underflow issues that could occur with linear-space computation

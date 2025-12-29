@@ -683,10 +683,11 @@ fn test_multisensor_lmb_sensor0_data_association_equivalence() {
     let matrices = builder.build(&measurements);
 
     // Run LBP data association (deterministic, matches MATLAB)
+    // MUST use MATLAB's parameters: tolerance=1e-6, max_iterations=1000
     let config = AssociationConfig {
         method: DataAssociationMethod::Lbp,
-        lbp_max_iterations: 100,
-        lbp_tolerance: 1e-3,
+        lbp_max_iterations: 1000,
+        lbp_tolerance: 1e-6,
         ..Default::default()
     };
 
@@ -739,10 +740,11 @@ fn test_multisensor_lmb_sensor1_data_association_equivalence() {
     let matrices = builder.build(&measurements);
 
     // Run LBP data association (deterministic, matches MATLAB)
+    // MUST use MATLAB's parameters: tolerance=1e-6, max_iterations=1000
     let config = AssociationConfig {
         method: DataAssociationMethod::Lbp,
-        lbp_max_iterations: 100,
-        lbp_tolerance: 1e-3,
+        lbp_max_iterations: 1000,
+        lbp_tolerance: 1e-6,
         ..Default::default()
     };
 
@@ -855,10 +857,11 @@ fn test_multisensor_lmb_sensor0_update_output_equivalence() {
     let matrices = builder.build(&measurements);
 
     // Run LBP data association
+    // MUST use MATLAB's parameters: tolerance=1e-6, max_iterations=1000
     let config = AssociationConfig {
         method: DataAssociationMethod::Lbp,
-        lbp_max_iterations: 100,
-        lbp_tolerance: 1e-3,
+        lbp_max_iterations: 1000,
+        lbp_tolerance: 1e-6,
         ..Default::default()
     };
 
@@ -906,10 +909,11 @@ fn test_multisensor_lmb_sensor1_update_output_equivalence() {
     let matrices = builder.build(&measurements);
 
     // Run LBP data association
+    // MUST use MATLAB's parameters: tolerance=1e-6, max_iterations=1000
     let config = AssociationConfig {
         method: DataAssociationMethod::Lbp,
-        lbp_max_iterations: 100,
-        lbp_tolerance: 1e-3,
+        lbp_max_iterations: 1000,
+        lbp_tolerance: 1e-6,
         ..Default::default()
     };
 

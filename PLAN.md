@@ -73,6 +73,19 @@ end
 
 **Fix**: Use LBP tolerance of 1e-3 (instead of 1e-6) for Python tests. This ensures both implementations converge definitively at the same early iteration, producing identical results within TOLERANCE=1e-10.
 
+### Locations with 1e-15 Division Guards (Potential MATLAB Mismatches)
+
+These locations have guards that MATLAB doesn't have - may need review if numerical differences persist:
+
+| File | Line | Context |
+|------|------|---------|
+| `src/common/utils.rs` | 48, 105, 221 | normalize functions |
+| `src/common/association/gibbs.rs` | 198, 214, 288 | Gibbs sampling |
+| `src/association/builder.rs` | 231, 411 | association matrix building |
+| `src/components/update.rs` | 26, 62 | track update |
+| `src/python/intermediate.rs` | 406 | Python conversion |
+| `src/common/association/lbp.rs` | (removed) | LBP message passing |
+
 ---
 
 ## Code Review Fixes Complete (2025-12-29)
