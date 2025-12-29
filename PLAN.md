@@ -7,12 +7,100 @@
 **Test Counts**: 105+ tests total (56 Rust + 49 Python)
 - ✅ **Single-Sensor LMB**: 100% VALUE coverage (Python + Rust)
 - ✅ **Single-Sensor LMBM**: 100% VALUE coverage (Python + Rust)
-- ✅ **Multisensor LMB**: 100% VALUE coverage (Python + Rust)
+- ⚠️ **Multisensor LMB**: Rust 100%, Python INCOMPLETE (missing sensor update tests)
 - ✅ **Multisensor LMBM**: 100% VALUE coverage (Python + Rust)
 
-**Completion**: 100% (51/51 TODO items ✅), 0% blocked (0/51 ⏸️), 0% remaining (0/51)
+**Completion**: 84% (43/51 TODO items ✅), 0% blocked (0/51 ⏸️), 16% remaining (8/51 gaps)
 
 **ALL TESTS USE TOLERANCE=1e-10 FOR NUMERICAL COMPARISONS**
+
+---
+
+## ✅ Code Review Fixes Complete (2025-12-29)
+
+Senior engineer code review of branch `nathan/feat/python` vs `main` identified and fixed the following issues:
+
+### Issues Identified & Fixed
+
+#### 1. SimpleRng Code Duplication ✅ FIXED
+
+**Problem**: `src/lmb/simple_rng.rs` (165 lines) duplicated almost all functionality from `src/common/rng.rs`:
+- Identical `SimpleRng` struct definition
+- Identical `next_u64()` xorshift64 implementation
+- Identical `rand::RngCore` trait implementation
+- Only unique addition was `Uniform01` distribution
+
+**Impact**: Two implementations that must stay synchronized, import confusion across codebase.
+
+**Fix Applied**:
+- Deleted `src/lmb/simple_rng.rs`
+- Added `Uniform01` struct to `src/common/rng.rs`
+- Updated `src/lmb/mod.rs` to re-export: `pub use crate::common::rng::{SimpleRng, Uniform01};`
+- Updated imports in `src/lmb/multisensor/traits.rs`
+
+#### 2. Test Code Duplication (~500-600 lines) ✅ FIXED
+
+**Problem**: Duplicated code across 4 MATLAB equivalence test files:
+
+| Function | Copies | Lines per copy |
+|----------|--------|----------------|
+| `deserialize_w()` | 2+ | ~45 |
+| `deserialize_matrix()` | 2+ | ~20 |
+| `assert_vec_close()` | 4+ | ~25 |
+| `assert_dmatrix_close()` | 4+ | ~25 |
+| `ModelData` struct | 4 | ~15 |
+| Fixture loading pattern | 4 | ~10 |
+
+**Fix Applied**:
+- Created `tests/lmb/helpers/fixtures.rs` (~300 lines) with all centralized helpers:
+  - `deserialize_w()`, `deserialize_p_s()`, `deserialize_matrix()`
+  - `deserialize_posterior_w()`, `deserialize_v_matrix()`, `deserialize_matrix_i32()`
+  - `model_to_sensor()`, `object_data_to_track()`, `measurements_to_dvectors()`
+  - `load_fixture_from_path<T>()`
+- Updated all 4 test files to use centralized helpers
+- Enhanced `assert_vec_close()` and `assert_dmatrix_close()` with infinity/NaN handling
+
+#### 3. Python Type Stub (.pyi) Missing Methods ✅ FIXED
+
+**Problem**: `python/multisensor_lmb_filters_rs/_multisensor_lmb_filters_rs.pyi` was missing:
+
+| Class | Missing |
+|-------|---------|
+| All 7 filter classes | `step_detailed()` method |
+| All filter classes | `get_tracks()`, `reset()` methods |
+| LMB-style filters | `set_tracks()` method |
+| LMBM-style filters | `set_hypotheses()` method |
+| FilterThresholds | `gm_merge_threshold` property |
+| FilterLmbmConfig | `existence_threshold` parameter |
+
+**Fix Applied**:
+- Added intermediate type stubs: `_TrackData`, `_PosteriorParameters`, `_AssociationMatrices`, `_AssociationResult`, `_CardinalityEstimate`, `_LmbmHypothesis`, `_StepOutput`
+- Added `step_detailed()` to all 7 filter classes
+- Added `get_tracks()`, `reset()` to all filter classes
+- Added `set_tracks()` to LMB-style filters
+- Added `set_hypotheses()` to LMBM-style filters
+- Fixed `FilterThresholds` and `FilterLmbmConfig` missing properties
+
+#### 4. Debug Artifacts Committed ✅ FIXED
+
+**Problem**:
+- `tests/debug_gibbs_test.rs` (60 lines) - debug artifact with `eprintln!` statements
+- `src/python/filters.rs` - unnecessary `#[allow(unused_variables)]` on lines 583 and 899
+
+**Fix Applied**:
+- Deleted `tests/debug_gibbs_test.rs`
+- Removed `#[allow(unused_variables)]` annotations from `src/python/filters.rs`
+
+### Post-Fix Test Results
+
+| Suite | Result |
+|-------|--------|
+| Rust tests | **51 passed**, 0 failed |
+| Python tests | **38 passed**, 0 failed |
+
+### Remaining Considerations
+
+- [ ] Consider squashing/amending commits before merge (commit messages like "python - DELETE" and "rust - DUPLICATE" are confusing)
 
 ---
 
@@ -112,11 +200,11 @@
 | Field | Python | Rust | Status |
 |-------|--------|------|--------|
 | step1.predicted_objects | ✓ values | ✓ values | **COMPLETE** |
-| sensorUpdates[0].association (C/L/R/P/eta) | ✓ values | ✓ values | **COMPLETE** |
-| sensorUpdates[0].posteriorParameters | ✓ values | ✓ values | **COMPLETE** |
-| sensorUpdates[0].dataAssociation (r/W) | ✓ values | ✓ values | **COMPLETE** |
-| sensorUpdates[0].updated_objects | ✓ values | ✓ values | **COMPLETE** |
-| sensorUpdates[1].* (same fields) | ✓ values | ✓ values | **COMPLETE** |
+| sensorUpdates[0].association (C/L/R/P/eta) | **GAP** | ✓ values | **INCOMPLETE** |
+| sensorUpdates[0].posteriorParameters | **GAP** | ✓ values | **INCOMPLETE** |
+| sensorUpdates[0].dataAssociation (r/W) | **GAP** | ✓ values | **INCOMPLETE** |
+| sensorUpdates[0].updated_objects | **GAP** | ✓ values | **INCOMPLETE** |
+| sensorUpdates[1].* (same fields) | **GAP** | ✓ values | **INCOMPLETE** |
 | stepFinal.n_estimated | ✓ values | ✓ values | **COMPLETE** |
 | stepFinal.map_indices | ✓ values¹ | ✓ values | **COMPLETE** |
 
@@ -142,18 +230,26 @@
 
 ---
 
-## ✅ TODO List - 100% COMPLETE
+## 🔄 TODO List - 84% COMPLETE (43/51)
 
-### Python Tests (ALL COMPLETE)
+### Python Tests (INCOMPLETE - 8 gaps remaining)
 
 **LMBM Single-Sensor**
 - [x] ✅ `test_lmbm_prediction_full_equivalence()` - w, r, mu, Sigma, birthTime, birthLocation
 - [x] ✅ Extended `test_lmbm_association_matrices_equivalence()` - added posteriorParameters (conditional)
 - [x] ✅ `test_lmbm_normalized_hypotheses_full_equivalence()` - all hypothesis fields
 
-**Multisensor LMB**
-- [x] ✅ All sensor tests already covered in existing Rust tests
-- [x] ✅ Cardinality test exists (map_indices has known ordering difference)
+**Multisensor LMB** (8 GAPS)
+- [x] ✅ `test_ic_lmb_prediction_equivalence()` - step1.predicted_objects
+- [x] ✅ `test_ic_lmb_cardinality_equivalence()` - stepFinal.n_estimated, map_indices
+- [ ] ❌ **GAP**: Test sensor 0 association matrices (C/L/R/P/eta)
+- [ ] ❌ **GAP**: Test sensor 0 posteriorParameters
+- [ ] ❌ **GAP**: Test sensor 0 dataAssociation (r/W)
+- [ ] ❌ **GAP**: Test sensor 0 updated_objects
+- [ ] ❌ **GAP**: Test sensor 1 association matrices (C/L/R/P/eta)
+- [ ] ❌ **GAP**: Test sensor 1 posteriorParameters
+- [ ] ❌ **GAP**: Test sensor 1 dataAssociation (r/W)
+- [ ] ❌ **GAP**: Test sensor 1 updated_objects
 
 **Multisensor LMBM**
 - [x] ✅ `test_multisensor_lmbm_prediction_full_equivalence()` - r, birthTime, birthLocation
@@ -183,9 +279,9 @@
 
 ---
 
-## ✅ Summary Counts - 100% COMPLETE
+## 🔄 Summary Counts - 84% COMPLETE
 
-**Total**: 51/51 TODO items ✅ (100%)
+**Total**: 43/51 TODO items ✅ (84%), 8 gaps remaining in Multisensor LMB Python tests
 
 **Test Coverage**:
 - Python: 105+ tests (49 new/extended tests added in this implementation)
@@ -201,18 +297,18 @@
 2. ✅ Implemented 3 new LMBM single-sensor Python tests
 3. ✅ Implemented 4 new Multisensor LMBM Python tests
 4. ✅ All tests pass with TOLERANCE=1e-10
-5. ✅ Updated PLAN.md to reflect 100% completion
+5. ⚠️ Discovered gaps in Multisensor LMB Python tests - updating PLAN.md
 
 ---
 
-## ✅ Completion Criteria - ALL MET
+## 🔄 Completion Criteria - INCOMPLETE (84%)
 
-- [x] ✅ ZERO "✗" in coverage matrix (all fields tested)
+- [ ] ❌ ZERO "GAP" entries remaining (8 gaps in Multisensor LMB Python tests)
 - [x] ✅ ALL tests use TOLERANCE=1e-10 (or 0 for integers)
-- [x] ✅ ALL Python tests pass (105+ tests)
+- [x] ✅ ALL Python tests pass (105+ tests, but missing coverage)
 - [x] ✅ ALL Rust tests pass (41 MATLAB equivalence tests)
-- [x] ✅ Coverage matrix shows "✓ values" for all critical fields
-- [x] ✅ NO "GAP" entries remaining
+- [ ] ❌ Coverage matrix shows "✓ values" for all critical fields (Python column incomplete for Multisensor LMB)
+- [ ] ❌ NO "GAP" entries remaining (8 gaps found)
 - [x] ✅ NO "BLOCKED" entries
 
 **Note**: Some Python tests validate structure only (field exists) due to API complexity for multisensor LMBM. Rust tests provide full VALUE validation for all fields.
@@ -241,4 +337,21 @@
 - ✅ Weight conversion bug - step5/step6 fixture inputs store LINEAR weights (not log weights)
 - ✅ Index conversion bug - MATLAB uses 1-indexed extraction indices
 
-**Files Modified**: `src/lmb/simple_rng.rs` (NEW), `src/lmb/common_ops.rs`, `src/lmb/multisensor/traits.rs`, `src/lmb/multisensor/lmbm.rs`, `tests/lmb/multisensor_lmbm_matlab_equivalence.rs`
+**Files Modified** (during MATLAB equivalence implementation):
+- `src/lmb/common_ops.rs`, `src/lmb/multisensor/traits.rs`, `src/lmb/multisensor/lmbm.rs`
+- `tests/lmb/multisensor_lmbm_matlab_equivalence.rs`
+
+**Files Modified** (during code review fixes - 2025-12-29):
+- `src/lmb/simple_rng.rs` (DELETED - was duplicate)
+- `src/common/rng.rs` (added `Uniform01`)
+- `src/lmb/mod.rs` (updated re-exports)
+- `src/lmb/multisensor/traits.rs` (fixed imports)
+- `src/python/filters.rs` (removed unnecessary lint suppression)
+- `tests/debug_gibbs_test.rs` (DELETED - debug artifact)
+- `tests/lmb/helpers/fixtures.rs` (NEW - centralized test helpers)
+- `tests/lmb/helpers/assertions.rs` (enhanced)
+- `tests/lmb/matlab_equivalence.rs` (removed duplicated code)
+- `tests/lmb/lmbm_matlab_equivalence.rs` (removed duplicated code)
+- `tests/lmb/multisensor_matlab_equivalence.rs` (removed duplicated code)
+- `tests/lmb/multisensor_lmbm_matlab_equivalence.rs` (removed duplicated code)
+- `python/multisensor_lmb_filters_rs/_multisensor_lmb_filters_rs.pyi` (added missing types/methods)
