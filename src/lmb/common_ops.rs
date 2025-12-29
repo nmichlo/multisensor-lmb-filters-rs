@@ -865,7 +865,7 @@ pub fn compute_objects_likely_to_exist(
 
     // Compute weighted sum of existence probabilities across all hypotheses
     // MATLAB: r = sum(w .* [hypotheses.r], 2)
-    for i in 0..num_tracks {
+    for (i, ole_i) in ole.iter_mut().enumerate().take(num_tracks) {
         let mut weighted_existence = 0.0;
         for hyp in hypotheses {
             if i < hyp.tracks.len() {
@@ -873,7 +873,7 @@ pub fn compute_objects_likely_to_exist(
             }
         }
         // MATLAB: objectsLikelyToExist = r > model.existenceThreshold
-        ole[i] = weighted_existence > existence_threshold;
+        *ole_i = weighted_existence > existence_threshold;
     }
 
     ole
