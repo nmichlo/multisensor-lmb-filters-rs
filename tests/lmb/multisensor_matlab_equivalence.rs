@@ -746,7 +746,92 @@ fn test_multisensor_lmb_sensor1_association_matrices_equivalence() {
     let rust_eta: Vec<f64> = (0..matrices.eta.len()).map(|i| matrices.eta[i]).collect();
     assert_vec_close(&rust_eta, expected_eta, TOLERANCE, "eta");
 
-    println!("  ✓ Multisensor LMB sensor 1 association matrices match MATLAB");
+    // Compare L matrix (likelihood ratios in linear space)
+    let expected_l = &sensor_update.association.l;
+    println!(
+        "  L matrix: {} x {} (expected: {} x {})",
+        matrices.log_likelihood_ratios.nrows(),
+        matrices.log_likelihood_ratios.ncols() + 1, // +1 for eta column in MATLAB
+        expected_l.len(),
+        if expected_l.is_empty() {
+            0
+        } else {
+            expected_l[0].len()
+        }
+    );
+
+    // MATLAB L format: [eta, L1, L2, ...] where first column is eta
+    // Rust stores eta separately and log_likelihood_ratios as log values
+    for (i, expected_row) in expected_l.iter().enumerate() {
+        // First column of MATLAB L should match eta
+        let diff_eta = (matrices.eta[i] - expected_row[0]).abs();
+        assert!(
+            diff_eta <= TOLERANCE,
+            "L[{},0] (eta): {} vs MATLAB {} (diff: {:.2e})",
+            i,
+            matrices.eta[i],
+            expected_row[0],
+            diff_eta
+        );
+
+        // Remaining columns are likelihood ratios (stored as log in Rust)
+        for (j, &expected_val) in expected_row.iter().skip(1).enumerate() {
+            let rust_val = matrices.log_likelihood_ratios[(i, j)].exp();
+            let diff = (rust_val - expected_val).abs();
+            assert!(
+                diff <= TOLERANCE,
+                "L[{},{}]: {} vs MATLAB {} (diff: {:.2e})",
+                i,
+                j + 1,
+                rust_val,
+                expected_val,
+                diff
+            );
+        }
+    }
+
+    // Compare R matrix
+    // MATLAB: R = [(phi ./ eta) ones(numberOfObjects, numberOfMeasurements)]
+    // First column is phi/eta, remaining columns are all 1.0
+    let expected_r = &sensor_update.association.r;
+    println!(
+        "  R matrix: {} x {}",
+        expected_r.len(),
+        if expected_r.is_empty() {
+            0
+        } else {
+            expected_r[0].len()
+        }
+    );
+
+    for (i, expected_row) in expected_r.iter().enumerate() {
+        // First column is phi/eta
+        let rust_phi_over_eta = matrices.phi[i] / matrices.eta[i];
+        let diff = (rust_phi_over_eta - expected_row[0]).abs();
+        assert!(
+            diff <= TOLERANCE,
+            "R[{},0] (phi/eta): {} vs MATLAB {} (diff: {:.2e})",
+            i,
+            rust_phi_over_eta,
+            expected_row[0],
+            diff
+        );
+
+        // Remaining columns should all be 1.0
+        for (j, &expected_val) in expected_row.iter().skip(1).enumerate() {
+            let diff = (1.0 - expected_val).abs();
+            assert!(
+                diff <= TOLERANCE,
+                "R[{},{}]: expected 1.0, got {} (diff: {:.2e})",
+                i,
+                j + 1,
+                expected_val,
+                diff
+            );
+        }
+    }
+
+    println!("  ✓ Multisensor LMB sensor 1 association matrices (C, L, R, P, eta) match MATLAB");
 }
 
 /// Test multisensor LMB sensor 0 data association output (r, W) matches MATLAB

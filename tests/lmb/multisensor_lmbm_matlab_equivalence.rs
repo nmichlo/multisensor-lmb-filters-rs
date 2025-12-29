@@ -298,6 +298,14 @@ use multisensor_lmb_filters_rs::lmb::types::GaussianComponent;
 
 /// Convert fixture HypothesisData to LmbmHypothesis
 fn hypothesis_to_lmbm_hypothesis(hyp: &HypothesisData) -> LmbmHypothesis {
+    hypothesis_to_lmbm_hypothesis_impl(hyp, true)
+}
+
+fn hypothesis_to_lmbm_hypothesis_linear_weight(hyp: &HypothesisData) -> LmbmHypothesis {
+    hypothesis_to_lmbm_hypothesis_impl(hyp, false)
+}
+
+fn hypothesis_to_lmbm_hypothesis_impl(hyp: &HypothesisData, w_is_log: bool) -> LmbmHypothesis {
     let mut tracks = Vec::new();
 
     for i in 0..hyp.r.len() {
@@ -335,7 +343,7 @@ fn hypothesis_to_lmbm_hypothesis(hyp: &HypothesisData) -> LmbmHypothesis {
     }
 
     LmbmHypothesis {
-        log_weight: hyp.w, // MATLAB LMBM fixtures already store log weights
+        log_weight: if w_is_log { hyp.w } else { hyp.w.ln() },
         tracks,
     }
 }
@@ -910,28 +918,98 @@ fn test_multisensor_lmbm_normalization_isolated_equivalence() {
     );
 }
 
-/// Test multisensor LMBM extraction structure
+/// Test multisensor LMBM extraction (step6) VALUE equivalence
 #[test]
-fn test_multisensor_lmbm_extraction_structure() {
+fn test_multisensor_lmbm_extraction_equivalence() {
+    use multisensor_lmb_filters_rs::lmb::common_ops::compute_hypothesis_cardinality;
+    use multisensor_lmb_filters_rs::lmb::LmbmHypothesis;
+
     let fixture = load_multisensor_lmbm_fixture();
 
-    println!("Testing multisensor LMBM extraction (step6) structure...");
+    println!("Testing multisensor LMBM extraction (step6) against MATLAB...");
 
+    // Load step6 input (hypotheses from step5 normalization output)
+    let step6_input = &fixture.step6_extraction.input;
     let expected = &fixture.step6_extraction.output;
 
-    println!("  cardinality_estimate: {}", expected.cardinality_estimate);
-    println!("  extraction_indices: {:?}", expected.extraction_indices);
+    // Convert input hypotheses from fixture format to Rust types
+    // NOTE: step6 input comes from step5 output which stores LINEAR weights
+    let input_hyps: Vec<LmbmHypothesis> = step6_input
+        .hypotheses
+        .iter()
+        .map(|h| hypothesis_to_lmbm_hypothesis_linear_weight(h))
+        .collect();
 
-    // Verify cardinality is reasonable
-    assert!(
-        expected.cardinality_estimate
-            <= fixture.step5_normalization.output.normalized_hypotheses[0]
-                .r
-                .len(),
-        "Cardinality cannot exceed number of tracks"
+    println!("  Input: {} hypotheses", input_hyps.len());
+    println!("  use_map: {}", step6_input.use_map);
+
+    // Debug: Check hypothesis weights and track count
+    if !input_hyps.is_empty() {
+        println!("  Hypothesis summary:");
+        for (i, hyp) in input_hyps.iter().enumerate() {
+            println!(
+                "    Hyp {}: w={:.6e}, {} tracks",
+                i,
+                hyp.log_weight.exp(),
+                hyp.tracks.len()
+            );
+        }
+
+        println!("\n  Computing weighted total existence:");
+        let num_tracks = input_hyps[0].tracks.len();
+        let mut total_existence = vec![0.0; num_tracks];
+        for hyp in &input_hyps {
+            let w = hyp.log_weight.exp();
+            for (i, track) in hyp.tracks.iter().enumerate() {
+                if i < num_tracks {
+                    total_existence[i] += w * track.existence;
+                }
+            }
+        }
+        println!("    Total existence per track: {:?}", total_existence);
+    }
+
+    // Compute cardinality using Rust implementation
+    // Note: MATLAB's use_map=false means use EAP (Expected A Posteriori)
+    //       Rust function expects use_eap parameter
+    let use_eap = !step6_input.use_map;
+    println!("\n  Computing with use_eap={}", use_eap);
+    let result = compute_hypothesis_cardinality(&input_hyps, use_eap);
+
+    println!("\n  Results:");
+    println!("  Expected cardinality: {}", expected.cardinality_estimate);
+    println!("  Actual cardinality: {}", result.n_estimated);
+    println!(
+        "  Expected indices (1-indexed): {:?}",
+        expected.extraction_indices
+    );
+    println!("  Actual indices (0-indexed): {:?}", result.map_indices);
+
+    // Compare cardinality
+    assert_eq!(
+        result.n_estimated, expected.cardinality_estimate,
+        "Cardinality estimate should match"
     );
 
-    println!("  ✓ Multisensor LMBM extraction structure verified");
+    // Compare extraction indices
+    // NOTE: MATLAB indices are 1-indexed, need to convert to 0-indexed
+    let expected_indices_0indexed: Vec<usize> =
+        expected.extraction_indices.iter().map(|&i| i - 1).collect();
+
+    println!(
+        "  Expected indices (0-indexed): {:?}",
+        expected_indices_0indexed
+    );
+
+    assert_eq!(
+        result.map_indices, expected_indices_0indexed,
+        "Extraction indices should match (0-indexed)"
+    );
+
+    println!(
+        "  ✓ Multisensor LMBM extraction VALUE comparison complete (TOLERANCE={:.0e})",
+        TOLERANCE
+    );
 }
 
 //=============================================================================

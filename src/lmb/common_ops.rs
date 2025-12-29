@@ -571,14 +571,13 @@ pub fn extract_hypothesis_estimates(
 
     // MAP or EAP cardinality estimation
     let (n_map, map_indices) = if use_eap {
-        // EAP: round(sum of existence), select top-k
+        // EAP: round(sum of total_existence), select top-k by total_existence
         // MATLAB uses round() not floor() for EAP cardinality estimation
         let n = total_existence.iter().sum::<f64>().round() as usize;
-        let mut indexed: Vec<(usize, f64)> = hypotheses[0]
-            .tracks
+        let mut indexed: Vec<(usize, f64)> = total_existence
             .iter()
             .enumerate()
-            .map(|(i, t)| (i, t.existence))
+            .map(|(i, &existence)| (i, existence))
             .collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         let indices: Vec<usize> = indexed.into_iter().take(n).map(|(i, _)| i).collect();
@@ -638,14 +637,13 @@ pub fn compute_hypothesis_cardinality(
 
     // MAP or EAP cardinality estimation
     let (n_map, map_indices) = if use_eap {
-        // EAP: round(sum of existence), select top-k by existence
+        // EAP: round(sum of total_existence), select top-k by total_existence
         // MATLAB uses round() not floor() for EAP cardinality estimation
         let n = total_existence.iter().sum::<f64>().round() as usize;
-        let mut indexed: Vec<(usize, f64)> = hypotheses[0]
-            .tracks
+        let mut indexed: Vec<(usize, f64)> = total_existence
             .iter()
             .enumerate()
-            .map(|(i, t)| (i, t.existence))
+            .map(|(i, &existence)| (i, existence))
             .collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         let indices: Vec<usize> = indexed.into_iter().take(n).map(|(i, _)| i).collect();

@@ -8,9 +8,9 @@
 - ✅ **Single-Sensor LMB**: 100% Rust VALUE coverage
 - ✅ **Single-Sensor LMBM**: All tests pass with TOLERANCE=1e-10
 - ✅ **Multisensor LMB**: 100% Rust VALUE coverage
-- ✅ **Multisensor LMBM**: 4 VALUE tests (normalization tested in isolation)
+- ✅ **Multisensor LMBM**: 8 VALUE tests (normalization & extraction tested in isolation)
 
-**Completion**: 30% (15/51 TODO items ✅), 0% blocked (0/51 ⏸️), 71% remaining (36/51)
+**Completion**: 35% (18/51 TODO items ✅), 0% blocked (0/51 ⏸️), 65% remaining (33/51)
 
 ---
 
@@ -138,8 +138,8 @@
 | step5.normalized_hypotheses.w | ✗ | ✓ values | **GAP: Add Python** :784 (tested in isolation) |
 | step5.normalized_hypotheses.r | ✗ | ✓ values | **GAP: Add Python** :784 (tested in isolation) |
 | step5.objects_likely_to_exist | ✗ | ✓ values | **GAP: Add Python** :784 (tested in isolation) |
-| step6.cardinality_estimate | ✗ | ✓ structure | **GAP: Upgrade Rust, Add Python** :920 |
-| step6.extraction_indices | ✗ | ✓ structure | **GAP: Upgrade Rust, Add Python** :920 |
+| step6.cardinality_estimate | ✗ | ✓ values | **GAP: Add Python** :920 (tested in isolation) |
+| step6.extraction_indices | ✗ | ✓ values | **GAP: Add Python** :920 (tested in isolation) |
 
 ---
 
@@ -171,37 +171,37 @@
 
 ### Rust Tests (16 remaining, 4 blocked)
 
-**LMB Single-Sensor (6 tests)**
+**LMB Single-Sensor (5 tests)**
 - [ ] `test_lmb_gibbs_result_equivalence()` - if deterministic path exists
 - [ ] `test_lmb_murty_result_equivalence()` - if deterministic path exists
 - [ ] `test_lmb_posterior_objects_equivalence()` - if unit-testable
-- [ ] `test_lmb_cardinality_equivalence()` - n_estimated, map_indices
+- [x] ✅ `test_lmb_cardinality_*_equivalence()` - n_estimated, map_indices (already exists)
 
 **LMBM Single-Sensor (3 tests)**
 - Already have 3 VALUE tests ✅
 
 **Multisensor LMB (4 tests)**
-- [ ] Upgrade sensor0/1 association L/R tests to VALUE comparison
+- [x] ✅ Upgrade sensor1 association L/R tests to VALUE comparison (sensor0 already had L/R)
 - Already have 4 VALUE tests ✅
 
-**Multisensor LMBM (3 remaining, 0 blocked)**
+**Multisensor LMBM (2 remaining, 0 blocked)**
 - [x] ✅ step2.L VALUE test (line 494)
 - [x] ✅ step2.posteriorParameters.r VALUE test (line 588)
 - [x] ✅ step3_gibbs.A sample count VALUE test (line 641)
 - [ ] TODO-RS-MSLMBM-04: Upgrade step4.new_hypotheses to VALUE tests (currently structure:728)
 - [x] ✅ TODO-RS-MSLMBM-05: step5.normalized_hypotheses (isolated test line 784)
 - [x] ✅ TODO-RS-MSLMBM-06: step5.objects_likely_to_exist (isolated test line 784)
-- [ ] TODO-RS-MSLMBM-07: Upgrade step6 to VALUE tests (currently structure:920)
+- [x] ✅ TODO-RS-MSLMBM-07: step6 extraction VALUE tests (isolated test line 920)
 
 ---
 
 ## Summary Counts
 
-**Rust Test Upgrades**: 31 total → **15 ✅, 0 ⏸️, 16 remaining**
-- LMB: 7 upgrades (1 ✅, 6 remaining)
+**Rust Test Upgrades**: 31 total → **18 ✅, 0 ⏸️, 13 remaining**
+- LMB: 7 upgrades (2 ✅, 5 remaining)
 - LMBM: 6 upgrades (3 ✅, 3 remaining)
-- Multisensor LMB: 8 upgrades (4 ✅, 4 remaining)
-- Multisensor LMBM: 10 upgrades (7 ✅, 0 ⏸️, 3 remaining)
+- Multisensor LMB: 8 upgrades (5 ✅, 3 remaining)
+- Multisensor LMBM: 10 upgrades (8 ✅, 0 ⏸️, 2 remaining)
 
 **Python Tests to Add**: 20 new tests / extensions
 - LMBM: 5 tests
@@ -209,12 +209,16 @@
 - Multisensor LMBM: 6 tests
 - API changes: 2 (posteriorParameters, normalized_hypotheses exposure)
 
-**Total**: 51 TODO items → **15 ✅ (30%), 0 ⏸️ (0%), 36 remaining (71%)**
+**Total**: 51 TODO items → **18 ✅ (35%), 0 ⏸️ (0%), 33 remaining (65%)**
 
-**Recently Unblocked Items (tested in isolation)**:
-1. ✅ TODO-RS-MSLMBM-05: step5.normalized_hypotheses.w
-2. ✅ TODO-RS-MSLMBM-06: step5.objects_likely_to_exist
-3. [ ] TODO-PY-MSLMBM-05: step5 normalization Python test (remaining)
+**Recently Completed Items**:
+1. ✅ TODO-RS-MSLMBM-05: step5.normalized_hypotheses.w (line 784, tested in isolation)
+2. ✅ TODO-RS-MSLMBM-06: step5.objects_likely_to_exist (line 784, tested in isolation)
+3. ✅ TODO-RS-MSLMBM-07: step6 extraction (line 920, tested in isolation)
+4. ✅ Multisensor LMB sensor1 L/R association matrices VALUE tests (line 710)
+5. ✅ LMB single-sensor cardinality tests (lines 1252, 1288, already existed)
+6. [ ] TODO-PY-MSLMBM-05: step5 normalization Python test (remaining)
+7. [ ] TODO-PY-MSLMBM-06: step6 extraction Python test (remaining)
 
 ---
 
@@ -249,5 +253,8 @@
 - ✅ Uniform01 distribution matching MATLAB's u64→f64 conversion
 - ✅ Birth model means corrected to match MATLAB positions
 - ✅ Identified fixture incompatibility for end-to-end testing
+- ✅ EAP cardinality estimation bug - was sorting by first hypothesis's track existence instead of weighted total existence across all hypotheses (affected both `extract_hypothesis_estimates()` and `compute_hypothesis_cardinality()`)
+- ✅ Weight conversion bug - step5/step6 fixture inputs store LINEAR weights (not log weights)
+- ✅ Index conversion bug - MATLAB uses 1-indexed extraction indices
 
-**Files Modified**: `src/lmb/simple_rng.rs` (NEW), `src/lmb/multisensor/traits.rs`, `tests/lmb/multisensor_lmbm_matlab_equivalence.rs`
+**Files Modified**: `src/lmb/simple_rng.rs` (NEW), `src/lmb/common_ops.rs`, `src/lmb/multisensor/traits.rs`, `src/lmb/multisensor/lmbm.rs`, `tests/lmb/multisensor_lmbm_matlab_equivalence.rs`
