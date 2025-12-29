@@ -181,9 +181,42 @@ fn step_output_to_py(
             updates
                 .into_iter()
                 .map(|su| {
-                    // Get prior data from the sensor's input tracks (before update)
-                    // For simplicity, use the same prior data from predicted_tracks
-                    // since all sensors start from the same predicted state
+                    // Extract prior data from this sensor's INPUT tracks
+                    // For sequential mergers (IC-LMB): sensor N uses sensor N-1's output
+                    // For parallel mergers: all sensors use predicted_tracks
+                    let sensor_prior_weights: Vec<Vec<f64>> = su
+                        .input_tracks
+                        .iter()
+                        .map(|t| t.components.iter().map(|c| c.weight).collect())
+                        .collect();
+
+                    let sensor_prior_means: Vec<Vec<Vec<f64>>> = su
+                        .input_tracks
+                        .iter()
+                        .map(|t| {
+                            t.components
+                                .iter()
+                                .map(|c| c.mean.iter().copied().collect())
+                                .collect()
+                        })
+                        .collect();
+
+                    let sensor_prior_covariances: Vec<Vec<Vec<Vec<f64>>>> = su
+                        .input_tracks
+                        .iter()
+                        .map(|t| {
+                            t.components
+                                .iter()
+                                .map(|c| {
+                                    let nrows = c.covariance.nrows();
+                                    (0..nrows)
+                                        .map(|i| c.covariance.row(i).iter().copied().collect())
+                                        .collect()
+                                })
+                                .collect()
+                        })
+                        .collect();
+
                     let sensor_matrices = su
                         .association_matrices
                         .map(|m| {
@@ -191,9 +224,9 @@ fn step_output_to_py(
                                 py,
                                 PyAssociationMatrices::from_matrices(
                                     &m,
-                                    &prior_weights,
-                                    &prior_means,
-                                    &prior_covariances,
+                                    &sensor_prior_weights,
+                                    &sensor_prior_means,
+                                    &sensor_prior_covariances,
                                     false, // LMB uses linear space L matrix
                                 ),
                             )
@@ -205,12 +238,14 @@ fn step_output_to_py(
                         .map(|r| Py::new(py, PyAssociationResult::from_result(&r)))
                         .transpose()?;
 
+                    let sensor_input_tracks = tracks_to_py(py, &su.input_tracks)?;
                     let sensor_updated_tracks = tracks_to_py(py, &su.updated_tracks)?;
 
                     Py::new(
                         py,
                         PySensorUpdateOutput {
                             sensor_index: su.sensor_index,
+                            input_tracks: sensor_input_tracks,
                             association_matrices: sensor_matrices,
                             association_result: sensor_result,
                             updated_tracks: sensor_updated_tracks,

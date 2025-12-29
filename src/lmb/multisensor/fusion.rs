@@ -396,4 +396,8 @@ impl Merger for IteratedCorrectorMerger {
     fn name(&self) -> &'static str {
         "IteratedCorrector"
     }
+
+    fn is_sequential(&self) -> bool {
+        true // IC-LMB processes sensors sequentially
+    }
 }

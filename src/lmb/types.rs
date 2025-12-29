@@ -248,6 +248,10 @@ impl TrajectoryHistory {
 pub struct SensorUpdateOutput {
     /// Sensor index (0-based)
     pub sensor_index: usize,
+    /// Input tracks used as prior for this sensor's update.
+    /// For parallel mergers: same as predicted_tracks for all sensors.
+    /// For sequential mergers (IC-LMB): sensor N uses sensor N-1's output.
+    pub input_tracks: Vec<Track>,
     /// Association matrices from the association builder for this sensor
     pub association_matrices: Option<crate::association::AssociationMatrices>,
     /// Association result from data association algorithm for this sensor
@@ -260,12 +264,14 @@ impl SensorUpdateOutput {
     /// Create a new sensor update output
     pub fn new(
         sensor_index: usize,
+        input_tracks: Vec<Track>,
         association_matrices: Option<crate::association::AssociationMatrices>,
         association_result: Option<super::traits::AssociationResult>,
         updated_tracks: Vec<Track>,
     ) -> Self {
         Self {
             sensor_index,
+            input_tracks,
             association_matrices,
             association_result,
             updated_tracks,

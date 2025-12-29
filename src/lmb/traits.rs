@@ -224,6 +224,15 @@ pub trait Merger: Send + Sync {
 
     /// Merger name for logging and debugging.
     fn name(&self) -> &'static str;
+
+    /// Whether this merger requires sequential sensor processing.
+    ///
+    /// When true, each sensor update uses the previous sensor's output as input
+    /// (like IC-LMB). When false, all sensors receive the same prior tracks
+    /// and results are fused afterwards (like AA-LMB, GA-LMB, PU-LMB).
+    fn is_sequential(&self) -> bool {
+        false // Default: parallel processing
+    }
 }
 
 /// Track update strategy after data association.

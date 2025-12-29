@@ -91,6 +91,7 @@ class _SensorUpdateOutput:
     """Per-sensor intermediate data from multisensor filter update."""
 
     sensor_index: int
+    input_tracks: list[_TrackData]  # Prior tracks for this sensor's update
     association_matrices: _AssociationMatrices | None
     association_result: _AssociationResult | None
     updated_tracks: list[_TrackData]

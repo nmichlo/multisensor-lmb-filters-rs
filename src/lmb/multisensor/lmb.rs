@@ -284,8 +284,12 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
         let mut sensor_updates: Vec<SensorUpdateOutput> = Vec::with_capacity(num_sensors);
 
         if has_any_measurements && !self.tracks.is_empty() {
-            let prior_tracks = self.tracks.clone();
+            let is_sequential = self.merger.is_sequential();
             let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
+
+            // For sequential mergers (IC-LMB): each sensor uses previous sensor's output
+            // For parallel mergers (AA, GA, PU): all sensors use the same prior
+            let mut current_tracks = self.tracks.clone();
 
             for (sensor_idx, (sensor, sensor_measurements)) in self
                 .sensors
@@ -294,7 +298,14 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
                 .zip(measurements.iter())
                 .enumerate()
             {
-                let mut sensor_tracks = prior_tracks.clone();
+                // Sequential: use current_tracks (updated by previous sensor)
+                // Parallel: use original prior (self.tracks)
+                let input_tracks = if is_sequential {
+                    current_tracks.clone()
+                } else {
+                    self.tracks.clone()
+                };
+                let mut sensor_tracks = input_tracks.clone();
                 let mut assoc_matrices = None;
                 let mut assoc_result = None;
 
@@ -329,10 +340,16 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
                 // Store per-sensor output (before fusion)
                 sensor_updates.push(SensorUpdateOutput::new(
                     sensor_idx,
+                    input_tracks,
                     assoc_matrices,
                     assoc_result,
                     sensor_tracks.clone(),
                 ));
+
+                // For sequential: update current_tracks for next sensor
+                if is_sequential {
+                    current_tracks = sensor_tracks.clone();
+                }
 
                 per_sensor_tracks.push(sensor_tracks);
             }
@@ -342,6 +359,7 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
             self.update_existence_no_measurements();
             // No measurements - store empty sensor updates with miss-detected tracks
             for sensor_idx in 0..num_sensors {
+                let input_tracks = self.tracks.clone();
                 let p_d = self.sensors.sensors[sensor_idx].detection_probability;
                 let mut miss_tracks = self.tracks.clone();
                 for track in &mut miss_tracks {
@@ -350,7 +368,13 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
                         p_d,
                     );
                 }
-                sensor_updates.push(SensorUpdateOutput::new(sensor_idx, None, None, miss_tracks));
+                sensor_updates.push(SensorUpdateOutput::new(
+                    sensor_idx,
+                    input_tracks,
+                    None,
+                    None,
+                    miss_tracks,
+                ));
             }
         }
         let updated_tracks = self.tracks.clone();
@@ -428,17 +452,25 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
         let has_any_measurements = measurements.iter().any(|m| !m.is_empty());
 
         if has_any_measurements && !self.tracks.is_empty() {
-            // Store prior tracks for PU fusion if needed
-            let prior_tracks = self.tracks.clone();
+            let is_sequential = self.merger.is_sequential();
 
             // --- STEP 3a: Per-sensor measurement updates ---
             let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
 
+            // For sequential mergers (IC-LMB): each sensor uses previous sensor's output
+            // For parallel mergers (AA, GA, PU): all sensors use the same prior
+            let mut current_tracks = self.tracks.clone();
+
             for (sensor, sensor_measurements) in
                 self.sensors.sensors.iter().zip(measurements.iter())
             {
-                // Clone prior tracks for this sensor's update
-                let mut sensor_tracks = prior_tracks.clone();
+                // Sequential: use current_tracks (updated by previous sensor)
+                // Parallel: use original prior (self.tracks)
+                let mut sensor_tracks = if is_sequential {
+                    current_tracks.clone()
+                } else {
+                    self.tracks.clone()
+                };
 
                 if !sensor_measurements.is_empty() {
                     // Build association matrices for this sensor
@@ -469,6 +501,11 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
                             p_d,
                         );
                     }
+                }
+
+                // For sequential: update current_tracks for next sensor
+                if is_sequential {
+                    current_tracks = sensor_tracks.clone();
                 }
 
                 per_sensor_tracks.push(sensor_tracks);

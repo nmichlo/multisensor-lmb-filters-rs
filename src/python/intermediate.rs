@@ -651,6 +651,12 @@ pub struct PySensorUpdateOutput {
     #[pyo3(get)]
     pub sensor_index: usize,
 
+    /// Input tracks used as prior for this sensor's update.
+    /// For parallel mergers: same as predicted_tracks for all sensors.
+    /// For sequential mergers (IC-LMB): sensor N uses sensor N-1's output.
+    #[pyo3(get)]
+    pub input_tracks: Vec<Py<PyTrackData>>,
+
     /// Association matrices from association builder for this sensor
     #[pyo3(get)]
     pub association_matrices: Option<Py<PyAssociationMatrices>>,

@@ -1030,6 +1030,317 @@ class TestMultisensorLmbFixtureEquivalence:
         assert len(output.predicted_tracks) > 0, f"{filter_cls_name}: no predicted tracks"
 
 
+class TestMultisensorLmbPerSensorEquivalence:
+    """Test per-sensor intermediate outputs for multisensor LMB filters."""
+
+    def _get_sensor_data(self, multisensor_lmb_fixture, sensor_idx: int):
+        """Helper to get per-sensor fixture data."""
+        sensor_updates = multisensor_lmb_fixture["sensorUpdates"]
+        # Find the entry with matching sensorIndex (1-indexed in MATLAB)
+        for su in sensor_updates:
+            if su["sensorIndex"] == sensor_idx + 1:  # MATLAB is 1-indexed
+                return su
+        raise ValueError(f"Sensor {sensor_idx} not found in fixture")
+
+    def _run_filter_step(self, multisensor_lmb_fixture):
+        """Helper to run filter step and return output.
+
+        Uses thresholds matching MATLAB fixture (max_components=20, gm_weight=1e-6).
+        """
+        from multisensor_lmb_filters_rs import FilterIcLmb, FilterThresholds
+
+        model = multisensor_lmb_fixture["model"]
+        motion = make_motion_model(model)
+        sensor_config = make_multisensor_config(model)
+        birth = make_birth_model_from_fixture(multisensor_lmb_fixture)
+
+        # Use thresholds matching MATLAB fixture (from Rust test: max_components=20, gm_weight=1e-6)
+        thresholds = FilterThresholds(max_components=20, gm_weight=1e-6)
+        filter = FilterIcLmb(
+            motion,
+            sensor_config,
+            birth,
+            thresholds=thresholds,
+            seed=multisensor_lmb_fixture["seed"],
+        )
+
+        prior_tracks = load_prior_tracks(multisensor_lmb_fixture)
+        filter.set_tracks(prior_tracks)
+
+        measurements = nested_measurements_to_numpy(multisensor_lmb_fixture["measurements"])
+        return filter.step_detailed(measurements, timestep=multisensor_lmb_fixture["timestep"])
+
+    def test_sensor0_association_matrices_equivalence(self, multisensor_lmb_fixture):
+        """Verify sensor 0 association matrices (C, L, R, P, eta) match MATLAB."""
+        output = self._run_filter_step(multisensor_lmb_fixture)
+        expected_sensor = self._get_sensor_data(multisensor_lmb_fixture, 0)
+        expected_assoc = expected_sensor["association"]
+
+        assert output.sensor_updates is not None, "sensor_updates should exist for multisensor"
+        assert len(output.sensor_updates) >= 1, "Should have at least 1 sensor update"
+
+        actual = output.sensor_updates[0]
+        assert actual.sensor_index == 0, f"Expected sensor 0, got {actual.sensor_index}"
+        assert actual.association_matrices is not None, "Association matrices should exist"
+
+        compare_array("sensor0.C", expected_assoc["C"], actual.association_matrices.cost, TOLERANCE)
+        compare_array(
+            "sensor0.L", expected_assoc["L"], actual.association_matrices.likelihood, TOLERANCE
+        )
+        compare_array(
+            "sensor0.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE
+        )
+        compare_array(
+            "sensor0.P", expected_assoc["P"], actual.association_matrices.sampling_prob, TOLERANCE
+        )
+        compare_array(
+            "sensor0.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE
+        )
+
+    def test_sensor0_posterior_parameters_equivalence(self, multisensor_lmb_fixture):
+        """Verify sensor 0 posteriorParameters (w, mu, Sigma) match MATLAB."""
+        from conftest import compare_posterior_parameters
+
+        output = self._run_filter_step(multisensor_lmb_fixture)
+        expected_sensor = self._get_sensor_data(multisensor_lmb_fixture, 0)
+        expected_assoc = expected_sensor["association"]
+
+        assert output.sensor_updates is not None
+        actual = output.sensor_updates[0]
+        assert actual.association_matrices is not None
+
+        compare_posterior_parameters(
+            "sensor0.posteriorParameters",
+            expected_assoc["posteriorParameters"],
+            actual.association_matrices.posterior_parameters,
+            TOLERANCE,
+        )
+
+    def test_sensor0_data_association_equivalence(self, multisensor_lmb_fixture):
+        """Verify sensor 0 data association (r, W) match MATLAB."""
+        output = self._run_filter_step(multisensor_lmb_fixture)
+        expected_sensor = self._get_sensor_data(multisensor_lmb_fixture, 0)
+        expected_da = expected_sensor["dataAssociation"]
+
+        assert output.sensor_updates is not None
+        actual = output.sensor_updates[0]
+        assert actual.association_result is not None, "Association result should exist"
+
+        # Compare posterior existence (r)
+        compare_array(
+            "sensor0.r", expected_da["r"], actual.association_result.posterior_existence, TOLERANCE
+        )
+
+        # Compare marginal weights W (MATLAB W is [miss, meas1, meas2, ...])
+        expected_w = expected_da["W"]
+        # Extract just the measurement columns (skip first column which is miss)
+        expected_marginals = [row[1:] for row in expected_w]
+        compare_array(
+            "sensor0.W_marginals",
+            expected_marginals,
+            actual.association_result.marginal_weights,
+            TOLERANCE,
+        )
+
+    def test_sensor0_updated_tracks_equivalence(self, multisensor_lmb_fixture):
+        """Verify sensor 0 updated tracks match MATLAB."""
+        output = self._run_filter_step(multisensor_lmb_fixture)
+        expected_sensor = self._get_sensor_data(multisensor_lmb_fixture, 0)
+        expected_tracks = expected_sensor["output"]["updated_objects"]
+
+        assert output.sensor_updates is not None
+        actual = output.sensor_updates[0]
+
+        compare_tracks("sensor0.updated_tracks", expected_tracks, actual.updated_tracks, TOLERANCE)
+
+    def test_sensor1_association_matrices_equivalence(self, multisensor_lmb_fixture):
+        """Verify sensor 1 association matrices (C, L, R, P, eta) match MATLAB."""
+        output = self._run_filter_step(multisensor_lmb_fixture)
+        expected_sensor = self._get_sensor_data(multisensor_lmb_fixture, 1)
+        expected_assoc = expected_sensor["association"]
+
+        assert output.sensor_updates is not None
+        assert len(output.sensor_updates) >= 2, "Should have at least 2 sensor updates"
+
+        actual = output.sensor_updates[1]
+        assert actual.sensor_index == 1, f"Expected sensor 1, got {actual.sensor_index}"
+        assert actual.association_matrices is not None
+
+        compare_array("sensor1.C", expected_assoc["C"], actual.association_matrices.cost, TOLERANCE)
+        compare_array(
+            "sensor1.L", expected_assoc["L"], actual.association_matrices.likelihood, TOLERANCE
+        )
+        compare_array(
+            "sensor1.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE
+        )
+        compare_array(
+            "sensor1.P", expected_assoc["P"], actual.association_matrices.sampling_prob, TOLERANCE
+        )
+        compare_array(
+            "sensor1.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE
+        )
+
+    def test_sensor1_posterior_parameters_equivalence(self, multisensor_lmb_fixture):
+        """Verify sensor 1 posteriorParameters (w, mu, Sigma) match MATLAB."""
+        from conftest import compare_posterior_parameters
+
+        output = self._run_filter_step(multisensor_lmb_fixture)
+        expected_sensor = self._get_sensor_data(multisensor_lmb_fixture, 1)
+        expected_assoc = expected_sensor["association"]
+
+        assert output.sensor_updates is not None
+        actual = output.sensor_updates[1]
+        assert actual.association_matrices is not None
+
+        compare_posterior_parameters(
+            "sensor1.posteriorParameters",
+            expected_assoc["posteriorParameters"],
+            actual.association_matrices.posterior_parameters,
+            TOLERANCE,
+        )
+
+    def test_sensor1_data_association_equivalence(self, multisensor_lmb_fixture):
+        """Verify sensor 1 data association (r, W) match MATLAB."""
+        output = self._run_filter_step(multisensor_lmb_fixture)
+        expected_sensor = self._get_sensor_data(multisensor_lmb_fixture, 1)
+        expected_da = expected_sensor["dataAssociation"]
+
+        assert output.sensor_updates is not None
+        actual = output.sensor_updates[1]
+        assert actual.association_result is not None
+
+        compare_array(
+            "sensor1.r", expected_da["r"], actual.association_result.posterior_existence, TOLERANCE
+        )
+
+        expected_w = expected_da["W"]
+        expected_marginals = [row[1:] for row in expected_w]
+        compare_array(
+            "sensor1.W_marginals",
+            expected_marginals,
+            actual.association_result.marginal_weights,
+            TOLERANCE,
+        )
+
+    def test_sensor1_updated_tracks_equivalence(self, multisensor_lmb_fixture):
+        """Verify sensor 1 updated tracks match MATLAB."""
+        output = self._run_filter_step(multisensor_lmb_fixture)
+        expected_sensor = self._get_sensor_data(multisensor_lmb_fixture, 1)
+        expected_tracks = expected_sensor["output"]["updated_objects"]
+
+        assert output.sensor_updates is not None
+        actual = output.sensor_updates[1]
+
+        compare_tracks("sensor1.updated_tracks", expected_tracks, actual.updated_tracks, TOLERANCE)
+
+    @pytest.mark.parametrize(
+        "filter_cls_name",
+        ["FilterAaLmb", "FilterGaLmb", "FilterPuLmb", "FilterIcLmb"],
+    )
+    def test_all_variants_expose_sensor_updates(self, multisensor_lmb_fixture, filter_cls_name):
+        """All multisensor LMB variants expose sensor_updates in step_detailed."""
+        import multisensor_lmb_filters_rs as lmb
+
+        FilterCls = getattr(lmb, filter_cls_name)
+
+        model = multisensor_lmb_fixture["model"]
+        motion = make_motion_model(model)
+        sensor_config = make_multisensor_config(model)
+        birth = make_birth_model_from_fixture(multisensor_lmb_fixture)
+
+        prior_tracks = load_prior_tracks(multisensor_lmb_fixture)
+        measurements = nested_measurements_to_numpy(multisensor_lmb_fixture["measurements"])
+
+        filter = FilterCls(motion, sensor_config, birth, seed=42)
+        filter.set_tracks(prior_tracks)
+        output = filter.step_detailed(measurements, timestep=0)
+
+        # Verify sensor_updates exists and has correct structure
+        assert output.sensor_updates is not None, f"{filter_cls_name}: sensor_updates should exist"
+        assert (
+            len(output.sensor_updates) == model["numberOfSensors"]
+        ), f"{filter_cls_name}: should have {model['numberOfSensors']} sensor updates"
+
+        for i, su in enumerate(output.sensor_updates):
+            assert su.sensor_index == i, f"{filter_cls_name}: sensor {i} index mismatch"
+            assert (
+                su.association_matrices is not None
+            ), f"{filter_cls_name}: sensor {i} matrices missing"
+            assert (
+                su.association_result is not None
+            ), f"{filter_cls_name}: sensor {i} result missing"
+            assert len(su.updated_tracks) > 0, f"{filter_cls_name}: sensor {i} no updated tracks"
+
+
+class TestSensorUpdateOutputStructure:
+    """Test _SensorUpdateOutput structure and properties."""
+
+    def test_sensor_update_output_fields(self, multisensor_lmb_fixture):
+        """Verify _SensorUpdateOutput has all expected fields."""
+        from multisensor_lmb_filters_rs import FilterIcLmb
+
+        model = multisensor_lmb_fixture["model"]
+        motion = make_motion_model(model)
+        sensor_config = make_multisensor_config(model)
+        birth = make_birth_model_from_fixture(multisensor_lmb_fixture)
+
+        filter = FilterIcLmb(motion, sensor_config, birth, seed=42)
+        prior_tracks = load_prior_tracks(multisensor_lmb_fixture)
+        filter.set_tracks(prior_tracks)
+
+        measurements = nested_measurements_to_numpy(multisensor_lmb_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=0)
+
+        assert output.sensor_updates is not None
+
+        for su in output.sensor_updates:
+            # Check all fields exist
+            assert hasattr(su, "sensor_index")
+            assert hasattr(su, "association_matrices")
+            assert hasattr(su, "association_result")
+            assert hasattr(su, "updated_tracks")
+
+            # Check types
+            assert isinstance(su.sensor_index, int)
+            assert su.association_matrices is not None
+            assert su.association_result is not None
+            assert isinstance(su.updated_tracks, list)
+
+    def test_single_sensor_has_no_sensor_updates(self, lmb_fixture):
+        """Verify single-sensor filters have sensor_updates=None."""
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+
+        model = lmb_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+        birth = make_birth_model_from_fixture(lmb_fixture)
+
+        filter = FilterLmb(motion, sensor, birth, AssociatorConfig.lbp(), seed=42)
+        prior_tracks = load_prior_tracks(lmb_fixture)
+        filter.set_tracks(prior_tracks)
+
+        measurements = measurements_to_numpy(lmb_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=0)
+
+        # Single-sensor filters should NOT have sensor_updates
+        assert output.sensor_updates is None, "Single-sensor LMB should have sensor_updates=None"
+
+    def test_lmbm_has_no_sensor_updates(self, lmbm_fixture):
+        """Verify single-sensor LMBM has sensor_updates=None."""
+        from multisensor_lmb_filters_rs import FilterLmbm
+
+        model = lmbm_fixture["model"]
+        motion = make_motion_model(model)
+        sensor = make_sensor_model(model)
+        birth = make_birth_model_empty()
+
+        filter = FilterLmbm(motion, sensor, birth, seed=42)
+        measurements = measurements_to_numpy(lmbm_fixture["measurements"])
+        output = filter.step_detailed(measurements, timestep=0)
+
+        assert output.sensor_updates is None, "Single-sensor LMBM should have sensor_updates=None"
+
+
 class TestMultisensorLmbmFixtureEquivalence:
     """Test multi-sensor LMBM filter against fixture."""
 
