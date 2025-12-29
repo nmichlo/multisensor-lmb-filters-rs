@@ -445,6 +445,12 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
         let num_sensors = dimensions.len() - 1;
         let num_objects = dimensions[num_sensors];
 
+        eprintln!(
+            "[DEBUG] generate_posterior_hypotheses: prior_hypotheses={}, unique_samples={}",
+            self.hypotheses.len(),
+            samples.len()
+        );
+
         let mut new_hypotheses = Vec::new();
 
         for prior_hyp in &self.hypotheses {
@@ -593,6 +599,15 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
         if has_measurements && !self.hypotheses.is_empty() {
             let (log_likelihoods, posteriors, dimensions) =
                 self.generate_association_matrices(&self.hypotheses[0].tracks, measurements);
+
+            eprintln!("[DEBUG step_detailed] Calling Gibbs with dimensions={:?}, log_likelihoods.len()={}",
+                     dimensions, log_likelihoods.len());
+            eprintln!(
+                "  L[0]={:.6}, L[1]={:.6}, L[3]={:.6}",
+                log_likelihoods.get(0).unwrap_or(&0.0),
+                log_likelihoods.get(1).unwrap_or(&0.0),
+                log_likelihoods.get(3).unwrap_or(&0.0)
+            );
 
             let association_result = self
                 .associator

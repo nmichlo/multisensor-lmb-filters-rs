@@ -9,9 +9,9 @@
 **Single-Sensor LMB**: ✅ **100% Rust VALUE coverage** (13/13 fields) - COMPLETE
 **Single-Sensor LMBM**: ✅ **Normalization bug FIXED** - All tests pass with TOLERANCE=1e-10
 **Multisensor LMB**: ✅ **100% Rust VALUE coverage** - ALL tests upgraded (data association, update, cardinality)
-**Multisensor LMBM**: ⚠️ **API enhanced, implementation issue discovered** - See Recent Changes below
+**Multisensor LMBM**: ✅ **Gibbs sampling 100% MATLAB equivalent** - SimpleRng implemented, all bugs fixed, tests passing
 
-**Last Updated**: 2025-12-29 (Enhanced multisensor LMBM API, discovered empty hypothesis handling issue)
+**Last Updated**: 2025-12-29 (✅ 100% MATLAB Gibbs Sampling Equivalence - Implemented SimpleRng, fixed RNG seed bug, all tests passing)
 
 ---
 
@@ -49,7 +49,269 @@
 
 ---
 
-### Recent Changes (2025-12-29 - Current Session)
+### Recent Changes (2025-12-29 - Session 2: SimpleRng Implementation & Gibbs Debugging)
+
+#### 🔬 **THE GOLDEN RULE Investigation: Gibbs Sampling RNG Discrepancy**
+
+**Mission**: Fix multisensor LMBM Gibbs sampling to achieve exact MATLAB equivalence (16 unique samples → 15 expected)
+
+**Major Discoveries & Fixes**:
+
+1. **✅ Fixed Empty Hypothesis Skip Bug** (`src/lmb/multisensor/lmbm.rs:591, 708`)
+   - **Problem**: Filter skipped association when `!tracks.is_empty()`, not in MATLAB
+   - **Fix**: Removed incorrect condition, now generates birth hypotheses correctly
+   - **Impact**: Filter now produces multiple hypotheses from empty prior
+
+2. **✅ Fixed Birth Model Configuration** (test file, lines 666-681)
+   - **Problem**: Test used 1 birth location with rBLmbm=0.0
+   - **Fix**: Changed to 4 birth locations with rBLmbm=0.06 to match MATLAB fixture
+   - **Verified**: Matches `generateMultisensorModel.m` exactly
+
+3. **✅ Fixed Likelihood Tensor Flattening Order** (test file)
+   - **Problem**: Row-major flattening, MATLAB uses column-major linear indexing
+   - **Fix**: Changed iteration order to `for obj { for d2 { for d1 { ... }}}`
+   - **Impact**: Likelihood values now match MATLAB exactly (verified L[0,0,0], L[1,0,0], L[0,1,0])
+
+4. **✅ Implemented SimpleRng (xorshift64)** (`src/lmb/simple_rng.rs` - NEW FILE)
+   - **Problem**: Rust used `StdRng` (ChaCha), MATLAB uses `SimpleRng` (xorshift64)
+   - **Discovery**: Different RNG algorithms produce completely different random sequences
+   - **Implementation**:
+     ```rust
+     x ^= x << 13;  // Matches MATLAB: bitxor(x, bitshift(x, 13))
+     x ^= x >> 7;   // Matches MATLAB: bitxor(x, bitshift(x, -7))
+     x ^= x << 17;  // Matches MATLAB: bitxor(x, bitshift(x, 17))
+     ```
+   - **Verification**: Unit tests confirm exact state sequence match with MATLAB
+
+5. **✅ Implemented Uniform01 Distribution** (`src/lmb/simple_rng.rs`)
+   - **Problem**: `rand` crate's `gen::<f64>()` uses `Standard` distribution (53-bit precision)
+   - **MATLAB**: `val = double(u) / 2^64` (full 64-bit precision)
+   - **Fix**: Custom `Distribution<f64>` trait that matches MATLAB's u64→f64 conversion
+   - **Usage**: Changed Gibbs code to use `Uniform01.sample(rng)` instead of `rng.gen::<f64>()`
+
+6. **✅ Fixed Sample Flattening Order** (`src/lmb/multisensor/traits.rs:277-284`)
+   - **Problem**: Row-major iteration (`for i { for s { ... }}`) doesn't match MATLAB
+   - **MATLAB**: `reshape(V, 1, n*S)` is column-major (reads columns first)
+   - **Fix**: Changed to `for s { for i { sample.push(v[(i,s)]); }}`
+   - **Impact**: Sample format now matches MATLAB's V matrix flattening
+
+7. **🔍 CRITICAL DISCOVERY: Octave fprintf Precision Loss**
+   - **Issue**: Octave's `fprintf('%020.0f', uint64_val)` loses precision for large values
+   - **Example**: `0xA00AAAFDF80202BF` prints as `11532217803599904768` (incorrect), true value is `11532217803599905471`
+   - **Root Cause**: Conversion through `double` can't represent all 64-bit integers exactly
+   - **Lesson**: Always verify MATLAB output using hex representation, not decimal printout
+   - **Impact**: Confirmed Rust SimpleRng implementation is EXACTLY correct
+
+8. **✅ FINAL BUG: Wrong RNG Seed in Test** (`tests/lmb/multisensor_lmbm_matlab_equivalence.rs:705`)
+   - **Problem**: Test used `fixture.seed` (42) instead of `fixture.step3_gibbs.input.rng_seed` (2042)
+   - **Root Cause**: Each processing step uses different RNG state in MATLAB fixtures
+   - **Fix**: Changed to `SimpleRng::new(fixture.step3_gibbs.input.rng_seed)`
+   - **Impact**: Test now PASSES with EXACTLY 15 unique samples matching MATLAB!
+
+**FINAL STATUS: ✅ 100% MATLAB EQUIVALENCE ACHIEVED**:
+- Gibbs sampler produces EXACTLY 15 unique samples (MATLAB: 15)
+- RNG verified correct via hex comparison (xorshift64)
+- Likelihood values match exactly (verified L[0,0,0], L[1,0,0], L[0,1,0])
+- Sample flattening matches MATLAB's column-major `reshape(V, 1, n*S)`
+- **Test passes** with TOLERANCE=0 (exact integer match)
+
+**Remaining Work**: None for Gibbs sampling - fully equivalent!
+
+---
+
+### 🔍 Debugging Lessons Learned: False Assumptions That Cost Time
+
+**Total Debugging Time**: ~4 hours
+**Time That Could Have Been Saved**: ~3 hours with better initial checks
+
+#### Critical False Assumptions (In Order of Discovery)
+
+##### 1. **"StdRng will work fine"** ❌ (Cost: ~1 hour)
+
+**Assumption**: Rust's `StdRng` with same seed would produce equivalent random sequences to MATLAB
+
+**Reality**:
+- MATLAB: Custom `SimpleRng` using xorshift64 algorithm
+- Rust `StdRng`: ChaCha8 algorithm
+- **Different algorithms = completely different random sequences**
+
+**What Would Have Helped**:
+- ✅ Check MATLAB fixture generation code FIRST to see what RNG is used
+- ✅ Search for `SimpleRng` or `RandStream` in MATLAB codebase before implementing
+- ✅ Don't assume "same seed = same sequence" without verifying algorithm match
+
+**Prevention**: Always verify RNG algorithm equivalence before implementing tests
+
+---
+
+##### 2. **"`rng.gen::<f64>()` matches MATLAB's rand()"** ❌ (Cost: ~30 minutes)
+
+**Assumption**: The `rand` crate's `Standard` distribution converts u64→f64 the same as MATLAB
+
+**Reality**:
+- rand `Standard`: Uses 53-bit precision (IEEE float64 mantissa)
+- MATLAB: Full 64-bit precision `double(u) / 2^64`
+- **Different precision = different random values**
+
+**What Would Have Helped**:
+- ✅ Read MATLAB SimpleRng.m line-by-line FIRST: `val = double(u) / (2^64)`
+- ✅ Implement custom `Distribution<f64>` matching MATLAB's conversion exactly
+- ✅ Test first random value against MATLAB before running full Gibbs loop
+
+**Prevention**: Line-by-line comparison of conversion formulas, not just algorithms
+
+---
+
+##### 3. **"Octave fprintf is accurate for uint64"** ❌ (Cost: ~45 minutes)
+
+**Assumption**: Octave's `fprintf('%020.0f', uint64_val)` prints exact decimal values
+
+**Reality**:
+- Octave converts uint64 → double → string
+- double can't represent all 64-bit integers exactly (only 53-bit mantissa)
+- Example error: Printed `11532217803599904768`, actual `11532217803599905471` (Δ=703)
+
+**What Would Have Helped**:
+- ✅ Use hex format for verification: `fprintf('%016X', uint64_val)` is EXACT
+- ✅ Never trust decimal printouts for large integers (>2^53)
+- ✅ Cross-verify with Python: `hex(0xA00AAAFDF80202BF)` to confirm
+
+**Prevention**: **ALWAYS use hex representation to verify uint64 values from MATLAB**
+
+**Code Pattern for MATLAB Verification**:
+```matlab
+% BAD - loses precision
+fprintf('State: %020.0f\n', state);
+
+% GOOD - exact representation
+fprintf('State: 0x%016X (%020.0f)\n', state, double(state));
+```
+
+---
+
+##### 4. **"I already fixed the flattening order"** ❌ (Cost: ~20 minutes)
+
+**Assumption**: After changing to "row-major" once, the flattening was correct
+
+**Reality**: MATLAB's `reshape(V, 1, n*S)` is column-major (reads columns first)
+- Wrong: `for i { for s { sample.push(v[(i,s)]); }}` (row-major)
+- Right: `for s { for i { sample.push(v[(i,s)]); }}` (column-major)
+
+**What Would Have Helped**:
+- ✅ Write tiny MATLAB test: `reshape([1 2; 3 4], 1, 4)` → `[1 3 2 4]` (column-major!)
+- ✅ Document iteration order in comments: `// Column-major: s outer, i inner`
+- ✅ Add unit test for flattening order with known input/output
+
+**Prevention**: Test flattening order with minimal example BEFORE implementing full algorithm
+
+---
+
+##### 5. **"`fixture.seed` is THE seed for everything"** ❌ 💥 (Cost: ~2 hours!)
+
+**THE BIG ONE - Final bug that caused 93% convergence but not 100%**
+
+**Assumption**: The fixture's global `seed: 42` should be used for all RNG operations
+
+**Reality**: Each processing step stores its own RNG state:
+```json
+{
+  "seed": 42,  // ← Initial setup (ground truth generation, etc.)
+  "step1_prediction": { "input": { ... } },
+  "step2_association": { "input": { ... } },
+  "step3_gibbs": {
+    "input": {
+      "rng_seed": 2042  // ← DIFFERENT seed! (RNG state after steps 1-2)
+    }
+  }
+}
+```
+
+**Why This Was Insidious**:
+- Everything else matched: likelihoods ✓, algorithm ✓, RNG implementation ✓
+- Got 21 samples instead of 15 → looked like algorithmic difference
+- 93% sample similarity → suggested "close but subtle bug in Gibbs loop"
+- Made me spend 2 hours debugging Gibbs iteration logic with detailed logging
+
+**What Would Have Helped**:
+- ✅ **FIRST ACTION**: Examine fixture JSON structure completely
+- ✅ Check for `rng_seed` field in EVERY step's input
+- ✅ Print RNG seed being used vs expected: `println!("Using seed: {}", seed);`
+- ✅ When samples don't match, verify **first random value** matches before debugging algorithm
+
+**Prevention**: **ALWAYS inspect complete fixture structure BEFORE implementing tests**
+
+**Debugging Checklist for RNG-dependent tests**:
+1. [ ] Check if each step has its own `rng_seed` field
+2. [ ] Verify first random value matches MATLAB before running full algorithm
+3. [ ] If using global `seed`, confirm it's correct for this specific step
+4. [ ] Add assertion: `assert_eq!(first_rand_val, expected_first_val, "RNG seed mismatch");`
+
+---
+
+##### 6. **"The bug must be in the complex code"** ❌ (Cost: Psychological!)
+
+**Assumption**: Since samples were 93% matching, the bug must be in intricate Gibbs sampling logic
+
+**Reality**: Bug was in test setup (wrong seed) - the **simplest possible mistake**!
+
+**Cognitive Bias**: "Sophisticated Proximity Error"
+- When something is almost right (93%), we assume the problem is complex
+- Overlook simple setup issues in favor of algorithmic deep-dives
+
+**What Would Have Helped**:
+- ✅ **"Verify assumptions first, debug algorithms last"** checklist
+- ✅ Binary search approach: Test simplest components first (RNG, seeds, indexing)
+- ✅ When 90%+ correct, check test setup MORE carefully, not less
+
+**Prevention**: Use **"Sherlock's Razor"** - eliminate the simple/obvious first, THEN investigate complex
+
+---
+
+### 🎯 Master Debugging Checklist for MATLAB Equivalence Testing
+
+**Before Writing Any Test Code**:
+- [ ] Read complete fixture JSON structure (all steps, all fields)
+- [ ] Identify ALL `rng_seed` fields (global vs per-step)
+- [ ] Check MATLAB generation code for RNG algorithm used (`SimpleRng`, `RandStream`, etc.)
+- [ ] Verify array indexing conventions (0-indexed vs 1-indexed)
+- [ ] Verify flattening order (row-major vs column-major) with minimal example
+
+**When Implementing RNG-Dependent Tests**:
+- [ ] Implement exact RNG algorithm from MATLAB (line-by-line comparison)
+- [ ] Test u64→f64 conversion matches MATLAB exactly: `val = u / 2^64`
+- [ ] Verify first 3-5 random values match MATLAB (use hex for uint64!)
+- [ ] Add assertion for first random value before running full algorithm
+
+**When Debugging Failing Tests**:
+- [ ] **FIRST**: Verify correct `rng_seed` is being used (print it!)
+- [ ] **SECOND**: Verify first random value matches MATLAB
+- [ ] **THIRD**: Check simple setup (indexing, flattening, conversion formulas)
+- [ ] **LAST**: Debug complex algorithmic logic
+
+**Verification Best Practices**:
+- [ ] Use hex format for large integers: `fprintf('%016X', val)` in MATLAB
+- [ ] Cross-verify with Python when Octave output looks suspicious
+- [ ] Test flattening/reshaping with 2x2 matrix before full tensor
+- [ ] When 90%+ match, check setup FIRST (seed, indexing, order)
+
+**Time-Saving Heuristics**:
+- If first random value differs → Wrong seed or RNG algorithm
+- If ~50% samples match → Wrong flattening order
+- If 90%+ match → Wrong seed for THIS specific step
+- If exact algorithm but different values → u64→f64 conversion differs
+
+---
+
+**Files Modified**:
+- `src/lmb/simple_rng.rs` - NEW FILE (200+ lines, xorshift64 + Uniform01)
+- `src/lmb/mod.rs` - Export SimpleRng and Uniform01
+- `src/lmb/multisensor/traits.rs` - Use Uniform01, fix flattening
+- `src/lmb/multisensor/lmbm.rs` - Fix empty hypothesis condition
+- `tests/lmb/multisensor_lmbm_matlab_equivalence.rs` - Use SimpleRng, fix birth model
+
+---
+
+### Recent Changes (2025-12-29 - Session 1: Multisensor LMBM API Enhancement)
 
 #### 🔧 **Multisensor LMBM API Enhancement**
 

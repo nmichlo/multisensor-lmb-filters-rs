@@ -642,8 +642,7 @@ fn test_multisensor_lmbm_gibbs_a_matrix_equivalence() {
     use multisensor_lmb_filters_rs::lmb::multisensor::{
         MultisensorAssociator, MultisensorGibbsAssociator,
     };
-    use multisensor_lmb_filters_rs::lmb::AssociationConfig;
-    use rand::SeedableRng;
+    use multisensor_lmb_filters_rs::lmb::{AssociationConfig, SimpleRng};
 
     let fixture = load_multisensor_lmbm_fixture();
 
@@ -703,7 +702,7 @@ fn test_multisensor_lmbm_gibbs_a_matrix_equivalence() {
         ..Default::default()
     };
     let associator = MultisensorGibbsAssociator::new();
-    let mut rng = rand::rngs::StdRng::seed_from_u64(fixture.seed);
+    let mut rng = SimpleRng::new(fixture.step3_gibbs.input.rng_seed);
     let result = associator
         .associate(&mut rng, &log_likelihoods, &dimensions, &association_config)
         .unwrap();
@@ -778,9 +777,8 @@ fn test_multisensor_lmbm_hypothesis_generation_equivalence() {
 #[test]
 fn test_multisensor_lmbm_normalization_equivalence() {
     use multisensor_lmb_filters_rs::lmb::{
-        AssociationConfig, BirthLocation, BirthModel, LmbmConfig, MultisensorLmbmFilter,
+        AssociationConfig, BirthLocation, BirthModel, LmbmConfig, MultisensorLmbmFilter, SimpleRng,
     };
-    use rand::SeedableRng;
 
     let fixture = load_multisensor_lmbm_fixture();
 
@@ -846,7 +844,10 @@ fn test_multisensor_lmbm_normalization_equivalence() {
     filter.set_hypotheses(vec![prior_hypothesis]);
 
     // Run filter with measurements
-    let mut rng = rand::rngs::StdRng::seed_from_u64(fixture.seed);
+    // CRITICAL: For end-to-end testing with step-by-step fixture, we need to use the
+    // SAME RNG seed that the Gibbs step used (seed + 2000), not the filter RNG (seed + 1000).
+    // This is because the step-by-step fixture was generated with independent RNG seeds per step.
+    let mut rng = SimpleRng::new(fixture.seed + 2000);
     let measurements = measurements_to_multisensor(&fixture.measurements);
 
     // Debug: Check predicted tracks

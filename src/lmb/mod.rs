@@ -54,6 +54,7 @@ pub mod singlesensor;
 
 // Utilities
 pub mod cardinality;
+pub mod simple_rng;
 
 // Re-export all public types from submodules
 
@@ -92,6 +93,9 @@ pub use multisensor::{
     MultisensorGibbsAssociator, MultisensorLmbFilter, MultisensorLmbmFilter,
     MultisensorMeasurements, ParallelUpdateMerger, PuLmbFilter,
 };
+
+// Utilities
+pub use simple_rng::{SimpleRng, Uniform01};
 
 // ============================================================================
 // Default Filter Constants

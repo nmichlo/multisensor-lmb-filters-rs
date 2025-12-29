@@ -15,9 +15,11 @@
 //! for each sensor, not just measurement indices.
 
 use nalgebra::DMatrix;
+use rand::distributions::Distribution;
 
 use super::super::config::AssociationConfig;
 use super::super::errors::AssociationError;
+use super::super::simple_rng::Uniform01;
 
 /// Result of multi-sensor data association.
 ///
@@ -205,7 +207,7 @@ impl MultisensorGibbsAssociator {
                         let p =
                             1.0 / ((log_likelihoods[r_idx] - log_likelihoods[q_idx]).exp() + 1.0);
 
-                        let sample = rng.gen::<f64>();
+                        let sample = Uniform01.sample(rng);
 
                         if debug {
                             eprintln!("  [LOOP] j={}, w[(j,s)]={}, L[r]={:.3}, L[q]={:.3}, p={:.3}, sample={:.3}",
@@ -272,10 +274,11 @@ impl MultisensorAssociator for MultisensorGibbsAssociator {
             // Generate one Gibbs sample
             Self::generate_association_event(rng, log_likelihoods, dimensions, &m, &mut v, &mut w);
 
-            // Flatten V row-major (objects first, then sensors) to match MATLAB reshape
+            // Flatten V column-major to match MATLAB reshape(V, 1, n*S)
+            // MATLAB reshape reads column-by-column: V(1,1), V(2,1), ..., V(n,1), V(1,2), V(2,2), ...
             let mut sample = Vec::with_capacity(num_objects * num_sensors);
-            for i in 0..num_objects {
-                for s in 0..num_sensors {
+            for s in 0..num_sensors {
+                for i in 0..num_objects {
                     sample.push(v[(i, s)]);
                 }
             }
@@ -283,8 +286,15 @@ impl MultisensorAssociator for MultisensorGibbsAssociator {
             unique_samples.insert(sample);
         }
 
+        let result: Vec<Vec<usize>> = unique_samples.into_iter().collect();
+        eprintln!(
+            "[DEBUG] MultisensorGibbs: {} Gibbs iterations -> {} unique samples",
+            config.gibbs_samples,
+            result.len()
+        );
+
         Ok(MultisensorAssociationResult::new(
-            unique_samples.into_iter().collect(),
+            result,
             config.gibbs_samples,
         ))
     }
