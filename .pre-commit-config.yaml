@@ -13,3 +13,10 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
