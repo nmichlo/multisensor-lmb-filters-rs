@@ -299,6 +299,10 @@ pub struct StepDetailedOutput {
     // ═══════════════════════════════════════════════════════════════════════
     // LMBM-specific fields (None for LMB filters)
     // ═══════════════════════════════════════════════════════════════════════
+    /// LMBM predicted hypothesis after prediction step (step1_prediction in MATLAB).
+    /// For LMBM, this contains a single hypothesis representing the predicted state.
+    pub predicted_hypotheses: Option<Vec<LmbmHypothesis>>,
+
     /// LMBM hypotheses after association, before normalization (step4_hypothesis in MATLAB).
     /// Contains `new_hypotheses` with unnormalized weights.
     pub pre_normalization_hypotheses: Option<Vec<LmbmHypothesis>>,

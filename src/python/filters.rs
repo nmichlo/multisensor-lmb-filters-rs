@@ -131,6 +131,20 @@ fn step_output_to_py(
     )?;
 
     // Convert LMBM-specific fields (None for LMB filters)
+    let predicted_hypotheses = output
+        .predicted_hypotheses
+        .map(|hyps| {
+            hyps.iter()
+                .map(|h| {
+                    Py::new(
+                        py,
+                        super::intermediate::PyLmbmHypothesis::from_hypothesis(h),
+                    )
+                })
+                .collect::<PyResult<Vec<_>>>()
+        })
+        .transpose()?;
+
     let pre_normalization_hypotheses = output
         .pre_normalization_hypotheses
         .map(|hyps| {
@@ -168,6 +182,7 @@ fn step_output_to_py(
             updated_tracks: updated,
             cardinality,
             // LMBM-specific fields
+            predicted_hypotheses,
             pre_normalization_hypotheses,
             normalized_hypotheses,
             objects_likely_to_exist: output.objects_likely_to_exist,
@@ -938,3 +953,4 @@ impl PyFilterMultisensorLmbm {
 impl_filter_reset!(PyFilterMultisensorLmbm);
 impl_multisensor_step!(PyFilterMultisensorLmbm, false, true); // LMBM uses log space L
 impl_lmbm_track_access!(PyFilterMultisensorLmbm);
+impl_lmbm_hypothesis_access!(PyFilterMultisensorLmbm);

@@ -581,6 +581,9 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
         // STEP 1: Prediction
         // ══════════════════════════════════════════════════════════════════════
         self.predict_hypotheses(timestep);
+
+        // Capture predicted hypotheses for fixture validation (MATLAB step1_prediction)
+        let predicted_hypotheses = Some(self.hypotheses.clone());
         let predicted_tracks = self.get_tracks();
 
         // ══════════════════════════════════════════════════════════════════════
@@ -651,6 +654,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             updated_tracks,
             cardinality,
             final_estimate,
+            predicted_hypotheses,
             pre_normalization_hypotheses,
             normalized_hypotheses,
             objects_likely_to_exist,

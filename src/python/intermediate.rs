@@ -690,6 +690,11 @@ pub struct PyStepOutput {
     // ═══════════════════════════════════════════════════════════════════════
     // LMBM-specific fields (None for LMB filters)
     // ═══════════════════════════════════════════════════════════════════════
+    /// LMBM predicted hypothesis after prediction step (step1 in MATLAB)
+    /// For LMBM, this contains a single hypothesis representing the predicted state
+    #[pyo3(get)]
+    pub predicted_hypotheses: Option<Vec<Py<PyLmbmHypothesis>>>,
+
     /// LMBM hypotheses after association, before normalization (step4 in MATLAB)
     #[pyo3(get)]
     pub pre_normalization_hypotheses: Option<Vec<Py<PyLmbmHypothesis>>>,

@@ -319,6 +319,7 @@ impl<A: Associator> LmbFilter<A> {
             cardinality,
             final_estimate,
             // LMB doesn't have LMBM-specific fields
+            predicted_hypotheses: None,
             pre_normalization_hypotheses: None,
             normalized_hypotheses: None,
             objects_likely_to_exist: None,

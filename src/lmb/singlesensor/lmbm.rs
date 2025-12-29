@@ -403,6 +403,9 @@ impl<A: Associator> LmbmFilter<A> {
         // STEP 1: Prediction
         // ══════════════════════════════════════════════════════════════════════
         self.predict_hypotheses(timestep);
+
+        // Capture predicted hypotheses for fixture validation (MATLAB step1_prediction)
+        let predicted_hypotheses = self.hypotheses.clone();
         let predicted_tracks = self.get_tracks();
 
         // ══════════════════════════════════════════════════════════════════════
@@ -484,6 +487,7 @@ impl<A: Associator> LmbmFilter<A> {
             cardinality,
             final_estimate,
             // LMBM-specific intermediate data for fixture validation
+            predicted_hypotheses: Some(predicted_hypotheses),
             pre_normalization_hypotheses: Some(pre_normalization_hypotheses),
             normalized_hypotheses: Some(normalized_hypotheses),
             objects_likely_to_exist: Some(objects_likely_to_exist),
