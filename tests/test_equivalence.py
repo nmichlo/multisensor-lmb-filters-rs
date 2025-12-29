@@ -1108,7 +1108,7 @@ class TestMultisensorLmbmFixtureEquivalence:
         filter.set_hypotheses([hypothesis])
 
         measurements = nested_measurements_to_numpy(multisensor_lmbm_fixture["measurements"])
-        output = filter.step_detailed(measurements, timestep=multisensor_lmbm_fixture["timestep"])
+        _output = filter.step_detailed(measurements, timestep=multisensor_lmbm_fixture["timestep"])
 
         # Verify association matrices for each sensor
         expected_assoc = multisensor_lmbm_fixture["step2_association"]["output"]
