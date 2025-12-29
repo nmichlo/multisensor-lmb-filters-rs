@@ -87,6 +87,14 @@ class _LmbmHypothesis:
         birth_location: list[int],
     ) -> _LmbmHypothesis: ...
 
+class _SensorUpdateOutput:
+    """Per-sensor intermediate data from multisensor filter update."""
+
+    sensor_index: int
+    association_matrices: _AssociationMatrices | None
+    association_result: _AssociationResult | None
+    updated_tracks: list[_TrackData]
+
 class _StepOutput:
     """Full step output for fixture comparison."""
 
@@ -95,6 +103,8 @@ class _StepOutput:
     association_result: _AssociationResult | None
     updated_tracks: list[_TrackData]
     cardinality: _CardinalityEstimate
+    # Multisensor-specific fields (None for single-sensor filters)
+    sensor_updates: list[_SensorUpdateOutput] | None
     # LMBM-specific fields (None for LMB filters)
     predicted_hypotheses: list[_LmbmHypothesis] | None
     pre_normalization_hypotheses: list[_LmbmHypothesis] | None

@@ -38,7 +38,7 @@ use super::super::config::{AssociationConfig, BirthModel, MotionModel, Multisens
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
-use super::super::types::{StepDetailedOutput, Track};
+use super::super::types::{SensorUpdateOutput, StepDetailedOutput, Track};
 
 // Re-export fusion strategies for backwards compatibility
 pub use super::fusion::{
@@ -280,14 +280,23 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
         // ══════════════════════════════════════════════════════════════════════
         let has_any_measurements = measurements.iter().any(|m| !m.is_empty());
 
+        // Collect per-sensor intermediate data for downstream systems
+        let mut sensor_updates: Vec<SensorUpdateOutput> = Vec::with_capacity(num_sensors);
+
         if has_any_measurements && !self.tracks.is_empty() {
             let prior_tracks = self.tracks.clone();
             let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
 
-            for (sensor, sensor_measurements) in
-                self.sensors.sensors.iter().zip(measurements.iter())
+            for (sensor_idx, (sensor, sensor_measurements)) in self
+                .sensors
+                .sensors
+                .iter()
+                .zip(measurements.iter())
+                .enumerate()
             {
                 let mut sensor_tracks = prior_tracks.clone();
+                let mut assoc_matrices = None;
+                let mut assoc_result = None;
 
                 if !sensor_measurements.is_empty() {
                     let mut builder = AssociationBuilder::new(&sensor_tracks, sensor);
@@ -303,6 +312,10 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
                         &mut sensor_tracks,
                         &result,
                     );
+
+                    // Capture per-sensor intermediate data
+                    assoc_matrices = Some(matrices);
+                    assoc_result = Some(result);
                 } else {
                     let p_d = sensor.detection_probability;
                     for track in &mut sensor_tracks {
@@ -313,12 +326,32 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
                     }
                 }
 
+                // Store per-sensor output (before fusion)
+                sensor_updates.push(SensorUpdateOutput::new(
+                    sensor_idx,
+                    assoc_matrices,
+                    assoc_result,
+                    sensor_tracks.clone(),
+                ));
+
                 per_sensor_tracks.push(sensor_tracks);
             }
 
             self.tracks = self.merger.merge(&per_sensor_tracks, None);
         } else if !has_any_measurements {
             self.update_existence_no_measurements();
+            // No measurements - store empty sensor updates with miss-detected tracks
+            for sensor_idx in 0..num_sensors {
+                let p_d = self.sensors.sensors[sensor_idx].detection_probability;
+                let mut miss_tracks = self.tracks.clone();
+                for track in &mut miss_tracks {
+                    track.existence = crate::components::update::update_existence_no_detection(
+                        track.existence,
+                        p_d,
+                    );
+                }
+                sensor_updates.push(SensorUpdateOutput::new(sensor_idx, None, None, miss_tracks));
+            }
         }
         let updated_tracks = self.tracks.clone();
 
@@ -339,11 +372,13 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
 
         Ok(StepDetailedOutput {
             predicted_tracks,
-            association_matrices: None, // Multi-sensor doesn't expose per-sensor matrices
-            association_result: None,   // Multi-sensor doesn't expose per-sensor results
+            association_matrices: None, // Per-sensor matrices available in sensor_updates
+            association_result: None,   // Per-sensor results available in sensor_updates
             updated_tracks,
             cardinality,
             final_estimate,
+            // Per-sensor intermediate data for downstream systems
+            sensor_updates: Some(sensor_updates),
             // LMB doesn't have LMBM-specific fields
             predicted_hypotheses: None,
             pre_normalization_hypotheses: None,

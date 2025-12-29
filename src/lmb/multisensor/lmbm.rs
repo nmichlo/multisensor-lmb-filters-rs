@@ -654,6 +654,8 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             updated_tracks,
             cardinality,
             final_estimate,
+            // LMBM uses joint association - per-sensor data not directly available
+            sensor_updates: None,
             predicted_hypotheses,
             pre_normalization_hypotheses,
             normalized_hypotheses,

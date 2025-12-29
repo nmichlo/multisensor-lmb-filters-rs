@@ -56,6 +56,7 @@ fn _multisensor_lmb_filters_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<intermediate::PyStepOutput>()?;
     m.add_class::<intermediate::PyPosteriorParameters>()?;
     m.add_class::<intermediate::PyLmbmHypothesis>()?;
+    m.add_class::<intermediate::PySensorUpdateOutput>()?;
 
     // Version
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

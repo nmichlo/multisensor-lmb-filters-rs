@@ -22,7 +22,8 @@ use crate::lmb::{DynamicAssociator, LbpAssociator};
 use super::birth::PyBirthModel;
 use super::convert::{numpy_list_to_measurements, numpy_nested_to_measurements};
 use super::intermediate::{
-    PyAssociationMatrices, PyAssociationResult, PyCardinalityEstimate, PyStepOutput, PyTrackData,
+    PyAssociationMatrices, PyAssociationResult, PyCardinalityEstimate, PySensorUpdateOutput,
+    PyStepOutput, PyTrackData,
 };
 use super::models::{PyMotionModel, PySensorConfigMulti, PySensorModel};
 use super::output::PyStateEstimate;
@@ -173,6 +174,53 @@ fn step_output_to_py(
         })
         .transpose()?;
 
+    // Convert per-sensor updates (for multisensor filters)
+    let sensor_updates = output
+        .sensor_updates
+        .map(|updates| {
+            updates
+                .into_iter()
+                .map(|su| {
+                    // Get prior data from the sensor's input tracks (before update)
+                    // For simplicity, use the same prior data from predicted_tracks
+                    // since all sensors start from the same predicted state
+                    let sensor_matrices = su
+                        .association_matrices
+                        .map(|m| {
+                            Py::new(
+                                py,
+                                PyAssociationMatrices::from_matrices(
+                                    &m,
+                                    &prior_weights,
+                                    &prior_means,
+                                    &prior_covariances,
+                                    false, // LMB uses linear space L matrix
+                                ),
+                            )
+                        })
+                        .transpose()?;
+
+                    let sensor_result = su
+                        .association_result
+                        .map(|r| Py::new(py, PyAssociationResult::from_result(&r)))
+                        .transpose()?;
+
+                    let sensor_updated_tracks = tracks_to_py(py, &su.updated_tracks)?;
+
+                    Py::new(
+                        py,
+                        PySensorUpdateOutput {
+                            sensor_index: su.sensor_index,
+                            association_matrices: sensor_matrices,
+                            association_result: sensor_result,
+                            updated_tracks: sensor_updated_tracks,
+                        },
+                    )
+                })
+                .collect::<PyResult<Vec<_>>>()
+        })
+        .transpose()?;
+
     Py::new(
         py,
         PyStepOutput {
@@ -181,6 +229,8 @@ fn step_output_to_py(
             association_result: result,
             updated_tracks: updated,
             cardinality,
+            // Multisensor-specific fields
+            sensor_updates,
             // LMBM-specific fields
             predicted_hypotheses,
             pre_normalization_hypotheses,

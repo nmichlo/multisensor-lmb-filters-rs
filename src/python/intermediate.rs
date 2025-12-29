@@ -634,6 +634,60 @@ impl PyAssociationResult {
 }
 
 // =============================================================================
+// _SensorUpdateOutput - Per-sensor intermediate data for multisensor filters
+// =============================================================================
+
+/// Per-sensor intermediate output for multisensor LMB filters.
+///
+/// This exposes per-sensor association matrices, data association results,
+/// and updated tracks **before** fusion. Useful for:
+/// - Sensor health monitoring
+/// - Adaptive sensor weighting
+/// - Fault detection
+/// - Debugging sensor-specific issues
+#[pyclass(name = "_SensorUpdateOutput")]
+pub struct PySensorUpdateOutput {
+    /// Sensor index (0-based)
+    #[pyo3(get)]
+    pub sensor_index: usize,
+
+    /// Association matrices from association builder for this sensor
+    #[pyo3(get)]
+    pub association_matrices: Option<Py<PyAssociationMatrices>>,
+
+    /// Association result from data association algorithm for this sensor
+    #[pyo3(get)]
+    pub association_result: Option<Py<PyAssociationResult>>,
+
+    /// Tracks after this sensor's update (before fusion)
+    #[pyo3(get)]
+    pub updated_tracks: Vec<Py<PyTrackData>>,
+}
+
+#[pymethods]
+impl PySensorUpdateOutput {
+    fn __repr__(&self) -> String {
+        let has_matrices = if self.association_matrices.is_some() {
+            "yes"
+        } else {
+            "no"
+        };
+        let has_result = if self.association_result.is_some() {
+            "yes"
+        } else {
+            "no"
+        };
+        format!(
+            "_SensorUpdateOutput(sensor_index={}, n_updated_tracks={}, has_matrices={}, has_result={})",
+            self.sensor_index,
+            self.updated_tracks.len(),
+            has_matrices,
+            has_result
+        )
+    }
+}
+
+// =============================================================================
 // _CardinalityEstimate - Cardinality extraction result
 // =============================================================================
 
@@ -686,6 +740,15 @@ pub struct PyStepOutput {
     /// Cardinality estimate (after step 5)
     #[pyo3(get)]
     pub cardinality: Py<PyCardinalityEstimate>,
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Multisensor-specific fields (None for single-sensor filters)
+    // ═══════════════════════════════════════════════════════════════════════
+    /// Per-sensor intermediate data for multisensor LMB filters.
+    /// Contains association matrices, results, and updated tracks for each sensor
+    /// BEFORE fusion. None for single-sensor filters.
+    #[pyo3(get)]
+    pub sensor_updates: Option<Vec<Py<PySensorUpdateOutput>>>,
 
     // ═══════════════════════════════════════════════════════════════════════
     // LMBM-specific fields (None for LMB filters)

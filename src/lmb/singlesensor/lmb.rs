@@ -318,6 +318,8 @@ impl<A: Associator> LmbFilter<A> {
             updated_tracks,
             cardinality,
             final_estimate,
+            // Single-sensor filter - no per-sensor data
+            sensor_updates: None,
             // LMB doesn't have LMBM-specific fields
             predicted_hypotheses: None,
             pre_normalization_hypotheses: None,

@@ -233,6 +233,46 @@ impl TrajectoryHistory {
     }
 }
 
+/// Per-sensor intermediate data from multisensor filter update.
+///
+/// This struct captures the intermediate outputs for a single sensor's update
+/// within a multisensor filter step, including association matrices,
+/// data association results, and updated tracks.
+///
+/// ## Use Cases
+/// - **Sensor health monitoring**: Compare per-sensor association quality
+/// - **Adaptive sensor weighting**: Identify underperforming sensors
+/// - **Fault detection**: Detect sensor failures via association anomalies
+/// - **Debugging**: Trace data association through each sensor
+#[derive(Debug, Clone)]
+pub struct SensorUpdateOutput {
+    /// Sensor index (0-based)
+    pub sensor_index: usize,
+    /// Association matrices from the association builder for this sensor
+    pub association_matrices: Option<crate::association::AssociationMatrices>,
+    /// Association result from data association algorithm for this sensor
+    pub association_result: Option<super::traits::AssociationResult>,
+    /// Tracks after this sensor's update (before fusion with other sensors)
+    pub updated_tracks: Vec<Track>,
+}
+
+impl SensorUpdateOutput {
+    /// Create a new sensor update output
+    pub fn new(
+        sensor_index: usize,
+        association_matrices: Option<crate::association::AssociationMatrices>,
+        association_result: Option<super::traits::AssociationResult>,
+        updated_tracks: Vec<Track>,
+    ) -> Self {
+        Self {
+            sensor_index,
+            association_matrices,
+            association_result,
+            updated_tracks,
+        }
+    }
+}
+
 /// Cardinality estimation result from MAP cardinality extraction.
 ///
 /// This is the result of applying the LMB cardinality estimation algorithm,
@@ -295,6 +335,17 @@ pub struct StepDetailedOutput {
     pub cardinality: CardinalityEstimate,
     /// Final state estimate after gating.
     pub final_estimate: super::output::StateEstimate,
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Multisensor-specific fields (None for single-sensor filters)
+    // ═══════════════════════════════════════════════════════════════════════
+    /// Per-sensor intermediate data for multisensor filters.
+    ///
+    /// Contains association matrices, association results, and updated tracks
+    /// for each sensor **before** fusion. None for single-sensor filters.
+    ///
+    /// Index corresponds to sensor index (0-based).
+    pub sensor_updates: Option<Vec<SensorUpdateOutput>>,
 
     // ═══════════════════════════════════════════════════════════════════════
     // LMBM-specific fields (None for LMB filters)

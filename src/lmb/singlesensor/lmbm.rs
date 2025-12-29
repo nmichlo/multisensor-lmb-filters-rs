@@ -486,6 +486,8 @@ impl<A: Associator> LmbmFilter<A> {
             updated_tracks,
             cardinality,
             final_estimate,
+            // Single-sensor filter - no per-sensor data
+            sensor_updates: None,
             // LMBM-specific intermediate data for fixture validation
             predicted_hypotheses: Some(predicted_hypotheses),
             pre_normalization_hypotheses: Some(pre_normalization_hypotheses),
