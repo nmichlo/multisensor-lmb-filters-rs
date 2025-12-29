@@ -9,6 +9,15 @@ mod utils;
 #[path = "lmb/matlab_equivalence.rs"]
 mod matlab_equivalence;
 
+#[path = "lmb/lmbm_matlab_equivalence.rs"]
+mod lmbm_matlab_equivalence;
+
+#[path = "lmb/multisensor_matlab_equivalence.rs"]
+mod multisensor_matlab_equivalence;
+
+#[path = "lmb/multisensor_lmbm_matlab_equivalence.rs"]
+mod multisensor_lmbm_matlab_equivalence;
+
 #[path = "lmb/marginal_evaluations.rs"]
 mod marginal_evaluations;
 
