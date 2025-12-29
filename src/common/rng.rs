@@ -8,8 +8,13 @@ pub trait Rng {
     fn next_u64(&mut self) -> u64;
 
     /// Generate a random f64 in [0, 1)
+    ///
+    /// Uses `2^64` divisor (not `u64::MAX + 1`) to match MATLAB exactly.
+    /// The floating-point representation of `2_f64.powi(64)` is mathematically
+    /// exact, whereas `u64::MAX as f64 + 1.0` loses precision due to the
+    /// conversion of the huge integer to f64 before adding 1.
     fn rand(&mut self) -> f64 {
-        self.next_u64() as f64 / (u64::MAX as f64 + 1.0)
+        self.next_u64() as f64 / (2_f64.powi(64))
     }
 
     /// Generate a random f64 from standard normal distribution N(0, 1)
