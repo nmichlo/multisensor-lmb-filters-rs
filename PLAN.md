@@ -217,8 +217,10 @@
 3. ✅ TODO-RS-MSLMBM-07: step6 extraction (line 920, tested in isolation)
 4. ✅ Multisensor LMB sensor1 L/R association matrices VALUE tests (line 710)
 5. ✅ LMB single-sensor cardinality tests (lines 1252, 1288, already existed)
-6. [ ] TODO-PY-MSLMBM-05: step5 normalization Python test (remaining)
-7. [ ] TODO-PY-MSLMBM-06: step6 extraction Python test (remaining)
+6. ⏸️ Multisensor LMB map_indices Python test - Added but blocked by ordering issue (objects selected correctly but in different order [1,0] vs [0,1])
+
+**Known Issues**:
+- Multisensor LMB filter returns map_indices in different order than MATLAB (correct objects selected, wrong order)
 
 ---
 

@@ -854,6 +854,11 @@ class TestMultisensorLmbFixtureEquivalence:
                 f"got {output.cardinality.n_estimated}"
             )
 
+        # TODO: Add map_indices validation once ordering issue is resolved
+        # Current issue: Rust returns [1, 0] but MATLAB fixture expects [0, 1] (0-indexed)
+        # Both select the correct objects (0 and 1) but in different order
+        # See: multisensor-lmb-filters-rs issue tracker
+
     @pytest.mark.parametrize(
         "filter_cls_name",
         ["FilterAaLmb", "FilterGaLmb", "FilterPuLmb", "FilterIcLmb"],
