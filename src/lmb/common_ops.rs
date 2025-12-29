@@ -801,25 +801,8 @@ pub fn normalize_gate_and_prune_tracks(
         return vec![];
     }
 
-    // Step 5: Compute weighted total existence for each track position
-    // MATLAB line 41: r = sum(w .* [hypotheses.r], 2);
-    let num_tracks = hypotheses[0].tracks.len();
-    let mut total_existence = vec![0.0; num_tracks];
-    for hyp in hypotheses.iter() {
-        let w = hyp.weight(); // exp(log_weight)
-        for (i, track) in hyp.tracks.iter().enumerate() {
-            if i < num_tracks {
-                total_existence[i] += w * track.existence;
-            }
-        }
-    }
-
-    // Step 6: Determine which tracks to keep
-    // MATLAB line 42: objectsLikelyToExist = r > model.existenceThreshold;
-    let keep_mask: Vec<bool> = total_existence
-        .iter()
-        .map(|&r| r > existence_threshold)
-        .collect();
+    // Step 5-6: Compute objects likely to exist (MATLAB lines 41-42)
+    let keep_mask = compute_objects_likely_to_exist(hypotheses, existence_threshold);
 
     // Step 7: Prune tracks from ALL hypotheses using the mask
     // MATLAB lines 43-51: for i = 1:numberOfHypotheses
@@ -849,6 +832,53 @@ pub fn normalize_gate_and_prune_tracks(
     }
 
     keep_mask
+}
+
+/// Compute which objects are likely to exist based on weighted existence probabilities.
+///
+/// For each track, computes the weighted sum of existence probabilities across all
+/// hypotheses and returns true if this sum exceeds the threshold.
+///
+/// This function extracts the core existence computation logic (MATLAB line 41-42 in
+/// lmbmNormalisationAndGating.m) into a reusable helper.
+///
+/// # Arguments
+/// * `hypotheses` - Vector of LMBM hypotheses
+/// * `existence_threshold` - Threshold for determining if an object likely exists
+///
+/// # Returns
+/// Boolean vector where `result[i]` is true if object i likely exists
+///
+/// # Example
+/// ```ignore
+/// let ole = compute_objects_likely_to_exist(&hypotheses, 0.5);
+/// assert_eq!(ole[0], true); // Object 0 likely exists
+/// ```
+pub fn compute_objects_likely_to_exist(
+    hypotheses: &[LmbmHypothesis],
+    existence_threshold: f64,
+) -> Vec<bool> {
+    if hypotheses.is_empty() {
+        return Vec::new();
+    }
+
+    let num_tracks = hypotheses[0].tracks.len();
+    let mut ole = vec![false; num_tracks];
+
+    // Compute weighted sum of existence probabilities across all hypotheses
+    // MATLAB: r = sum(w .* [hypotheses.r], 2)
+    for i in 0..num_tracks {
+        let mut weighted_existence = 0.0;
+        for hyp in hypotheses {
+            if i < hyp.tracks.len() {
+                weighted_existence += hyp.weight() * hyp.tracks[i].existence;
+            }
+        }
+        // MATLAB: objectsLikelyToExist = r > model.existenceThreshold
+        ole[i] = weighted_existence > existence_threshold;
+    }
+
+    ole
 }
 
 #[cfg(test)]

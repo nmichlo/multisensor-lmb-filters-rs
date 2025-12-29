@@ -126,7 +126,7 @@ pub fn assert_hypothesis_close<T>(
 ) where
     T: HypothesisDataAccess,
 {
-    // Compare log-weight
+    // Compare log-weight (fixture w field stores log weights in LMBM context)
     assert_scalar_close(
         actual.log_weight,
         expected.w(),

@@ -621,25 +621,11 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
         let normalized_hypotheses = Some(self.hypotheses.clone());
 
         // Compute objects_likely_to_exist (existence > threshold check)
-        let objects_likely_to_exist = if !self.hypotheses.is_empty() {
-            let num_tracks = self.hypotheses[0].tracks.len();
-            let mut ole = vec![false; num_tracks];
-
-            // Compute weighted sum of existence probabilities across all hypotheses
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..num_tracks {
-                let mut weighted_existence = 0.0;
-                for hyp in &self.hypotheses {
-                    if i < hyp.tracks.len() {
-                        weighted_existence += hyp.log_weight.exp() * hyp.tracks[i].existence;
-                    }
-                }
-                ole[i] = weighted_existence > self.existence_threshold;
-            }
-            Some(ole)
-        } else {
-            Some(Vec::new())
-        };
+        let objects_likely_to_exist =
+            Some(super::super::common_ops::compute_objects_likely_to_exist(
+                &self.hypotheses,
+                self.existence_threshold,
+            ));
 
         let updated_tracks = self.get_tracks();
 

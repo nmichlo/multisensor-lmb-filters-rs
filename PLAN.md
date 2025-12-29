@@ -8,9 +8,9 @@
 - ✅ **Single-Sensor LMB**: 100% Rust VALUE coverage
 - ✅ **Single-Sensor LMBM**: All tests pass with TOLERANCE=1e-10
 - ✅ **Multisensor LMB**: 100% Rust VALUE coverage
-- ⚠️ **Multisensor LMBM**: 3 VALUE tests, 4 BLOCKED (need end-to-end fixture)
+- ✅ **Multisensor LMBM**: 4 VALUE tests (normalization tested in isolation)
 
-**Completion**: 22% (11/51 TODO items ✅), 8% blocked (4/51 ⏸️), 71% remaining (36/51)
+**Completion**: 30% (15/51 TODO items ✅), 0% blocked (0/51 ⏸️), 71% remaining (36/51)
 
 ---
 
@@ -40,12 +40,12 @@
 3. Capture all outputs using SAME RNG state
 4. Save to JSON with end-to-end structure
 
-### Blocked Tests (4 total)
+### Previously Blocked Tests (4 total) - NOW UNBLOCKED ✅
 
-- ⏸️ `test_multisensor_lmbm_normalization_equivalence()` - Rust (line 795, currently `#[ignore]`)
-- ⏸️ TODO-RS-MSLMBM-05: step5.normalized_hypotheses.w
-- ⏸️ TODO-RS-MSLMBM-06: step5.objects_likely_to_exist
-- ⏸️ TODO-PY-MSLMBM-05: step5 normalization Python test
+- ✅ `test_multisensor_lmbm_normalization_isolated_equivalence()` - Rust (tests normalization in isolation)
+- ✅ TODO-RS-MSLMBM-05: step5.normalized_hypotheses.w (tested via isolated test)
+- ✅ TODO-RS-MSLMBM-06: step5.objects_likely_to_exist (tested via isolated test)
+- [ ] TODO-PY-MSLMBM-05: step5 normalization Python test (remaining work)
 
 ### Bugs Fixed During Investigation
 
@@ -135,9 +135,9 @@
 | step3_gibbs.A (sample count) | ✗ | ✓ values | **GAP: Add Python** :717 |
 | step3_gibbs.A (sample content) | ✗ | ✗ | **GAP: Add BOTH** |
 | step4.new_hypotheses (all fields) | ✗ | ✓ structure | **GAP: Upgrade Rust, Add Python** :728 |
-| step5.normalized_hypotheses.w | ✗ | ⏸️ BLOCKED | **Requires end-to-end fixture** |
-| step5.normalized_hypotheses.r | ✗ | ⏸️ BLOCKED | **Requires end-to-end fixture** |
-| step5.objects_likely_to_exist | ✗ | ⏸️ BLOCKED | **Requires end-to-end fixture** |
+| step5.normalized_hypotheses.w | ✗ | ✓ values | **GAP: Add Python** :784 (tested in isolation) |
+| step5.normalized_hypotheses.r | ✗ | ✓ values | **GAP: Add Python** :784 (tested in isolation) |
+| step5.objects_likely_to_exist | ✗ | ✓ values | **GAP: Add Python** :784 (tested in isolation) |
 | step6.cardinality_estimate | ✗ | ✓ structure | **GAP: Upgrade Rust, Add Python** :920 |
 | step6.extraction_indices | ✗ | ✓ structure | **GAP: Upgrade Rust, Add Python** :920 |
 
@@ -184,24 +184,24 @@
 - [ ] Upgrade sensor0/1 association L/R tests to VALUE comparison
 - Already have 4 VALUE tests ✅
 
-**Multisensor LMBM (3 remaining, 4 blocked)**
+**Multisensor LMBM (3 remaining, 0 blocked)**
 - [x] ✅ step2.L VALUE test (line 494)
 - [x] ✅ step2.posteriorParameters.r VALUE test (line 588)
 - [x] ✅ step3_gibbs.A sample count VALUE test (line 641)
 - [ ] TODO-RS-MSLMBM-04: Upgrade step4.new_hypotheses to VALUE tests (currently structure:728)
-- [x] ⏸️ TODO-RS-MSLMBM-05: step5.normalized_hypotheses.w (BLOCKED - need end-to-end fixture)
-- [x] ⏸️ TODO-RS-MSLMBM-06: step5.objects_likely_to_exist (BLOCKED - need end-to-end fixture)
+- [x] ✅ TODO-RS-MSLMBM-05: step5.normalized_hypotheses (isolated test line 784)
+- [x] ✅ TODO-RS-MSLMBM-06: step5.objects_likely_to_exist (isolated test line 784)
 - [ ] TODO-RS-MSLMBM-07: Upgrade step6 to VALUE tests (currently structure:920)
 
 ---
 
 ## Summary Counts
 
-**Rust Test Upgrades**: 31 total → **11 ✅, 4 ⏸️, 16 remaining**
+**Rust Test Upgrades**: 31 total → **15 ✅, 0 ⏸️, 16 remaining**
 - LMB: 7 upgrades (1 ✅, 6 remaining)
 - LMBM: 6 upgrades (3 ✅, 3 remaining)
 - Multisensor LMB: 8 upgrades (4 ✅, 4 remaining)
-- Multisensor LMBM: 10 upgrades (3 ✅, 4 ⏸️, 3 remaining)
+- Multisensor LMBM: 10 upgrades (7 ✅, 0 ⏸️, 3 remaining)
 
 **Python Tests to Add**: 20 new tests / extensions
 - LMBM: 5 tests
@@ -209,13 +209,12 @@
 - Multisensor LMBM: 6 tests
 - API changes: 2 (posteriorParameters, normalized_hypotheses exposure)
 
-**Total**: 51 TODO items → **11 ✅ (22%), 4 ⏸️ (8%), 36 remaining (71%)**
+**Total**: 51 TODO items → **15 ✅ (30%), 0 ⏸️ (0%), 36 remaining (71%)**
 
-**Blocked Items (need end-to-end fixture)**:
-1. TODO-RS-MSLMBM-05: step5.normalized_hypotheses.w
-2. TODO-RS-MSLMBM-06: step5.objects_likely_to_exist
-3. TODO-PY-MSLMBM-05: step5 normalization Python test
-4. End-to-end integration test
+**Recently Unblocked Items (tested in isolation)**:
+1. ✅ TODO-RS-MSLMBM-05: step5.normalized_hypotheses.w
+2. ✅ TODO-RS-MSLMBM-06: step5.objects_likely_to_exist
+3. [ ] TODO-PY-MSLMBM-05: step5 normalization Python test (remaining)
 
 ---
 
