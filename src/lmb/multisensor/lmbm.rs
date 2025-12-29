@@ -626,6 +626,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             let mut ole = vec![false; num_tracks];
 
             // Compute weighted sum of existence probabilities across all hypotheses
+            #[allow(clippy::needless_range_loop)]
             for i in 0..num_tracks {
                 let mut weighted_existence = 0.0;
                 for hyp in &self.hypotheses {

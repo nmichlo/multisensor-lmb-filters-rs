@@ -661,16 +661,6 @@ fn test_multisensor_lmbm_gibbs_a_matrix_equivalence() {
     // Get L matrix and dimensions from fixture
     let l_matrix = &fixture.step2_association.output.l;
 
-    // Flatten L matrix from 3D to 1D (MATLAB stores as nested arrays)
-    let log_likelihoods: Vec<f64> = l_matrix
-        .iter()
-        .flat_map(|sensor_data| {
-            sensor_data
-                .iter()
-                .flat_map(|track_data| track_data.iter().copied())
-        })
-        .collect();
-
     // Dimensions: [m1+1, m2+1, n] = [3, 12, 4]
     let dimensions = vec![
         fixture.measurements[0].len() + 1, // Sensor 0: 2 measurements + 1 miss
@@ -678,7 +668,34 @@ fn test_multisensor_lmbm_gibbs_a_matrix_equivalence() {
         l_matrix[0][0].len(),              // Number of objects/tracks
     ];
 
+    // Flatten L in column-major order to match MATLAB's linear indexing
+    // MATLAB: ell = u[0] + u[1]*d[0] + u[2]*d[0]*d[1]
+    // Iteration order: d1 fastest, then d2, then obj
+    let mut log_likelihoods = Vec::with_capacity(dimensions.iter().product());
+    for obj in 0..dimensions[2] {
+        for d2 in 0..dimensions[1] {
+            for d1 in 0..dimensions[0] {
+                log_likelihoods.push(l_matrix[d1][d2][obj]);
+            }
+        }
+    }
+
     println!("  Dimensions: {:?}", dimensions);
+
+    // Verify a few likelihood values match MATLAB
+    println!("  Verifying likelihood values:");
+    println!(
+        "    L[0,0,0] (miss,miss,obj0): Rust={:.6}, MATLAB={:.6}",
+        log_likelihoods[0], l_matrix[0][0][0]
+    );
+    println!(
+        "    L[1,0,0] (meas0_s0,miss,obj0): Rust={:.6}, MATLAB={:.6}",
+        log_likelihoods[1], l_matrix[1][0][0]
+    );
+    println!(
+        "    L[0,1,0] (miss,meas0_s1,obj0): Rust={:.6}, MATLAB={:.6}",
+        log_likelihoods[3], l_matrix[0][1][0]
+    );
 
     // Run Gibbs sampler
     let association_config = AssociationConfig {

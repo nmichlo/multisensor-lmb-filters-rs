@@ -160,7 +160,17 @@ impl MultisensorGibbsAssociator {
 
         for s in 0..num_sensors {
             for i in 0..num_objects {
-                // Starting measurement index
+                // Starting measurement index (CRITICAL: must match MATLAB's k calculation)
+                // MATLAB: k = V(i,s) + (V(i,s) == 0) where V stores measurement numbers 0,1,2,...
+                // If V=0 (miss): k = 0 + 1 = 1 (start from measurement 1)
+                // If V=1 (meas 1): k = 1 + 0 = 1 (start from measurement 1, reconsider current)
+                // If V=2 (meas 2): k = 2 + 0 = 2 (start from measurement 2, reconsider current)
+                // Rust v also stores measurement numbers 0,1,2,...
+                // To match MATLAB's j loop (1-indexed inclusive), Rust needs j loop (0-indexed exclusive)
+                // MATLAB j=1 corresponds to Rust j=0 (both are first measurement)
+                // When v=0: MATLAB k=1 means start at j=1, Rust needs j=0
+                // When v=1: MATLAB k=1 means start at j=1, Rust needs j=0
+                // When v=2: MATLAB k=2 means start at j=2, Rust needs j=1
                 let k = if v[(i, s)] == 0 { 0 } else { v[(i, s)] - 1 };
 
                 if debug {
@@ -219,10 +229,8 @@ impl MultisensorGibbsAssociator {
                                 eprintln!("    -> MISS");
                             }
                         }
-                    } else {
-                        if debug {
-                            eprintln!("  [SKIP] j={}, w[(j,s)]={} (not available)", j, w[(j, s)]);
-                        }
+                    } else if debug {
+                        eprintln!("  [SKIP] j={}, w[(j,s)]={} (not available)", j, w[(j, s)]);
                     }
                 }
 
@@ -260,7 +268,7 @@ impl MultisensorAssociator for MultisensorGibbsAssociator {
 
         let mut unique_samples = std::collections::HashSet::new();
 
-        for iter in 0..config.gibbs_samples {
+        for _ in 0..config.gibbs_samples {
             // Generate one Gibbs sample
             Self::generate_association_event(rng, log_likelihoods, dimensions, &m, &mut v, &mut w);
 
@@ -272,23 +280,8 @@ impl MultisensorAssociator for MultisensorGibbsAssociator {
                 }
             }
 
-            // DEBUG: Print first few samples
-            if iter < 20 || unique_samples.len() <= 2 {
-                eprintln!(
-                    "[DEBUG] Iteration {}: sample = {:?}, unique_count = {}",
-                    iter,
-                    sample,
-                    unique_samples.len()
-                );
-            }
-
             unique_samples.insert(sample);
         }
-
-        eprintln!(
-            "[DEBUG] Final unique sample count: {}",
-            unique_samples.len()
-        );
 
         Ok(MultisensorAssociationResult::new(
             unique_samples.into_iter().collect(),

@@ -2,6 +2,7 @@
 """Debug script to check Gibbs sampling implementation."""
 
 import json
+
 import numpy as np
 
 # Load fixture
@@ -14,7 +15,7 @@ print(f"Number of sensors: {fixture['numberOfSensors']}")
 
 # Measurements
 measurements = fixture["measurements"]
-print(f"\nMeasurements per sensor:")
+print("\nMeasurements per sensor:")
 for i, sensor_meas in enumerate(measurements):
     print(f"  Sensor {i+1}: {len(sensor_meas)} measurements")
 
@@ -28,10 +29,12 @@ print(f"Gibbs number of samples: {gibbs_input['numberOfSamples']}")
 # Gibbs output
 gibbs_output = fixture["step3_gibbs"]["output"]
 samples = np.array(gibbs_output["A"])
-print(f"\n=== MATLAB Gibbs Output ===")
+print("\n=== MATLAB Gibbs Output ===")
 print(f"Shape: {samples.shape}  # (unique_samples, num_objects * num_sensors)")
 print(f"Number of UNIQUE samples: {len(samples)}")
-print(f"\nAll {len(samples)} unique samples (rows are samples, columns are [obj1_sensor1, obj2_sensor1, obj3_sensor1, obj4_sensor1, obj1_sensor2, obj2_sensor2, obj3_sensor2, obj4_sensor2]):")
+print(
+    f"\nAll {len(samples)} unique samples (rows are samples, columns are [obj1_sensor1, obj2_sensor1, obj3_sensor1, obj4_sensor1, obj1_sensor2, obj2_sensor2, obj3_sensor2, obj4_sensor2]):"
+)
 for i, sample in enumerate(samples):
     # Reshape to show per-object per-sensor
     n_sensors = fixture["numberOfSensors"]
