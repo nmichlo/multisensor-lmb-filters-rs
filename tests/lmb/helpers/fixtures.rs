@@ -1,4 +1,4 @@
-//! Fixture loading and test setup utilities
+//! Fixture loading and deserialization utilities
 //!
 //! This module centralizes fixture loading and conversion to eliminate
 //! duplicate setup code across test files.
@@ -9,8 +9,189 @@ use std::fs;
 
 use multisensor_lmb_filters_rs::lmb::{GaussianComponent, SensorModel, Track, TrackLabel};
 
-// Re-export fixture types (these will need to be made public in the test modules)
-// For now, we'll define the conversion functions that can be used with the existing types
+//=============================================================================
+// Deserialization Helpers
+//=============================================================================
+
+/// Deserialize MATLAB weight field that can be scalar or array
+///
+/// MATLAB serializes single-component weights as scalars, but multi-component
+/// weights as arrays. This handles both cases.
+pub fn deserialize_w<'de, D>(deserializer: D) -> Result<Vec<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Deserialize};
+
+    struct WVisitor;
+
+    impl<'de> de::Visitor<'de> for WVisitor {
+        type Value = Vec<f64>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a number or array of numbers")
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Vec<f64>, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value])
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Vec<f64>, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value as f64])
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Vec<f64>, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value as f64])
+        }
+
+        fn visit_seq<A>(self, seq: A) -> Result<Vec<f64>, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            Deserialize::deserialize(de::value::SeqAccessDeserializer::new(seq))
+        }
+    }
+
+    deserializer.deserialize_any(WVisitor)
+}
+
+/// Deserialize MATLAB P_s field that can be scalar or single-element array
+///
+/// MATLAB sometimes serializes scalar values as 1-element arrays.
+pub fn deserialize_p_s<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+
+    struct PSVisitor;
+
+    impl<'de> de::Visitor<'de> for PSVisitor {
+        type Value = f64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a float or array of floats")
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(value)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            seq.next_element()?
+                .ok_or_else(|| de::Error::custom("empty array for P_s"))
+        }
+    }
+
+    deserializer.deserialize_any(PSVisitor)
+}
+
+/// Deserialize MATLAB matrix that may contain null values (representing infinity)
+///
+/// MATLAB JSON export uses null for infinity values. This converts them to f64::INFINITY.
+pub fn deserialize_matrix<'de, D>(deserializer: D) -> Result<Vec<Vec<f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    let matrix: Vec<Vec<Option<f64>>> = Deserialize::deserialize(deserializer)?;
+    Ok(matrix
+        .iter()
+        .map(|row| row.iter().map(|&v| v.unwrap_or(f64::INFINITY)).collect())
+        .collect())
+}
+
+/// Deserialize MATLAB posterior weights that can be 1D or 2D
+///
+/// MATLAB serializes single-component posterior weights as 1D arrays,
+/// but multi-component as 2D arrays. This handles both cases.
+pub fn deserialize_posterior_w<'de, D>(deserializer: D) -> Result<Vec<Vec<f64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+
+    struct WVisitor;
+
+    impl<'de> de::Visitor<'de> for WVisitor {
+        type Value = Vec<Vec<f64>>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a 1D or 2D array of numbers")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<Vec<f64>>, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut result = Vec::new();
+
+            if let Some(first) = seq.next_element::<serde_json::Value>()? {
+                if first.is_array() {
+                    let first_row: Vec<f64> = serde_json::from_value(first).map_err(|e| {
+                        de::Error::custom(format!("Failed to parse first row: {}", e))
+                    })?;
+                    result.push(first_row);
+
+                    while let Some(row) = seq.next_element::<Vec<f64>>()? {
+                        result.push(row);
+                    }
+                } else {
+                    let first_val: f64 = serde_json::from_value(first).map_err(|e| {
+                        de::Error::custom(format!("Failed to parse first value: {}", e))
+                    })?;
+                    let mut row = vec![first_val];
+
+                    while let Some(val) = seq.next_element::<f64>()? {
+                        row.push(val);
+                    }
+                    result.push(row);
+                }
+            }
+
+            Ok(result)
+        }
+    }
+
+    deserializer.deserialize_seq(WVisitor)
+}
+
+/// Deserialize MATLAB V matrix (integer assignment matrix)
+pub fn deserialize_v_matrix<'de, D>(deserializer: D) -> Result<Vec<Vec<i32>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    Deserialize::deserialize(deserializer)
+}
+
+/// Deserialize MATLAB i32 matrix
+pub fn deserialize_matrix_i32<'de, D>(deserializer: D) -> Result<Vec<Vec<i32>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    Deserialize::deserialize(deserializer)
+}
+
+//=============================================================================
+// Fixture Loading Helpers
+//=============================================================================
 
 /// Preloaded fixture and common test setup for association tests
 pub struct AssociationTestSetup {
@@ -138,6 +319,16 @@ pub fn load_lmb_fixture_path() -> &'static str {
 /// Load LMBM fixture from standard JSON path
 pub fn load_lmbm_fixture_path() -> &'static str {
     "tests/data/step_by_step/lmbm_step_by_step_seed42.json"
+}
+
+/// Load multisensor LMB fixture from standard JSON path
+pub fn load_multisensor_lmb_fixture_path() -> &'static str {
+    "tests/data/step_by_step/multisensor_lmb_step_by_step_seed42.json"
+}
+
+/// Load multisensor LMBM fixture from standard JSON path
+pub fn load_multisensor_lmbm_fixture_path() -> &'static str {
+    "tests/data/step_by_step/multisensor_lmbm_step_by_step_seed42.json"
 }
 
 /// Generic fixture loading helper

@@ -11,6 +11,9 @@ mod helpers;
 use serde::Deserialize;
 use std::fs;
 
+// Import deserialization helpers from fixtures module
+use helpers::fixtures::{deserialize_matrix_i32, deserialize_p_s};
+
 const TOLERANCE: f64 = 1e-10;
 
 //=============================================================================
@@ -203,61 +206,7 @@ struct MultisensorLmbmExtractionOutput {
     extraction_indices: Vec<usize>,
 }
 
-//=============================================================================
-// Deserialization Helpers
-//=============================================================================
-
-fn deserialize_p_s<'de, D>(deserializer: D) -> Result<f64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de;
-
-    struct PSVisitor;
-
-    impl<'de> de::Visitor<'de> for PSVisitor {
-        type Value = f64;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a float or array of floats")
-        }
-
-        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            Ok(value)
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: de::SeqAccess<'de>,
-        {
-            seq.next_element()?
-                .ok_or_else(|| de::Error::custom("empty array for P_s"))
-        }
-    }
-
-    deserializer.deserialize_any(PSVisitor)
-}
-
-fn deserialize_matrix<'de, D>(deserializer: D) -> Result<Vec<Vec<f64>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let matrix: Vec<Vec<Option<f64>>> = serde::Deserialize::deserialize(deserializer)?;
-    Ok(matrix
-        .iter()
-        .map(|row| row.iter().map(|&v| v.unwrap_or(f64::INFINITY)).collect())
-        .collect())
-}
-
-fn deserialize_matrix_i32<'de, D>(deserializer: D) -> Result<Vec<Vec<i32>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    serde::Deserialize::deserialize(deserializer)
-}
+// Deserialization helpers are now imported from helpers::fixtures
 
 //=============================================================================
 // Trait Implementations for Helper Functions

@@ -3,8 +3,6 @@
 //! This module provides reusable functions for comparing complex association
 //! results against MATLAB fixtures.
 
-use nalgebra::DVector;
-
 use multisensor_lmb_filters_rs::association::PosteriorGrid;
 use multisensor_lmb_filters_rs::lmb::AssociationResult;
 

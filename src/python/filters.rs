@@ -580,7 +580,6 @@ pub struct PyFilterLmbm {
 impl PyFilterLmbm {
     #[new]
     #[pyo3(signature = (motion, sensor, birth, association=None, thresholds=None, lmbm_config=None, seed=None))]
-    #[allow(unused_variables)]
     fn new(
         motion: &PyMotionModel,
         sensor: &PySensorModel,
@@ -896,7 +895,6 @@ pub struct PyFilterMultisensorLmbm {
 impl PyFilterMultisensorLmbm {
     #[new]
     #[pyo3(signature = (motion, sensors, birth, association=None, thresholds=None, lmbm_config=None, seed=None))]
-    #[allow(unused_variables)]
     fn new(
         motion: &PyMotionModel,
         sensors: &PySensorConfigMulti,

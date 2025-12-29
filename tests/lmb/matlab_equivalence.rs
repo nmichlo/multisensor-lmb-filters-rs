@@ -24,6 +24,13 @@ use multisensor_lmb_filters_rs::lmb::{
     LbpAssociator, MotionModel, SensorModel, Track, TrackLabel,
 };
 
+// Import deserialization helpers from fixtures module
+use helpers::fixtures::{
+    deserialize_matrix, deserialize_p_s, deserialize_posterior_w, deserialize_w,
+};
+// Import assertion helpers
+use helpers::assertions::{assert_dmatrix_close, assert_dvector_close};
+
 const TOLERANCE: f64 = 1e-10;
 
 //=============================================================================
@@ -259,153 +266,7 @@ struct PosteriorParams {
     w: Vec<Vec<f64>>,
 }
 
-//=============================================================================
-// Deserialization Helpers
-//=============================================================================
-
-fn deserialize_w<'de, D>(deserializer: D) -> Result<Vec<f64>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::{self, Deserialize};
-
-    struct WVisitor;
-
-    impl<'de> de::Visitor<'de> for WVisitor {
-        type Value = Vec<f64>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a number or array of numbers")
-        }
-
-        fn visit_f64<E>(self, value: f64) -> Result<Vec<f64>, E>
-        where
-            E: de::Error,
-        {
-            Ok(vec![value])
-        }
-
-        fn visit_i64<E>(self, value: i64) -> Result<Vec<f64>, E>
-        where
-            E: de::Error,
-        {
-            Ok(vec![value as f64])
-        }
-
-        fn visit_u64<E>(self, value: u64) -> Result<Vec<f64>, E>
-        where
-            E: de::Error,
-        {
-            Ok(vec![value as f64])
-        }
-
-        fn visit_seq<A>(self, seq: A) -> Result<Vec<f64>, A::Error>
-        where
-            A: de::SeqAccess<'de>,
-        {
-            Deserialize::deserialize(de::value::SeqAccessDeserializer::new(seq))
-        }
-    }
-
-    deserializer.deserialize_any(WVisitor)
-}
-
-fn deserialize_p_s<'de, D>(deserializer: D) -> Result<f64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::{self, Deserialize};
-
-    struct PSVisitor;
-
-    impl<'de> de::Visitor<'de> for PSVisitor {
-        type Value = f64;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a float or array of floats")
-        }
-
-        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            Ok(value)
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: de::SeqAccess<'de>,
-        {
-            seq.next_element()?
-                .ok_or_else(|| de::Error::custom("empty array for P_s"))
-        }
-    }
-
-    deserializer.deserialize_any(PSVisitor)
-}
-
-fn deserialize_matrix<'de, D>(deserializer: D) -> Result<Vec<Vec<f64>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::Deserialize;
-    let matrix: Vec<Vec<Option<f64>>> = Deserialize::deserialize(deserializer)?;
-    Ok(matrix
-        .iter()
-        .map(|row| row.iter().map(|&v| v.unwrap_or(f64::INFINITY)).collect())
-        .collect())
-}
-
-fn deserialize_posterior_w<'de, D>(deserializer: D) -> Result<Vec<Vec<f64>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::{self, Deserialize};
-
-    struct WVisitor;
-
-    impl<'de> de::Visitor<'de> for WVisitor {
-        type Value = Vec<Vec<f64>>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a 1D or 2D array of numbers")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<Vec<f64>>, A::Error>
-        where
-            A: de::SeqAccess<'de>,
-        {
-            let mut result = Vec::new();
-
-            if let Some(first) = seq.next_element::<serde_json::Value>()? {
-                if first.is_array() {
-                    let first_row: Vec<f64> = serde_json::from_value(first).map_err(|e| {
-                        de::Error::custom(format!("Failed to parse first row: {}", e))
-                    })?;
-                    result.push(first_row);
-
-                    while let Some(row) = seq.next_element::<Vec<f64>>()? {
-                        result.push(row);
-                    }
-                } else {
-                    let first_val: f64 = serde_json::from_value(first).map_err(|e| {
-                        de::Error::custom(format!("Failed to parse first value: {}", e))
-                    })?;
-                    let mut row = vec![first_val];
-
-                    while let Some(val) = seq.next_element::<f64>()? {
-                        row.push(val);
-                    }
-                    result.push(row);
-                }
-            }
-
-            Ok(result)
-        }
-    }
-
-    deserializer.deserialize_seq(WVisitor)
-}
+// Deserialization helpers are now imported from helpers::fixtures
 
 //=============================================================================
 // Conversion Helpers
@@ -563,86 +424,7 @@ impl helpers::tracks::TrackDataAccess for ObjectData {
     }
 }
 
-//=============================================================================
-// Assertion Helpers
-//=============================================================================
-
-fn assert_vec_close(a: &[f64], b: &[f64], tolerance: f64, msg: &str) {
-    assert_eq!(
-        a.len(),
-        b.len(),
-        "{}: length mismatch ({} vs {})",
-        msg,
-        a.len(),
-        b.len()
-    );
-    for (i, (av, bv)) in a.iter().zip(b.iter()).enumerate() {
-        if av.is_infinite() && bv.is_infinite() && av.signum() == bv.signum() {
-            continue;
-        }
-        if av.is_nan() && bv.is_nan() {
-            continue;
-        }
-        let diff = (av - bv).abs();
-        assert!(
-            diff <= tolerance,
-            "{}: element {} differs: {} vs {} (diff: {:.2e})",
-            msg,
-            i,
-            av,
-            bv,
-            diff
-        );
-    }
-}
-
-fn assert_matrix_close(a: &[Vec<f64>], b: &[Vec<f64>], tolerance: f64, msg: &str) {
-    assert_eq!(a.len(), b.len(), "{}: row count mismatch", msg);
-    for (i, (arow, brow)) in a.iter().zip(b.iter()).enumerate() {
-        assert_vec_close(arow, brow, tolerance, &format!("{} row {}", msg, i));
-    }
-}
-
-fn assert_dmatrix_close(a: &DMatrix<f64>, b: &DMatrix<f64>, tolerance: f64, msg: &str) {
-    assert_eq!(a.nrows(), b.nrows(), "{}: row count mismatch", msg);
-    assert_eq!(a.ncols(), b.ncols(), "{}: col count mismatch", msg);
-    for i in 0..a.nrows() {
-        for j in 0..a.ncols() {
-            let av = a[(i, j)];
-            let bv = b[(i, j)];
-            if av.is_infinite() && bv.is_infinite() && av.signum() == bv.signum() {
-                continue;
-            }
-            let diff = (av - bv).abs();
-            assert!(
-                diff <= tolerance,
-                "{}: element ({},{}) differs: {} vs {} (diff: {:.2e})",
-                msg,
-                i,
-                j,
-                av,
-                bv,
-                diff
-            );
-        }
-    }
-}
-
-fn assert_dvector_close(a: &DVector<f64>, b: &DVector<f64>, tolerance: f64, msg: &str) {
-    assert_eq!(a.len(), b.len(), "{}: length mismatch", msg);
-    for i in 0..a.len() {
-        let diff = (a[i] - b[i]).abs();
-        assert!(
-            diff <= tolerance,
-            "{}: element {} differs: {} vs {} (diff: {:.2e})",
-            msg,
-            i,
-            a[i],
-            b[i],
-            diff
-        );
-    }
-}
+// Assertion helpers are now imported from helpers::assertions
 
 //=============================================================================
 // NEW API Prediction Step Tests

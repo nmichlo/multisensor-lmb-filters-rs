@@ -19,7 +19,7 @@ use rand::distributions::Distribution;
 
 use super::super::config::AssociationConfig;
 use super::super::errors::AssociationError;
-use super::super::simple_rng::Uniform01;
+use crate::common::rng::Uniform01;
 
 /// Result of multi-sensor data association.
 ///

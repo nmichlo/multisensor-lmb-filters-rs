@@ -54,7 +54,6 @@ pub mod singlesensor;
 
 // Utilities
 pub mod cardinality;
-pub mod simple_rng;
 
 // Re-export all public types from submodules
 
@@ -94,8 +93,8 @@ pub use multisensor::{
     MultisensorMeasurements, ParallelUpdateMerger, PuLmbFilter,
 };
 
-// Utilities
-pub use simple_rng::{SimpleRng, Uniform01};
+// Utilities (re-exported from common)
+pub use crate::common::rng::{SimpleRng, Uniform01};
 
 // ============================================================================
 // Default Filter Constants

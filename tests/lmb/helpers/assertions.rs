@@ -19,6 +19,10 @@ pub fn assert_scalar_close(actual: f64, expected: f64, tolerance: f64, field_nam
 }
 
 /// Compare vector slices element-wise with tolerance
+///
+/// Handles special cases:
+/// - Both infinite with same sign: considered equal
+/// - Both NaN: considered equal (for test purposes)
 pub fn assert_vec_close(actual: &[f64], expected: &[f64], tolerance: f64, field_name: &str) {
     assert_eq!(
         actual.len(),
@@ -30,10 +34,18 @@ pub fn assert_vec_close(actual: &[f64], expected: &[f64], tolerance: f64, field_
     );
 
     for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+        // Handle infinite values
+        if a.is_infinite() && e.is_infinite() && a.signum() == e.signum() {
+            continue;
+        }
+        // Handle NaN values
+        if a.is_nan() && e.is_nan() {
+            continue;
+        }
         let diff = (a - e).abs();
         assert!(
             diff <= tolerance,
-            "{}[{}]: expected {}, got {} (diff: {}, tolerance: {})",
+            "{}[{}]: expected {}, got {} (diff: {:.2e}, tolerance: {:.0e})",
             field_name,
             i,
             e,
@@ -76,6 +88,9 @@ pub fn assert_dvector_close(
 }
 
 /// Compare DMatrix with tolerance
+///
+/// Handles special cases:
+/// - Both infinite with same sign: considered equal
 pub fn assert_dmatrix_close(
     actual: &DMatrix<f64>,
     expected: &DMatrix<f64>,
@@ -101,15 +116,21 @@ pub fn assert_dmatrix_close(
 
     for i in 0..actual.nrows() {
         for j in 0..actual.ncols() {
-            let diff = (actual[(i, j)] - expected[(i, j)]).abs();
+            let av = actual[(i, j)];
+            let ev = expected[(i, j)];
+            // Handle infinite values
+            if av.is_infinite() && ev.is_infinite() && av.signum() == ev.signum() {
+                continue;
+            }
+            let diff = (av - ev).abs();
             assert!(
                 diff <= tolerance,
-                "{}[{},{}]: expected {}, got {} (diff: {}, tolerance: {})",
+                "{}[{},{}]: expected {}, got {} (diff: {:.2e}, tolerance: {:.0e})",
                 field_name,
                 i,
                 j,
-                expected[(i, j)],
-                actual[(i, j)],
+                ev,
+                av,
                 diff,
                 tolerance
             );

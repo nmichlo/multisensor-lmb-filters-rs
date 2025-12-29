@@ -103,6 +103,22 @@ impl rand::RngCore for SimpleRng {
     }
 }
 
+/// Uniform distribution matching MATLAB's u64→f64 conversion.
+///
+/// MATLAB: `val = double(u) / (2^64)`
+/// rand Standard: Uses only 53 bits, different conversion
+///
+/// This struct provides `rng.sample(Uniform01)` that matches MATLAB.
+pub struct Uniform01;
+
+impl rand::distributions::Distribution<f64> for Uniform01 {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> f64 {
+        // Match MATLAB: val = double(u) / (2^64)
+        let u = rng.next_u64();
+        (u as f64) / (2_f64.powi(64))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -23,6 +23,9 @@ use multisensor_lmb_filters_rs::lmb::{
     LmbmConfig, LmbmFilter, MotionModel, SensorModel, Track, TrackLabel,
 };
 
+// Import deserialization helpers from fixtures module
+use helpers::fixtures::{deserialize_matrix, deserialize_p_s, deserialize_v_matrix};
+
 const TOLERANCE: f64 = 1e-10;
 
 //=============================================================================
@@ -240,63 +243,7 @@ struct LmbmExtractionOutput {
     extraction_indices: Vec<usize>,
 }
 
-//=============================================================================
-// Deserialization Helpers
-//=============================================================================
-
-fn deserialize_p_s<'de, D>(deserializer: D) -> Result<f64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de;
-
-    struct PSVisitor;
-
-    impl<'de> de::Visitor<'de> for PSVisitor {
-        type Value = f64;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a float or array of floats")
-        }
-
-        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            Ok(value)
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: de::SeqAccess<'de>,
-        {
-            seq.next_element()?
-                .ok_or_else(|| de::Error::custom("empty array for P_s"))
-        }
-    }
-
-    deserializer.deserialize_any(PSVisitor)
-}
-
-fn deserialize_matrix<'de, D>(deserializer: D) -> Result<Vec<Vec<f64>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::Deserialize;
-    let matrix: Vec<Vec<Option<f64>>> = Deserialize::deserialize(deserializer)?;
-    Ok(matrix
-        .iter()
-        .map(|row| row.iter().map(|&v| v.unwrap_or(f64::INFINITY)).collect())
-        .collect())
-}
-
-fn deserialize_v_matrix<'de, D>(deserializer: D) -> Result<Vec<Vec<i32>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::Deserialize;
-    Deserialize::deserialize(deserializer)
-}
+// Deserialization helpers are now imported from helpers::fixtures
 
 //=============================================================================
 // Conversion Helpers
@@ -481,42 +428,7 @@ impl helpers::tracks::HypothesisDataAccess for HypothesisData {
     }
 }
 
-//=============================================================================
-// Assertion Helpers
-//=============================================================================
-
-fn assert_vec_close(a: &[f64], b: &[f64], tolerance: f64, msg: &str) {
-    assert_eq!(
-        a.len(),
-        b.len(),
-        "{}: length mismatch ({} vs {})",
-        msg,
-        a.len(),
-        b.len()
-    );
-    for (i, (av, bv)) in a.iter().zip(b.iter()).enumerate() {
-        if av.is_infinite() && bv.is_infinite() && av.signum() == bv.signum() {
-            continue;
-        }
-        let diff = (av - bv).abs();
-        assert!(
-            diff <= tolerance,
-            "{}: element {} differs: {} vs {} (diff: {:.2e})",
-            msg,
-            i,
-            av,
-            bv,
-            diff
-        );
-    }
-}
-
-fn assert_matrix_close(a: &[Vec<f64>], b: &[Vec<f64>], tolerance: f64, msg: &str) {
-    assert_eq!(a.len(), b.len(), "{}: row count mismatch", msg);
-    for (i, (arow, brow)) in a.iter().zip(b.iter()).enumerate() {
-        assert_vec_close(arow, brow, tolerance, &format!("{} row {}", msg, i));
-    }
-}
+// Assertion helpers are now imported from helpers::assertions
 
 //=============================================================================
 // LMBM Fixture Tests
