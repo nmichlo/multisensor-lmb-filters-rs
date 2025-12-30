@@ -6,7 +6,7 @@ build-backend = "maturin"
 
 [project]
 name = "multisensor-lmb-filters-rs"
-version = "0.1.0"
+version = "0.2.0"
 description = "Multi-object tracking with Labeled Multi-Bernoulli filters"
 readme = "README.md"
 license = { text = "MIT" }
