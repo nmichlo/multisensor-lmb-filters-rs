@@ -15,9 +15,11 @@
 //! for each sensor, not just measurement indices.
 
 use nalgebra::DMatrix;
+use rand::distributions::Distribution;
 
 use super::super::config::AssociationConfig;
 use super::super::errors::AssociationError;
+use crate::common::rng::Uniform01;
 
 /// Result of multi-sensor data association.
 ///
@@ -156,20 +158,45 @@ impl MultisensorGibbsAssociator {
         let num_sensors = m.len();
         let num_objects = dimensions[num_sensors];
 
+        let debug = false; // Set to true for detailed debugging
+
         for s in 0..num_sensors {
             for i in 0..num_objects {
-                // Starting measurement index
+                // Starting measurement index (CRITICAL: must match MATLAB's k calculation)
+                // MATLAB: k = V(i,s) + (V(i,s) == 0) where V stores measurement numbers 0,1,2,...
+                // If V=0 (miss): k = 0 + 1 = 1 (start from measurement 1)
+                // If V=1 (meas 1): k = 1 + 0 = 1 (start from measurement 1, reconsider current)
+                // If V=2 (meas 2): k = 2 + 0 = 2 (start from measurement 2, reconsider current)
+                // Rust v also stores measurement numbers 0,1,2,...
+                // To match MATLAB's j loop (1-indexed inclusive), Rust needs j loop (0-indexed exclusive)
+                // MATLAB j=1 corresponds to Rust j=0 (both are first measurement)
+                // When v=0: MATLAB k=1 means start at j=1, Rust needs j=0
+                // When v=1: MATLAB k=1 means start at j=1, Rust needs j=0
+                // When v=2: MATLAB k=2 means start at j=2, Rust needs j=1
                 let k = if v[(i, s)] == 0 { 0 } else { v[(i, s)] - 1 };
+
+                if debug {
+                    eprintln!(
+                        "[GEN] sensor={}, object={}, v[(i,s)]={}, k={}, m[s]={}",
+                        s,
+                        i,
+                        v[(i, s)],
+                        k,
+                        m[s]
+                    );
+                }
 
                 // Build association vector u (1-indexed for internal indexing)
                 let mut u: Vec<usize> = (0..num_sensors).map(|s_idx| v[(i, s_idx)] + 1).collect();
                 u.push(i + 1); // Object index
 
+                let mut found_association = false;
+
                 for j in k..m[s] {
                     // Check if measurement j is available
                     if w[(j, s)] == 0 || w[(j, s)] == i + 1 {
-                        // Detection case
-                        u[s] = j + 2; // j is 0-indexed, detection is j+1 in 1-indexed, +1 for offset
+                        // Detection case: j is 0-indexed, MATLAB uses (j+1)+1 for 1-indexed measurement
+                        u[s] = j + 2;
                         let q_idx = Self::cartesian_to_linear(&u, dimensions);
 
                         // Miss case
@@ -180,17 +207,37 @@ impl MultisensorGibbsAssociator {
                         let p =
                             1.0 / ((log_likelihoods[r_idx] - log_likelihoods[q_idx]).exp() + 1.0);
 
-                        if rng.gen::<f64>() < p {
+                        let sample = Uniform01.sample(rng);
+
+                        if debug {
+                            eprintln!("  [LOOP] j={}, w[(j,s)]={}, L[r]={:.3}, L[q]={:.3}, p={:.3}, sample={:.3}",
+                                j, w[(j, s)], log_likelihoods[r_idx], log_likelihoods[q_idx], p, sample);
+                        }
+
+                        if sample < p {
                             // Associate object i with measurement j
                             v[(i, s)] = j + 1;
                             w[(j, s)] = i + 1;
+                            found_association = true;
+                            if debug {
+                                eprintln!("    -> ASSOCIATED v[(i,s)]={}", j + 1);
+                            }
                             break;
                         } else {
                             // No association
                             v[(i, s)] = 0;
                             w[(j, s)] = 0;
+                            if debug {
+                                eprintln!("    -> MISS");
+                            }
                         }
+                    } else if debug {
+                        eprintln!("  [SKIP] j={}, w[(j,s)]={} (not available)", j, w[(j, s)]);
                     }
+                }
+
+                if debug && !found_association {
+                    eprintln!("  [END] No association made, v[(i,s)]={}", v[(i, s)]);
                 }
             }
         }
@@ -227,13 +274,15 @@ impl MultisensorAssociator for MultisensorGibbsAssociator {
             // Generate one Gibbs sample
             Self::generate_association_event(rng, log_likelihoods, dimensions, &m, &mut v, &mut w);
 
-            // Flatten V column-major and store
+            // Flatten V column-major to match MATLAB reshape(V, 1, n*S)
+            // MATLAB reshape reads column-by-column: V(1,1), V(2,1), ..., V(n,1), V(1,2), V(2,2), ...
             let mut sample = Vec::with_capacity(num_objects * num_sensors);
             for s in 0..num_sensors {
                 for i in 0..num_objects {
                     sample.push(v[(i, s)]);
                 }
             }
+
             unique_samples.insert(sample);
         }
 

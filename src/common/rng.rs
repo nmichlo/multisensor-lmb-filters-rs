@@ -8,8 +8,13 @@ pub trait Rng {
     fn next_u64(&mut self) -> u64;
 
     /// Generate a random f64 in [0, 1)
+    ///
+    /// Uses `2^64` divisor (not `u64::MAX + 1`) to match MATLAB exactly.
+    /// The floating-point representation of `2_f64.powi(64)` is mathematically
+    /// exact, whereas `u64::MAX as f64 + 1.0` loses precision due to the
+    /// conversion of the huge integer to f64 before adding 1.
     fn rand(&mut self) -> f64 {
-        self.next_u64() as f64 / (u64::MAX as f64 + 1.0)
+        self.next_u64() as f64 / (2_f64.powi(64))
     }
 
     /// Generate a random f64 from standard normal distribution N(0, 1)
@@ -69,6 +74,53 @@ impl Rng for SimpleRng {
         x ^= x << 17;
         self.state = x;
         x
+    }
+}
+
+// Implement rand::RngCore to enable use with rand::Rng trait bound
+impl rand::RngCore for SimpleRng {
+    fn next_u32(&mut self) -> u32 {
+        Rng::next_u64(self) as u32
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        Rng::next_u64(self)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        let mut i = 0;
+        let len = dest.len();
+        while i + 8 <= len {
+            let bytes = Rng::next_u64(self).to_le_bytes();
+            dest[i..i + 8].copy_from_slice(&bytes);
+            i += 8;
+        }
+        if i < len {
+            let bytes = Rng::next_u64(self).to_le_bytes();
+            let remaining = len - i;
+            dest[i..].copy_from_slice(&bytes[..remaining]);
+        }
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+/// Uniform distribution matching MATLAB's u64→f64 conversion.
+///
+/// MATLAB: `val = double(u) / (2^64)`
+/// rand Standard: Uses only 53 bits, different conversion
+///
+/// This struct provides `rng.sample(Uniform01)` that matches MATLAB.
+pub struct Uniform01;
+
+impl rand::distributions::Distribution<f64> for Uniform01 {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> f64 {
+        // Match MATLAB: val = double(u) / (2^64)
+        let u = rng.next_u64();
+        (u as f64) / (2_f64.powi(64))
     }
 }
 

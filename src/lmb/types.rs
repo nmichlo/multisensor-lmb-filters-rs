@@ -233,6 +233,146 @@ impl TrajectoryHistory {
     }
 }
 
+/// Per-sensor intermediate data from multisensor filter update.
+///
+/// This struct captures the intermediate outputs for a single sensor's update
+/// within a multisensor filter step, including association matrices,
+/// data association results, and updated tracks.
+///
+/// ## Use Cases
+/// - **Sensor health monitoring**: Compare per-sensor association quality
+/// - **Adaptive sensor weighting**: Identify underperforming sensors
+/// - **Fault detection**: Detect sensor failures via association anomalies
+/// - **Debugging**: Trace data association through each sensor
+#[derive(Debug, Clone)]
+pub struct SensorUpdateOutput {
+    /// Sensor index (0-based)
+    pub sensor_index: usize,
+    /// Input tracks used as prior for this sensor's update.
+    /// For parallel mergers: same as predicted_tracks for all sensors.
+    /// For sequential mergers (IC-LMB): sensor N uses sensor N-1's output.
+    pub input_tracks: Vec<Track>,
+    /// Association matrices from the association builder for this sensor
+    pub association_matrices: Option<crate::association::AssociationMatrices>,
+    /// Association result from data association algorithm for this sensor
+    pub association_result: Option<super::traits::AssociationResult>,
+    /// Tracks after this sensor's update (before fusion with other sensors)
+    pub updated_tracks: Vec<Track>,
+}
+
+impl SensorUpdateOutput {
+    /// Create a new sensor update output
+    pub fn new(
+        sensor_index: usize,
+        input_tracks: Vec<Track>,
+        association_matrices: Option<crate::association::AssociationMatrices>,
+        association_result: Option<super::traits::AssociationResult>,
+        updated_tracks: Vec<Track>,
+    ) -> Self {
+        Self {
+            sensor_index,
+            input_tracks,
+            association_matrices,
+            association_result,
+            updated_tracks,
+        }
+    }
+}
+
+/// Cardinality estimation result from MAP cardinality extraction.
+///
+/// This is the result of applying the LMB cardinality estimation algorithm,
+/// which determines how many objects exist and which tracks represent them.
+#[derive(Debug, Clone)]
+pub struct CardinalityEstimate {
+    /// MAP estimate of the number of objects.
+    pub n_estimated: usize,
+    /// Indices of the tracks selected for the MAP estimate.
+    pub map_indices: Vec<usize>,
+}
+
+impl CardinalityEstimate {
+    /// Create a new cardinality estimate.
+    pub fn new(n_estimated: usize, map_indices: Vec<usize>) -> Self {
+        Self {
+            n_estimated,
+            map_indices,
+        }
+    }
+
+    /// Create an empty cardinality estimate.
+    pub fn empty() -> Self {
+        Self {
+            n_estimated: 0,
+            map_indices: Vec::new(),
+        }
+    }
+}
+
+/// Detailed output from a single filter step, exposing all intermediate data.
+///
+/// This is used for fixture validation and testing. It contains the state
+/// after each major step of the filter algorithm:
+///
+/// ## LMB Filter Steps
+/// 1. **Predicted tracks** - after prediction step (motion model + birth)
+/// 2. **Association matrices** - likelihood ratios, costs, sampling probs
+/// 3. **Association result** - marginal weights from data association
+/// 4. **Updated tracks** - after measurement update step
+/// 5. **Cardinality estimate** - MAP cardinality extraction
+/// 6. **Final estimate** - extracted state estimates
+///
+/// ## LMBM Filter Additional Steps
+/// For LMBM filters, additional intermediate data is exposed:
+/// - **Pre-normalization hypotheses** - hypotheses after association, before normalization (step4)
+/// - **Normalized hypotheses** - hypotheses after normalization and gating (step5)
+/// - **Objects likely to exist** - mask of which tracks have weighted existence > threshold (step5)
+#[derive(Debug, Clone)]
+pub struct StepDetailedOutput {
+    /// Tracks after prediction step (before measurement update).
+    pub predicted_tracks: Vec<Track>,
+    /// Association matrices from the association builder (None if no measurements).
+    pub association_matrices: Option<crate::association::AssociationMatrices>,
+    /// Association result from the data association algorithm (None if no measurements).
+    pub association_result: Option<super::traits::AssociationResult>,
+    /// Tracks after measurement update step.
+    pub updated_tracks: Vec<Track>,
+    /// Cardinality estimation result.
+    pub cardinality: CardinalityEstimate,
+    /// Final state estimate after gating.
+    pub final_estimate: super::output::StateEstimate,
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Multisensor-specific fields (None for single-sensor filters)
+    // ═══════════════════════════════════════════════════════════════════════
+    /// Per-sensor intermediate data for multisensor filters.
+    ///
+    /// Contains association matrices, association results, and updated tracks
+    /// for each sensor **before** fusion. None for single-sensor filters.
+    ///
+    /// Index corresponds to sensor index (0-based).
+    pub sensor_updates: Option<Vec<SensorUpdateOutput>>,
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LMBM-specific fields (None for LMB filters)
+    // ═══════════════════════════════════════════════════════════════════════
+    /// LMBM predicted hypothesis after prediction step (step1_prediction in MATLAB).
+    /// For LMBM, this contains a single hypothesis representing the predicted state.
+    pub predicted_hypotheses: Option<Vec<LmbmHypothesis>>,
+
+    /// LMBM hypotheses after association, before normalization (step4_hypothesis in MATLAB).
+    /// Contains `new_hypotheses` with unnormalized weights.
+    pub pre_normalization_hypotheses: Option<Vec<LmbmHypothesis>>,
+
+    /// LMBM hypotheses after normalization and weight gating (step5_normalization in MATLAB).
+    /// Contains `normalized_hypotheses` with sum-to-one weights.
+    pub normalized_hypotheses: Option<Vec<LmbmHypothesis>>,
+
+    /// Mask of which tracks have weighted total existence > threshold (step5 in MATLAB).
+    /// True means the track "likely exists" and is kept; False means it's pruned.
+    pub objects_likely_to_exist: Option<Vec<bool>>,
+}
+
 /// LMBM Hypothesis - represents a single hypothesis in LMBM filter
 ///
 /// Unlike LMB which maintains a single track set with Gaussian mixtures,

@@ -46,49 +46,54 @@ fn lbp_message_passing_iteration(matrices: &AssociationMatrices, sigma_mt: &mut 
     let b = matrices.psi.component_mul(sigma_mt);
 
     // sigma_tm = Psi ./ (-B + sum(B, 2) + 1)
+    // Match MATLAB exactly: sum in column order (j=0,1,2,...) like MATLAB's sum(B, 2)
     let mut sigma_tm = DMatrix::zeros(n_objects, n_measurements);
     for i in 0..n_objects {
-        let row_sum: f64 = b.row(i).sum();
+        // Explicit left-to-right sum to match MATLAB's sum(B, 2)
+        let mut row_sum: f64 = 0.0;
+        for j in 0..n_measurements {
+            row_sum += b[(i, j)];
+        }
         for j in 0..n_measurements {
             let denom = -b[(i, j)] + row_sum + 1.0;
-            sigma_tm[(i, j)] = if denom.abs() > 1e-15 {
-                matrices.psi[(i, j)] / denom
-            } else {
-                0.0
-            };
+            sigma_tm[(i, j)] = matrices.psi[(i, j)] / denom;
         }
     }
 
     // Pass messages from measurement to object clusters
     // sigma_mt = 1 ./ (-sigma_tm + sum(sigma_tm, 1) + 1)
-    let col_sums: Vec<f64> = (0..n_measurements)
-        .map(|j| sigma_tm.column(j).sum())
-        .collect();
+    // Match MATLAB exactly: sum in row order (i=0,1,2,...) like MATLAB's sum(X, 1)
+    let mut col_sums: Vec<f64> = vec![0.0; n_measurements];
+    for j in 0..n_measurements {
+        for i in 0..n_objects {
+            col_sums[j] += sigma_tm[(i, j)];
+        }
+    }
 
     for i in 0..n_objects {
         for j in 0..n_measurements {
             let denom = -sigma_tm[(i, j)] + col_sums[j] + 1.0;
-            sigma_mt[(i, j)] = if denom.abs() > 1e-15 {
-                1.0 / denom
-            } else {
-                0.0
-            };
+            sigma_mt[(i, j)] = 1.0 / denom;
         }
     }
 }
 
-/// Compute final LBP result from converged messages
+/// Compute final LBP result from messages
 ///
-/// Given the final sigma_mt messages, computes:
-/// - Existence probabilities r
-/// - Association weights W
+/// IMPORTANT: Takes sigma_mt_old (from BEFORE the last message passing iteration)
+/// to match MATLAB exactly. In MATLAB, B is computed at the START of each iteration
+/// before sigma_mt is updated, and after the loop Gamma uses that B.
+///
+/// # Arguments
+/// * `matrices` - Association matrices (Psi, phi, eta)
+/// * `sigma_mt_old` - Messages from BEFORE the last iteration (not the final updated sigma_mt)
 #[inline]
-fn compute_lbp_result(matrices: &AssociationMatrices, sigma_mt: &DMatrix<f64>) -> LbpResult {
+fn compute_lbp_result(matrices: &AssociationMatrices, sigma_mt_old: &DMatrix<f64>) -> LbpResult {
     let n_objects = matrices.psi.nrows();
     let n_measurements = matrices.psi.ncols();
 
-    // B = Psi .* sigma_mt
-    let b = matrices.psi.component_mul(sigma_mt);
+    // B = Psi .* sigma_mt_old (uses sigma_mt from before the last update, matching MATLAB)
+    let b = matrices.psi.component_mul(sigma_mt_old);
 
     // Gamma = [phi, B .* eta]
     let mut gamma = DMatrix::zeros(n_objects, n_measurements + 1);
@@ -100,27 +105,32 @@ fn compute_lbp_result(matrices: &AssociationMatrices, sigma_mt: &DMatrix<f64>) -
     }
 
     // q = sum(Gamma, 2)
-    let q: Vec<f64> = (0..n_objects).map(|i| gamma.row(i).sum()).collect();
+    // Match MATLAB exactly: explicit left-to-right sum
+    let q: Vec<f64> = (0..n_objects)
+        .map(|i| {
+            let mut sum = 0.0;
+            for j in 0..(n_measurements + 1) {
+                sum += gamma[(i, j)];
+            }
+            sum
+        })
+        .collect();
 
     // W = Gamma ./ q
+    // Match MATLAB exactly - no division guards
     let mut w = DMatrix::zeros(n_objects, n_measurements + 1);
     for i in 0..n_objects {
-        if q[i].abs() > 1e-15 {
-            for j in 0..(n_measurements + 1) {
-                w[(i, j)] = gamma[(i, j)] / q[i];
-            }
+        for j in 0..(n_measurements + 1) {
+            w[(i, j)] = gamma[(i, j)] / q[i];
         }
     }
 
     // r = q ./ (eta + q - phi)
+    // Match MATLAB exactly - no division guards
     let mut r = DVector::zeros(n_objects);
     for i in 0..n_objects {
         let denom = matrices.eta[i] + q[i] - matrices.phi[i];
-        r[i] = if denom.abs() > 1e-15 {
-            q[i] / denom
-        } else {
-            0.0
-        };
+        r[i] = q[i] / denom;
     }
 
     LbpResult { r, w }
@@ -153,13 +163,14 @@ pub fn loopy_belief_propagation(
 
     // Initialize messages
     let mut sigma_mt = DMatrix::from_element(n_objects, n_measurements, 1.0);
+    let mut sigma_mt_old = sigma_mt.clone();
     let mut not_converged = true;
     let mut counter = 0;
 
     // Message passing loop with convergence check
     while not_converged {
-        // Cache previous iteration's messages for convergence check
-        let sigma_mt_old = sigma_mt.clone();
+        // Cache previous iteration's messages (MATLAB uses this for B computation)
+        sigma_mt_old = sigma_mt.clone();
 
         // Perform one iteration of message passing
         lbp_message_passing_iteration(matrices, &mut sigma_mt);
@@ -171,8 +182,8 @@ pub fn loopy_belief_propagation(
         not_converged = max_delta > epsilon && counter < max_iterations;
     }
 
-    // Compute final results from converged messages
-    compute_lbp_result(matrices, &sigma_mt)
+    // Compute final results using sigma_mt_old (matches MATLAB which uses B from start of last iteration)
+    compute_lbp_result(matrices, &sigma_mt_old)
 }
 
 /// Fixed-iteration Loopy Belief Propagation
@@ -195,14 +206,17 @@ pub fn fixed_loopy_belief_propagation(
 
     // Initialize messages
     let mut sigma_mt = DMatrix::from_element(n_objects, n_measurements, 1.0);
+    let mut sigma_mt_old = sigma_mt.clone();
 
     // Fixed number of iterations (no convergence check)
     for _ in 0..max_iterations {
+        // Cache messages before update (MATLAB uses this for B computation)
+        sigma_mt_old = sigma_mt.clone();
         lbp_message_passing_iteration(matrices, &mut sigma_mt);
     }
 
-    // Compute final results
-    compute_lbp_result(matrices, &sigma_mt)
+    // Compute final results using sigma_mt_old (matches MATLAB which uses B from start of last iteration)
+    compute_lbp_result(matrices, &sigma_mt_old)
 }
 
 #[cfg(test)]

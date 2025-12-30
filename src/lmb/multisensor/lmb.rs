@@ -38,7 +38,7 @@ use super::super::config::{AssociationConfig, BirthModel, MotionModel, Multisens
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
-use super::super::types::Track;
+use super::super::types::{SensorUpdateOutput, StepDetailedOutput, Track};
 
 // Re-export fusion strategies for backwards compatibility
 pub use super::fusion::{
@@ -90,6 +90,8 @@ pub struct MultisensorLmbFilter<A: Associator = LbpAssociator, M: Merger = Arith
     /// GM component pruning parameters
     gm_weight_threshold: f64,
     max_gm_components: usize,
+    /// Mahalanobis distance threshold for GM component merging
+    gm_merge_threshold: f64,
 
     /// The associator to use
     associator: A,
@@ -119,6 +121,7 @@ impl<M: Merger> MultisensorLmbFilter<LbpAssociator, M> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
             max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: super::super::DEFAULT_GM_MERGE_THRESHOLD,
             associator: LbpAssociator,
             merger,
             updater: MarginalUpdater::new(),
@@ -147,6 +150,7 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
             min_trajectory_length: super::super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             gm_weight_threshold: super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
             max_gm_components: super::super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: super::super::DEFAULT_GM_MERGE_THRESHOLD,
             associator,
             merger,
             updater: MarginalUpdater::new(),
@@ -164,7 +168,27 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
     pub fn with_gm_pruning(mut self, weight_threshold: f64, max_components: usize) -> Self {
         self.gm_weight_threshold = weight_threshold;
         self.max_gm_components = max_components;
-        self.updater = MarginalUpdater::with_thresholds(weight_threshold, max_components);
+        self.updater = MarginalUpdater::with_thresholds(
+            weight_threshold,
+            max_components,
+            self.gm_merge_threshold,
+        );
+        self
+    }
+
+    /// Set the GM component merge threshold for Mahalanobis-distance merging.
+    ///
+    /// This controls how similar components must be (in Mahalanobis distance)
+    /// to be merged together. Set to `f64::INFINITY` to disable merging.
+    ///
+    /// This also updates the internal updater to use the new threshold.
+    pub fn with_gm_merge_threshold(mut self, merge_threshold: f64) -> Self {
+        self.gm_merge_threshold = merge_threshold;
+        self.updater = MarginalUpdater::with_thresholds(
+            self.gm_weight_threshold,
+            self.max_gm_components,
+            merge_threshold,
+        );
         self
     }
 
@@ -208,6 +232,184 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
             );
         }
     }
+
+    // ========================================================================
+    // Testing/Fixture Validation Methods
+    // ========================================================================
+
+    /// Set the internal tracks directly (for fixture testing).
+    pub fn set_tracks(&mut self, tracks: Vec<Track>) {
+        self.tracks = tracks;
+    }
+
+    /// Get the current tracks (for fixture testing).
+    pub fn get_tracks(&self) -> Vec<Track> {
+        self.tracks.clone()
+    }
+
+    /// Detailed step that returns all intermediate data for fixture validation.
+    ///
+    /// Note: Multi-sensor step_detailed does NOT return association matrices
+    /// because each sensor produces its own matrices. This returns the fused
+    /// result directly.
+    pub fn step_detailed<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &[Vec<DVector<f64>>],
+        timestep: usize,
+    ) -> Result<StepDetailedOutput, FilterError> {
+        let num_sensors = self.num_sensors();
+
+        // Validate measurements
+        if measurements.len() != num_sensors {
+            return Err(FilterError::InvalidInput(format!(
+                "Expected {} sensors, got {}",
+                num_sensors,
+                measurements.len()
+            )));
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction
+        // ══════════════════════════════════════════════════════════════════════
+        predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
+        let predicted_tracks = self.tracks.clone();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2-3: Per-sensor association and fusion
+        // ══════════════════════════════════════════════════════════════════════
+        let has_any_measurements = measurements.iter().any(|m| !m.is_empty());
+
+        // Collect per-sensor intermediate data for downstream systems
+        let mut sensor_updates: Vec<SensorUpdateOutput> = Vec::with_capacity(num_sensors);
+
+        if has_any_measurements && !self.tracks.is_empty() {
+            let is_sequential = self.merger.is_sequential();
+            let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
+
+            // For sequential mergers (IC-LMB): each sensor uses previous sensor's output
+            // For parallel mergers (AA, GA, PU): all sensors use the same prior
+            let mut current_tracks = self.tracks.clone();
+
+            for (sensor_idx, (sensor, sensor_measurements)) in self
+                .sensors
+                .sensors
+                .iter()
+                .zip(measurements.iter())
+                .enumerate()
+            {
+                // Sequential: use current_tracks (updated by previous sensor)
+                // Parallel: use original prior (self.tracks)
+                let input_tracks = if is_sequential {
+                    current_tracks.clone()
+                } else {
+                    self.tracks.clone()
+                };
+                let mut sensor_tracks = input_tracks.clone();
+                let mut assoc_matrices = None;
+                let mut assoc_result = None;
+
+                if !sensor_measurements.is_empty() {
+                    let mut builder = AssociationBuilder::new(&sensor_tracks, sensor);
+                    let matrices = builder.build(sensor_measurements);
+                    let result = self
+                        .associator
+                        .associate(&matrices, &self.association_config, rng)
+                        .map_err(FilterError::Association)?;
+
+                    self.updater
+                        .update(&mut sensor_tracks, &result, &matrices.posteriors);
+                    super::super::common_ops::update_existence_from_marginals(
+                        &mut sensor_tracks,
+                        &result,
+                    );
+
+                    // Capture per-sensor intermediate data
+                    assoc_matrices = Some(matrices);
+                    assoc_result = Some(result);
+                } else {
+                    let p_d = sensor.detection_probability;
+                    for track in &mut sensor_tracks {
+                        track.existence = crate::components::update::update_existence_no_detection(
+                            track.existence,
+                            p_d,
+                        );
+                    }
+                }
+
+                // Store per-sensor output (before fusion)
+                sensor_updates.push(SensorUpdateOutput::new(
+                    sensor_idx,
+                    input_tracks,
+                    assoc_matrices,
+                    assoc_result,
+                    sensor_tracks.clone(),
+                ));
+
+                // For sequential: update current_tracks for next sensor
+                if is_sequential {
+                    current_tracks = sensor_tracks.clone();
+                }
+
+                per_sensor_tracks.push(sensor_tracks);
+            }
+
+            self.tracks = self.merger.merge(&per_sensor_tracks, None);
+        } else if !has_any_measurements {
+            self.update_existence_no_measurements();
+            // No measurements - store empty sensor updates with miss-detected tracks
+            for sensor_idx in 0..num_sensors {
+                let input_tracks = self.tracks.clone();
+                let p_d = self.sensors.sensors[sensor_idx].detection_probability;
+                let mut miss_tracks = self.tracks.clone();
+                for track in &mut miss_tracks {
+                    track.existence = crate::components::update::update_existence_no_detection(
+                        track.existence,
+                        p_d,
+                    );
+                }
+                sensor_updates.push(SensorUpdateOutput::new(
+                    sensor_idx,
+                    input_tracks,
+                    None,
+                    None,
+                    miss_tracks,
+                ));
+            }
+        }
+        let updated_tracks = self.tracks.clone();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 4: Cardinality extraction
+        // ══════════════════════════════════════════════════════════════════════
+        let cardinality = super::super::common_ops::compute_cardinality(&self.tracks);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Gating
+        // ══════════════════════════════════════════════════════════════════════
+        self.gate_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Extract final estimate
+        // ══════════════════════════════════════════════════════════════════════
+        let final_estimate = self.extract_estimates(timestep);
+
+        Ok(StepDetailedOutput {
+            predicted_tracks,
+            association_matrices: None, // Per-sensor matrices available in sensor_updates
+            association_result: None,   // Per-sensor results available in sensor_updates
+            updated_tracks,
+            cardinality,
+            final_estimate,
+            // Per-sensor intermediate data for downstream systems
+            sensor_updates: Some(sensor_updates),
+            // LMB doesn't have LMBM-specific fields
+            predicted_hypotheses: None,
+            pre_normalization_hypotheses: None,
+            normalized_hypotheses: None,
+            objects_likely_to_exist: None,
+        })
+    }
 }
 
 /// Multi-sensor measurements: one measurement set per sensor.
@@ -250,17 +452,25 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
         let has_any_measurements = measurements.iter().any(|m| !m.is_empty());
 
         if has_any_measurements && !self.tracks.is_empty() {
-            // Store prior tracks for PU fusion if needed
-            let prior_tracks = self.tracks.clone();
+            let is_sequential = self.merger.is_sequential();
 
             // --- STEP 3a: Per-sensor measurement updates ---
             let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
 
+            // For sequential mergers (IC-LMB): each sensor uses previous sensor's output
+            // For parallel mergers (AA, GA, PU): all sensors use the same prior
+            let mut current_tracks = self.tracks.clone();
+
             for (sensor, sensor_measurements) in
                 self.sensors.sensors.iter().zip(measurements.iter())
             {
-                // Clone prior tracks for this sensor's update
-                let mut sensor_tracks = prior_tracks.clone();
+                // Sequential: use current_tracks (updated by previous sensor)
+                // Parallel: use original prior (self.tracks)
+                let mut sensor_tracks = if is_sequential {
+                    current_tracks.clone()
+                } else {
+                    self.tracks.clone()
+                };
 
                 if !sensor_measurements.is_empty() {
                     // Build association matrices for this sensor
@@ -291,6 +501,11 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
                             p_d,
                         );
                     }
+                }
+
+                // For sequential: update current_tracks for next sensor
+                if is_sequential {
+                    current_tracks = sensor_tracks.clone();
                 }
 
                 per_sensor_tracks.push(sensor_tracks);

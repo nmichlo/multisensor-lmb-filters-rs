@@ -27,7 +27,7 @@ use super::super::config::{
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::Filter;
-use super::super::types::{GaussianComponent, LmbmHypothesis, Track};
+use super::super::types::{GaussianComponent, LmbmHypothesis, StepDetailedOutput, Track};
 use super::lmb::MultisensorMeasurements;
 use super::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
 
@@ -532,6 +532,136 @@ impl<A: MultisensorAssociator> MultisensorLmbmFilter<A> {
             max_length,
         );
     }
+
+    // ========================================================================
+    // Testing/Fixture Validation Methods
+    // ========================================================================
+
+    /// Set the internal hypotheses directly (for fixture testing).
+    pub fn set_hypotheses(&mut self, hypotheses: Vec<LmbmHypothesis>) {
+        self.hypotheses = hypotheses;
+    }
+
+    /// Get the current hypotheses (for fixture testing).
+    pub fn get_hypotheses(&self) -> Vec<LmbmHypothesis> {
+        self.hypotheses.clone()
+    }
+
+    /// Get tracks from highest-weight hypothesis (for fixture testing).
+    pub fn get_tracks(&self) -> Vec<Track> {
+        if self.hypotheses.is_empty() {
+            return Vec::new();
+        }
+        self.hypotheses
+            .iter()
+            .max_by(|a, b| a.log_weight.partial_cmp(&b.log_weight).unwrap())
+            .map(|h| h.tracks.clone())
+            .unwrap_or_default()
+    }
+
+    /// Detailed step for fixture validation.
+    ///
+    /// Exposes intermediate hypothesis states for testing against MATLAB fixtures.
+    pub fn step_detailed<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &MultisensorMeasurements,
+        timestep: usize,
+    ) -> Result<StepDetailedOutput, FilterError> {
+        // Validate measurements
+        if measurements.len() != self.num_sensors() {
+            return Err(FilterError::InvalidInput(format!(
+                "Expected {} sensors, got {}",
+                self.num_sensors(),
+                measurements.len()
+            )));
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 1: Prediction
+        // ══════════════════════════════════════════════════════════════════════
+        self.predict_hypotheses(timestep);
+
+        // Capture predicted hypotheses for fixture validation (MATLAB step1_prediction)
+        let predicted_hypotheses = Some(self.hypotheses.clone());
+        let predicted_tracks = self.get_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 2-3: Association and posterior hypothesis generation
+        // ══════════════════════════════════════════════════════════════════════
+        let has_measurements = measurements.iter().any(|m| !m.is_empty());
+
+        // CRITICAL: Always run association when measurements are available, even with 0 tracks
+        // (births can generate new hypotheses). Matches MATLAB behavior (runMultisensorLmbmFilter.m:51).
+        if has_measurements && !self.hypotheses.is_empty() {
+            let (log_likelihoods, posteriors, dimensions) =
+                self.generate_association_matrices(&self.hypotheses[0].tracks, measurements);
+
+            let association_result = self
+                .associator
+                .associate(rng, &log_likelihoods, &dimensions, &self.association_config)
+                .map_err(FilterError::Association)?;
+
+            self.generate_posterior_hypotheses(
+                &association_result.samples,
+                &log_likelihoods,
+                &posteriors,
+                &dimensions,
+            );
+        } else if !has_measurements {
+            self.update_existence_no_measurements();
+        }
+
+        // Capture pre-normalization hypotheses (step4 in MATLAB)
+        let pre_normalization_hypotheses = Some(self.hypotheses.clone());
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 4: Hypothesis management
+        // ══════════════════════════════════════════════════════════════════════
+        self.normalize_and_gate_hypotheses();
+
+        // Capture normalized hypotheses (step5 in MATLAB)
+        let normalized_hypotheses = Some(self.hypotheses.clone());
+
+        // Compute objects_likely_to_exist (existence > threshold check)
+        let objects_likely_to_exist =
+            Some(super::super::common_ops::compute_objects_likely_to_exist(
+                &self.hypotheses,
+                self.existence_threshold,
+            ));
+
+        let updated_tracks = self.get_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 5: Cardinality extraction
+        // ══════════════════════════════════════════════════════════════════════
+        let cardinality = super::super::common_ops::compute_cardinality(&updated_tracks);
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 6: Track gating
+        // ══════════════════════════════════════════════════════════════════════
+        self.gate_tracks();
+
+        // ══════════════════════════════════════════════════════════════════════
+        // STEP 7: Extract final estimate
+        // ══════════════════════════════════════════════════════════════════════
+        let final_estimate = self.extract_estimates(timestep);
+
+        Ok(StepDetailedOutput {
+            predicted_tracks,
+            association_matrices: None, // Too complex for multisensor (Cartesian product tensor)
+            association_result: None,   // Association samples are internal to hypothesis generation
+            updated_tracks,
+            cardinality,
+            final_estimate,
+            // LMBM uses joint association - per-sensor data not directly available
+            sensor_updates: None,
+            predicted_hypotheses,
+            pre_normalization_hypotheses,
+            normalized_hypotheses,
+            objects_likely_to_exist,
+        })
+    }
 }
 
 impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
@@ -568,8 +698,9 @@ impl<A: MultisensorAssociator> Filter for MultisensorLmbmFilter<A> {
         // ══════════════════════════════════════════════════════════════════════
         let has_measurements = measurements.iter().any(|m| !m.is_empty());
 
-        if has_measurements && !self.hypotheses.is_empty() && !self.hypotheses[0].tracks.is_empty()
-        {
+        // CRITICAL: Always run association when measurements are available, even with 0 tracks
+        // (births can generate new hypotheses). Matches MATLAB behavior (runMultisensorLmbmFilter.m:51).
+        if has_measurements && !self.hypotheses.is_empty() {
             // Generate joint association matrices across all sensors
             let (log_likelihoods, posteriors, dimensions) =
                 self.generate_association_matrices(&self.hypotheses[0].tracks, measurements);
