@@ -65,13 +65,33 @@ end
 
 **Fix**: Changed `rand()` to use `2_f64.powi(64)` as the divisor, matching MATLAB's `double(u) / (2^64)` exactly.
 
-#### LBP Convergence Tolerance
+#### LBP sigma_mt_old Bug Fix
 
-**Problem**: Python integration tests using LBP with 1e-6 tolerance produced ~1e-9 differences from MATLAB, even though Rust component tests passed with 1e-10 tolerance.
+**Problem**: Python integration tests using LBP with 1e-6 tolerance produced ~1e-9 differences from MATLAB.
 
-**Root Cause**: Tiny floating-point differences in the LBP convergence check (`max(delta) > epsilon`) can cause Rust and MATLAB to stop at different iteration counts when using 1e-6 tolerance. This leads to divergent results.
+**Root Cause**: MATLAB computes `B = Psi .* SigmaMT` at the START of each iteration (before SigmaMT is updated), then after the loop uses that `B` directly for computing `Gamma`. But Rust was recomputing `B` using the FINAL `sigma_mt` after the loop. This is off by one iteration!
 
-**Fix**: Use LBP tolerance of 1e-3 (instead of 1e-6) for Python tests. This ensures both implementations converge definitively at the same early iteration, producing identical results within TOLERANCE=1e-10.
+**MATLAB behavior** (converges at iter N):
+- `B = Psi .* sigma_mt_{N-1}` (computed at start of last iteration)
+- `Gamma = [phi, B .* eta]`
+
+**Rust bug** (converges at iter N):
+- `b = Psi .* sigma_mt_N` (recomputed after loop with final value)
+- `Gamma = [phi, b .* eta]`
+
+**Fix**: Changed `compute_lbp_result()` to take `sigma_mt_old` (from before the last message passing iteration) instead of the final `sigma_mt`. This matches MATLAB exactly.
+
+**Files Modified**: `src/common/association/lbp.rs`
+
+#### Association Builder Log-Sum-Exp Fix
+
+**Problem**: LMBM tests failed with `cost = inf` instead of expected finite values (e.g., 1120.12).
+
+**Root Cause**: Linear-space accumulation `l_ij += exp(log_term)` underflows to 0 when `log_term` is very negative (e.g., -1120), causing `log(0) = NEG_INFINITY` and `cost = inf`.
+
+**Fix**: Changed L matrix accumulation from linear-space to log-sum-exp for numerical stability.
+
+**Files Modified**: `src/association/builder.rs`
 
 ### Locations with 1e-15 Division Guards (Potential MATLAB Mismatches)
 
