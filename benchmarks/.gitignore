@@ -1,0 +1,5 @@
+# Benchmark output logs
+*.log
+
+# Results (if any)
+results/
