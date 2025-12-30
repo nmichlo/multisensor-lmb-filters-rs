@@ -1,10 +1,16 @@
 """
 Python benchmark runner for multi-object tracking filters.
 
-Loads pre-generated JSON scenarios and runs filters, printing timing to stdout.
+Usage:
+    uv run python benchmarks/run_python.py                    # Run all
+    uv run python benchmarks/run_python.py --filter LMB       # Only LMB filters
+    uv run python benchmarks/run_python.py --assoc Gibbs      # Only Gibbs associator
+    uv run python benchmarks/run_python.py --scenario n5      # Only scenarios with 'n5'
 """
 
+import argparse
 import json
+import signal
 import time
 from pathlib import Path
 
@@ -27,143 +33,200 @@ from multisensor_lmb_filters_rs import (
 )
 
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
+TIMEOUT_SEC = 10
+THRESHOLDS = FilterThresholds(
+    existence=1e-3, gm_weight=1e-4, max_components=100, gm_merge=float("inf")
+)
 
-# Timeout in seconds - skip scenarios that take longer
-TIMEOUT_SECONDS = 10.0
+# Associator configs (explicit values matching Rust)
+LBP = lambda: AssociatorConfig.lbp(100, 1e-6)
+GIBBS = lambda: AssociatorConfig.gibbs(1000)
+MURTY = lambda: AssociatorConfig.murty(25)
+
+# All Filter × Associator configurations
+# Format: (name, filter_class, associator_factory, is_multi_sensor)
+CONFIGS = [
+    # Single-sensor
+    ("LMB-LBP", FilterLmb, LBP, False),
+    ("LMB-Gibbs", FilterLmb, GIBBS, False),
+    ("LMB-Murty", FilterLmb, MURTY, False),
+    ("LMBM-Gibbs", FilterLmbm, GIBBS, False),
+    ("LMBM-Murty", FilterLmbm, MURTY, False),
+    # Multi-sensor (can also run on single-sensor scenarios)
+    ("AA-LMB-LBP", FilterAaLmb, LBP, True),
+    ("AA-LMB-Gibbs", FilterAaLmb, GIBBS, True),
+    ("AA-LMB-Murty", FilterAaLmb, MURTY, True),
+    ("GA-LMB-LBP", FilterGaLmb, LBP, True),
+    ("GA-LMB-Gibbs", FilterGaLmb, GIBBS, True),
+    ("GA-LMB-Murty", FilterGaLmb, MURTY, True),
+    ("PU-LMB-LBP", FilterPuLmb, LBP, True),
+    ("PU-LMB-Gibbs", FilterPuLmb, GIBBS, True),
+    ("PU-LMB-Murty", FilterPuLmb, MURTY, True),
+    ("IC-LMB-LBP", FilterIcLmb, LBP, True),
+    ("IC-LMB-Gibbs", FilterIcLmb, GIBBS, True),
+    ("IC-LMB-Murty", FilterIcLmb, MURTY, True),
+    ("MS-LMBM-Gibbs", FilterMultisensorLmbm, GIBBS, True),
+    ("MS-LMBM-Murty", FilterMultisensorLmbm, MURTY, True),
+]
 
 
-def build_models(scenario: dict):
-    """Build filter models from scenario config."""
-    model = scenario["model"]
+class TimeoutError(Exception):
+    pass
 
-    # Motion model: constant velocity 2D
+
+# Global state for timeout handler
+_current_progress = {"steps_done": 0, "total_steps": 0}
+
+
+def on_timeout(signum, frame):
+    raise TimeoutError()
+
+
+def preprocess(scenario):
+    """Convert scenario to preprocessed measurements (done outside timing)."""
+    m = scenario["model"]
+    bounds = scenario["bounds"]
+    n_sensors = scenario["num_sensors"]
+
+    # Build models
     motion = MotionModel.constant_velocity_2d(
-        dt=model["dt"],
-        process_noise_std=model["process_noise_std"],
-        survival_probability=model["survival_probability"],
+        m["dt"], m["process_noise_std"], m["survival_probability"]
     )
-
-    # Sensor model: 2D position observations
-    # observation_volume = area of observation space
-    observation_volume = 200.0 * 200.0  # bounds are [-100, 100] x [-100, 100]
+    obs_vol = (bounds[1] - bounds[0]) * (bounds[3] - bounds[2])
     sensor = SensorModel.position_2d(
-        measurement_noise_std=model["measurement_noise_std"],
-        detection_probability=model["detection_probability"],
-        clutter_rate=model["clutter_rate"],
-        observation_volume=observation_volume,
+        m["measurement_noise_std"], m["detection_probability"], m["clutter_rate"], obs_vol
+    )
+    birth_locs = [
+        BirthLocation(i, np.array(loc), np.eye(4) * 100.0)
+        for i, loc in enumerate(m["birth_locations"])
+    ]
+    birth = BirthModel(birth_locs, lmb_existence=0.01, lmbm_existence=0.001)
+    multi_sensor = SensorConfigMulti([sensor] * n_sensors)
+
+    # Preprocess measurements: list of (timestep, single_meas, multi_meas, n_true)
+    steps = []
+    for step in scenario["steps"]:
+        t = step["step"]
+        multi_meas = [
+            np.array([[r[0], r[1]] for r in s]) if s else np.empty((0, 2))
+            for s in step["sensor_readings"]
+        ]
+        single_meas = multi_meas[0] if multi_meas else np.empty((0, 2))
+        # Ground truth: count unique object IDs (excluding clutter which has id=-1)
+        n_true = len(set(int(r[2]) for s in step["sensor_readings"] for r in s if int(r[2]) >= 0))
+        steps.append((t, single_meas, multi_meas, n_true))
+
+    return motion, sensor, multi_sensor, birth, steps
+
+
+def run_filter(filt, steps, is_multi):
+    """Run filter on preprocessed steps, return (elapsed_ms, card_err, steps_done)."""
+    global _current_progress
+    n_est_list, n_true_list = [], []
+    _current_progress = {"steps_done": 0, "total_steps": len(steps)}
+
+    start = time.perf_counter()
+    for i, (t, single_meas, multi_meas, n_true) in enumerate(steps):
+        result = filt.step(multi_meas if is_multi else single_meas, t)
+        n_est_list.append(result.num_tracks)
+        n_true_list.append(n_true)
+        _current_progress["steps_done"] = i + 1
+
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    # Simple accuracy: mean absolute cardinality error
+    card_err = sum(abs(e - t) for e, t in zip(n_est_list, n_true_list, strict=False)) / len(
+        n_est_list
     )
 
-    # Birth model: 4 birth locations
-    birth_locs = []
-    for i, loc in enumerate(model["birth_locations"]):
-        mean = np.array(loc, dtype=np.float64)
-        covariance = np.eye(4, dtype=np.float64) * 100.0
-        birth_locs.append(BirthLocation(i, mean, covariance))
-
-    birth = BirthModel(birth_locs, lmb_existence=0.01, lmbm_existence=0.001)
-
-    return motion, sensor, birth
-
-
-def extract_measurements(readings: list) -> np.ndarray:
-    """Extract [x, y] from [x, y, id] format."""
-    if not readings:
-        return np.empty((0, 2), dtype=np.float64)
-    return np.array([[r[0], r[1]] for r in readings], dtype=np.float64)
-
-
-def run_single_sensor(scenario: dict, filter_cls, assoc_config) -> float:
-    """Run single-sensor filter, return elapsed time in seconds."""
-    motion, sensor, birth = build_models(scenario)
-    thresholds = FilterThresholds()
-
-    filt = filter_cls(motion, sensor, birth, assoc_config, thresholds)
-
-    start = time.perf_counter()
-    for step in scenario["steps"]:
-        meas = extract_measurements(step["sensor_readings"][0])
-        filt.step(meas, step["step"])
-    return time.perf_counter() - start
-
-
-def run_multi_sensor(scenario: dict, filter_cls, assoc_config) -> float:
-    """Run multi-sensor filter, return elapsed time in seconds."""
-    motion, sensor, birth = build_models(scenario)
-    n_sens = scenario["num_sensors"]
-    multi_sensor = SensorConfigMulti([sensor] * n_sens)
-    thresholds = FilterThresholds()
-
-    filt = filter_cls(motion, multi_sensor, birth, assoc_config, thresholds)
-
-    start = time.perf_counter()
-    for step in scenario["steps"]:
-        meas_list = [extract_measurements(r) for r in step["sensor_readings"]]
-        filt.step(meas_list, step["step"])
-    return time.perf_counter() - start
+    return elapsed_ms, card_err, len(steps)
 
 
 def main():
-    if not SCENARIOS_DIR.exists():
-        print(f"Error: scenarios directory not found: {SCENARIOS_DIR}")
-        print("Run `uv run python benchmarks/generate_scenarios.py` first.")
+    parser = argparse.ArgumentParser(description="Run LMB filter benchmarks")
+    parser.add_argument("--filter", "-f", help="Filter name substring (e.g., 'LMB', 'AA-LMB')")
+    parser.add_argument("--assoc", "-a", help="Associator name substring (e.g., 'Gibbs', 'LBP')")
+    parser.add_argument("--scenario", "-s", help="Scenario name substring (e.g., 'n5', 's2')")
+    parser.add_argument(
+        "--timeout",
+        "-t",
+        type=int,
+        default=TIMEOUT_SEC,
+        help=f"Timeout in seconds (default: {TIMEOUT_SEC})",
+    )
+    args = parser.parse_args()
+
+    scenarios = sorted(SCENARIOS_DIR.glob("*.json"))
+    if not scenarios:
+        print(f"No scenarios in {SCENARIOS_DIR}")
         return
 
-    scenario_files = sorted(SCENARIOS_DIR.glob("*.json"))
-    if not scenario_files:
-        print(f"Error: no scenario files found in {SCENARIOS_DIR}")
+    # Filter scenarios by name
+    if args.scenario:
+        scenarios = [p for p in scenarios if args.scenario.lower() in p.stem.lower()]
+        if not scenarios:
+            print(f"No scenarios matching '{args.scenario}'")
+            return
+
+    # Filter configs
+    configs = CONFIGS
+    if args.filter:
+        configs = [(n, c, a, m) for n, c, a, m in configs if args.filter.lower() in n.lower()]
+    if args.assoc:
+        configs = [(n, c, a, m) for n, c, a, m in configs if args.assoc.lower() in n.lower()]
+    if not configs:
+        print(f"No configs matching filter='{args.filter}' assoc='{args.assoc}'")
         return
 
-    print(f"{'Scenario':<25} | {'Filter':<20} | {'Time (ms)':>12}", flush=True)
-    print("-" * 65, flush=True)
+    # Setup timeout (Unix only)
+    try:
+        signal.signal(signal.SIGALRM, on_timeout)
+        use_timeout = True
+    except (AttributeError, ValueError):
+        use_timeout = False
 
-    for path in scenario_files:
-        with open(path) as f:
-            scenario = json.load(f)
+    print(f"{'Scenario':<22} | {'Filter':<18} | {'Time(ms)':>9} | {'CardErr':>7} | {'Progress':>8}")
+    print("-" * 75)
 
+    for path in scenarios:
+        scenario = json.load(open(path))
         name = path.stem
-        n_sens = scenario["num_sensors"]
 
-        if n_sens == 1:
-            # Single-sensor: test LMB with different associators
-            for assoc_name, assoc_config in [
-                ("LMB-LBP", AssociatorConfig.lbp()),
-                ("LMB-Gibbs", AssociatorConfig.gibbs()),
-                ("LMB-Murty", AssociatorConfig.murty()),
-            ]:
-                try:
-                    t = run_single_sensor(scenario, FilterLmb, assoc_config)
-                    print(f"{name:<25} | {assoc_name:<20} | {t*1000:>12.1f}", flush=True)
-                except Exception:
-                    print(f"{name:<25} | {assoc_name:<20} | {'ERROR':>12}", flush=True)
+        # Preprocess outside timing
+        motion, sensor, multi_sensor, birth, steps = preprocess(scenario)
 
-            # Also test LMBM (Gibbs only, as it doesn't support LBP)
-            for assoc_name, assoc_config in [
-                ("LMBM-Gibbs", AssociatorConfig.gibbs()),
-                ("LMBM-Murty", AssociatorConfig.murty()),
-            ]:
-                try:
-                    t = run_single_sensor(scenario, FilterLmbm, assoc_config)
-                    print(f"{name:<25} | {assoc_name:<20} | {t*1000:>12.1f}", flush=True)
-                except Exception:
-                    print(f"{name:<25} | {assoc_name:<20} | {'ERROR':>12}", flush=True)
-
-        else:
-            # Multi-sensor: test different fusion strategies with LBP
-            assoc_config = AssociatorConfig.lbp()
-            for filter_cls in [FilterAaLmb, FilterGaLmb, FilterPuLmb, FilterIcLmb]:
-                filter_name = filter_cls.__name__
-                try:
-                    t = run_multi_sensor(scenario, filter_cls, assoc_config)
-                    print(f"{name:<25} | {filter_name:<20} | {t*1000:>12.1f}", flush=True)
-                except Exception:
-                    print(f"{name:<25} | {filter_name:<20} | {'ERROR':>12}", flush=True)
-
-            # Also test multi-sensor LMBM
+        for filter_name, filter_cls, assoc_fn, is_multi in configs:
             try:
-                t = run_multi_sensor(scenario, FilterMultisensorLmbm, AssociatorConfig.gibbs())
-                print(f"{name:<25} | {'FilterMsLmbm':<20} | {t*1000:>12.1f}", flush=True)
+                if use_timeout:
+                    signal.alarm(args.timeout)
+
+                # Create filter
+                filt = filter_cls(
+                    motion, multi_sensor if is_multi else sensor, birth, assoc_fn(), THRESHOLDS
+                )
+
+                # Run and time
+                elapsed_ms, card_err, steps_done = run_filter(filt, steps, is_multi)
+
+                if use_timeout:
+                    signal.alarm(0)
+
+                progress = f"{steps_done}/{len(steps)}"
+                print(
+                    f"{name:<22} | {filter_name:<18} | {elapsed_ms:>9.1f} | {card_err:>7.2f} | {progress:>8}"
+                )
+
+            except TimeoutError:
+                if use_timeout:
+                    signal.alarm(0)
+                progress = f"{_current_progress['steps_done']}/{_current_progress['total_steps']}"
+                print(f"{name:<22} | {filter_name:<18} | {'TIMEOUT':>9} | {'-':>7} | {progress:>8}")
+
             except Exception:
-                print(f"{name:<25} | {'FilterMsLmbm':<20} | {'ERROR':>12}", flush=True)
+                if use_timeout:
+                    signal.alarm(0)
+                progress = f"{_current_progress['steps_done']}/{_current_progress['total_steps']}"
+                print(f"{name:<22} | {filter_name:<18} | {'ERROR':>9} | {'-':>7} | {progress:>8}")
 
 
 if __name__ == "__main__":

@@ -156,10 +156,11 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
     let rho: Vec<f64> = esf_values.iter().map(|&e| prod_1_minus_r * e).collect();
 
     // Find maximum cardinality index
+    // Use total_cmp to handle NaN values safely (NaN is treated as less than all numbers)
     let max_cardinality_index = rho
         .iter()
         .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .max_by(|(_, a), (_, b)| a.total_cmp(b))
         .map(|(i, _)| i)
         .unwrap_or(0);
 
