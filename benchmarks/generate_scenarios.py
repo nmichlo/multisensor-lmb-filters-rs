@@ -9,7 +9,11 @@ import json
 import random
 from pathlib import Path
 
-# Hard-coded configs: (num_objects, num_sensors)
+# =============================================================================
+# SCENARIO CONFIGURATIONS
+# =============================================================================
+
+# Scenario matrix: (num_objects, num_sensors)
 CONFIGS = [
     (5, 1),
     (10, 1),
@@ -24,21 +28,50 @@ CONFIGS = [
 ]
 
 NUM_STEPS = 100
-BOUNDS = (-100.0, 100.0, -100.0, 100.0)  # x_min, x_max, y_min, y_max
 SEED = 42
+
+# =============================================================================
+# SIMULATION PARAMETERS
+# =============================================================================
+
+# Spatial bounds
+BOUNDS = (-100.0, 100.0, -100.0, 100.0)  # x_min, x_max, y_min, y_max
+SPAWN_MARGIN = 10.0  # Margin from walls for initial spawn
+
+# Object dynamics
+INIT_VELOCITY_STD = 3.0  # Initial velocity standard deviation
+
+# Sensor model
+DETECTION_PROBABILITY = 0.98
+MEASUREMENT_NOISE_STD = 1.0
+CLUTTER_MIN = 0
+CLUTTER_MAX = 2
+
+# Motion model
+DT = 1.0
+PROCESS_NOISE_STD = 0.5
+SURVIVAL_PROBABILITY = 0.99
+
+# Birth model - dense grid covering the space
+BIRTH_GRID_POINTS = [-75, -25, 25, 75]
+BIRTH_LOCATIONS = [[x, y] for x in BIRTH_GRID_POINTS for y in BIRTH_GRID_POINTS]
+
+# =============================================================================
+# SCENARIO GENERATOR
+# =============================================================================
 
 
 def generate_bouncing_scenario(n_objects: int, n_sensors: int, n_steps: int, seed: int) -> dict:
-    """Generate a bouncing-box tracking scenario."""
+    """Generate a bouncing-box tracking scenario with random object spawns."""
     random.seed(seed)
 
-    # Initialize objects with random positions and velocities
+    # Spawn objects randomly across the space
     objects = []
     for _ in range(n_objects):
-        x = random.uniform(BOUNDS[0], BOUNDS[1])
-        y = random.uniform(BOUNDS[2], BOUNDS[3])
-        vx = random.gauss(0, 5)
-        vy = random.gauss(0, 5)
+        x = random.uniform(BOUNDS[0] + SPAWN_MARGIN, BOUNDS[1] - SPAWN_MARGIN)
+        y = random.uniform(BOUNDS[2] + SPAWN_MARGIN, BOUNDS[3] - SPAWN_MARGIN)
+        vx = random.gauss(0, INIT_VELOCITY_STD)
+        vy = random.gauss(0, INIT_VELOCITY_STD)
         objects.append([x, y, vx, vy])
 
     steps = []
@@ -63,54 +96,76 @@ def generate_bouncing_scenario(n_objects: int, n_sensors: int, n_steps: int, see
                 obj[1] = BOUNDS[3] - (obj[1] - BOUNDS[3])
                 obj[3] *= -1
 
-        # Generate sensor readings: [x, y, object_id] where object_id=-1 for clutter
+        # Ground truth positions (before noise)
+        ground_truth = [[obj[0], obj[1]] for obj in objects]
+
+        # Generate sensor readings
         sensor_readings = []
         for _ in range(n_sensors):
             readings = []
 
-            # True detections (with probability of detection)
-            for obj_id, obj in enumerate(objects):
-                if random.random() < 0.95:
+            # Detections with noise
+            for obj in objects:
+                if random.random() < DETECTION_PROBABILITY:
                     readings.append(
-                        [obj[0] + random.gauss(0, 3), obj[1] + random.gauss(0, 3), obj_id]
+                        [
+                            obj[0] + random.gauss(0, MEASUREMENT_NOISE_STD),
+                            obj[1] + random.gauss(0, MEASUREMENT_NOISE_STD),
+                        ]
                     )
 
-            # Clutter (approximately Poisson(2)), id=-1
-            n_clutter = int(random.expovariate(0.5))  # ~Poisson(2)
+            # Clutter
+            n_clutter = random.randint(CLUTTER_MIN, CLUTTER_MAX)
             for _ in range(n_clutter):
                 readings.append(
-                    [random.uniform(BOUNDS[0], BOUNDS[1]), random.uniform(BOUNDS[2], BOUNDS[3]), -1]
+                    [
+                        random.uniform(BOUNDS[0], BOUNDS[1]),
+                        random.uniform(BOUNDS[2], BOUNDS[3]),
+                    ]
                 )
 
             sensor_readings.append(readings)
 
-        steps.append({"step": t, "sensor_readings": sensor_readings})
+        steps.append(
+            {
+                "step": t,
+                "object_ids": list(range(n_objects)),
+                "ground_truth": ground_truth,
+                "sensor_readings": sensor_readings,
+            }
+        )
+
+    # Compute effective clutter rate (average clutter per frame)
+    clutter_rate = (CLUTTER_MIN + CLUTTER_MAX) / 2.0
 
     return {
         "type": "bouncing",
-        "measurement_format": "x_y_id",
+        "measurement_format": "x_y",
         "seed": seed,
         "num_objects": n_objects,
         "num_sensors": n_sensors,
         "num_steps": n_steps,
         "bounds": list(BOUNDS),
-        "init_velocity_std": 5.0,
+        "spawn_margin": SPAWN_MARGIN,
+        "init_velocity_std": INIT_VELOCITY_STD,
         "model": {
-            "dt": 1.0,
-            "process_noise_std": 1.0,
-            "measurement_noise_std": 3.0,
-            "detection_probability": 0.95,
-            "survival_probability": 0.99,
-            "clutter_rate": 2.0,
-            "birth_locations": [
-                [0.0, 0.0, 0.0, 0.0],
-                [50.0, 50.0, 0.0, 0.0],
-                [-50.0, -50.0, 0.0, 0.0],
-                [50.0, -50.0, 0.0, 0.0],
-            ],
+            "dt": DT,
+            "process_noise_std": PROCESS_NOISE_STD,
+            "measurement_noise_std": MEASUREMENT_NOISE_STD,
+            "detection_probability": DETECTION_PROBABILITY,
+            "survival_probability": SURVIVAL_PROBABILITY,
+            "clutter_rate": clutter_rate,
+            "clutter_min": CLUTTER_MIN,
+            "clutter_max": CLUTTER_MAX,
+            "birth_locations": [[b[0], b[1], 0.0, 0.0] for b in BIRTH_LOCATIONS],
         },
         "steps": steps,
     }
+
+
+# =============================================================================
+# OUTPUT UTILITIES
+# =============================================================================
 
 
 def round_floats(obj, decimals=3):
@@ -135,6 +190,7 @@ def write_compact_json(scenario: dict, path: Path):
         f.write(f'  "num_sensors": {scenario["num_sensors"]},\n')
         f.write(f'  "num_steps": {scenario["num_steps"]},\n')
         f.write(f'  "bounds": {json.dumps(scenario["bounds"])},\n')
+        f.write(f'  "spawn_margin": {scenario["spawn_margin"]},\n')
         f.write(f'  "init_velocity_std": {scenario["init_velocity_std"]},\n')
         f.write(f'  "model": {json.dumps(scenario["model"])},\n')
         # Steps: one line per step
@@ -147,6 +203,10 @@ def write_compact_json(scenario: dict, path: Path):
         f.write("  ]\n")
         f.write("}\n")
 
+
+# =============================================================================
+# MAIN
+# =============================================================================
 
 if __name__ == "__main__":
     out_dir = Path(__file__).parent / "scenarios"

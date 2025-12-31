@@ -78,6 +78,60 @@ class TimeoutError(Exception):
 _current_progress = {"steps_done": 0, "total_steps": 0}
 
 
+def hungarian(cost: np.ndarray) -> list[tuple[int, int]]:
+    """Simple O(n³) Hungarian algorithm for square/rectangular cost matrices."""
+    n, m = cost.shape
+    u, v = np.zeros(n + 1), np.zeros(m + 1)
+    p, way = np.zeros(m + 1, dtype=int), np.zeros(m + 1, dtype=int)
+    INF = float("inf")
+    for i in range(1, n + 1):
+        p[0], minv, used = i, np.full(m + 1, INF), np.zeros(m + 1, dtype=bool)
+        j0 = 0
+        while p[j0] != 0:
+            used[j0], i0, delta, j1 = True, p[j0], INF, 0
+            for j in range(1, m + 1):
+                if not used[j]:
+                    cur = cost[i0 - 1, j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j], way[j] = cur, j0
+                    if minv[j] < delta:
+                        delta, j1 = minv[j], j
+            for j in range(m + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+        while j0:
+            p[j0], j0 = p[way[j0]], way[j0]
+    return [(p[j] - 1, j - 1) for j in range(1, m + 1) if p[j]]
+
+
+def compute_ospa(
+    estimates: list[np.ndarray], truths: list[np.ndarray], c: float = 50.0, p: float = 2.0
+) -> float:
+    """Compute mean OSPA using Hungarian (optimal) assignment."""
+    ospa_sum = 0.0
+    for est, gt in zip(estimates, truths, strict=False):
+        m, n = len(est), len(gt)
+        if m == 0 and n == 0:
+            continue
+        if m == 0 or n == 0:
+            ospa_sum += c
+            continue
+        # Build cost matrix and solve with Hungarian
+        cost = np.array([[min(np.linalg.norm(e - g), c) ** p for g in gt] for e in est])
+        if m <= n:
+            matches = hungarian(cost)
+            loc_sum = sum(cost[i, j] for i, j in matches)
+        else:
+            matches = hungarian(cost.T)
+            loc_sum = sum(cost[j, i] for i, j in matches)
+        ospa_sum += ((loc_sum + (c**p) * abs(m - n)) / max(m, n)) ** (1 / p)
+    return ospa_sum / len(estimates) if estimates else 0.0
+
+
 def on_timeout(signum, frame):
     raise TimeoutError()
 
@@ -97,49 +151,57 @@ def preprocess(scenario):
         m["measurement_noise_std"], m["detection_probability"], m["clutter_rate"], obs_vol
     )
     birth_locs = [
-        BirthLocation(i, np.array(loc), np.eye(4) * 100.0)
+        BirthLocation(i, np.array(loc), np.eye(4) * 2500.0)  # std=50 to cover gaps
         for i, loc in enumerate(m["birth_locations"])
     ]
     birth = BirthModel(birth_locs, lmb_existence=0.01, lmbm_existence=0.001)
     multi_sensor = SensorConfigMulti([sensor] * n_sensors)
 
-    # Preprocess measurements: list of (timestep, single_meas, multi_meas, n_true)
+    # Preprocess measurements: list of (timestep, single_meas, multi_meas, gt_positions)
     steps = []
     for step in scenario["steps"]:
         t = step["step"]
-        multi_meas = [
-            np.array([[r[0], r[1]] for r in s]) if s else np.empty((0, 2))
-            for s in step["sensor_readings"]
-        ]
+        multi_meas = [np.array(s) if s else np.empty((0, 2)) for s in step["sensor_readings"]]
         single_meas = multi_meas[0] if multi_meas else np.empty((0, 2))
-        # Ground truth: count unique object IDs (excluding clutter which has id=-1)
-        n_true = len(set(int(r[2]) for s in step["sensor_readings"] for r in s if int(r[2]) >= 0))
-        steps.append((t, single_meas, multi_meas, n_true))
+        gt_positions = (
+            np.array(step["ground_truth"]) if step.get("ground_truth") else np.empty((0, 2))
+        )
+        steps.append((t, single_meas, multi_meas, gt_positions))
 
     return motion, sensor, multi_sensor, birth, steps
 
 
 def run_filter(filt, steps, is_multi):
-    """Run filter on preprocessed steps, return (elapsed_ms, card_err, steps_done)."""
+    """Run filter on preprocessed steps, return (elapsed_ms, ospa, steps_done)."""
     global _current_progress
-    n_est_list, n_true_list = [], []
+    estimated_positions = []
+    ground_truth_positions = []
     _current_progress = {"steps_done": 0, "total_steps": len(steps)}
 
+    # === TIMED SECTION ===
     start = time.perf_counter()
-    for i, (t, single_meas, multi_meas, n_true) in enumerate(steps):
+    for i, (t, single_meas, multi_meas, gt_positions) in enumerate(steps):
         result = filt.step(multi_meas if is_multi else single_meas, t)
-        n_est_list.append(result.num_tracks)
-        n_true_list.append(n_true)
+
+        # Collect positions (minimal overhead: just extract x,y from state mean)
+        # State is [x, vx, y, vy] for constant velocity 2D model
+        est_pos = (
+            np.array([[tr.mean[0], tr.mean[2]] for tr in result.tracks])
+            if result.tracks
+            else np.empty((0, 2))
+        )
+        estimated_positions.append(est_pos)
+        ground_truth_positions.append(gt_positions)
+
         _current_progress["steps_done"] = i + 1
 
     elapsed_ms = (time.perf_counter() - start) * 1000
+    # === END TIMED SECTION ===
 
-    # Simple accuracy: mean absolute cardinality error
-    card_err = sum(abs(e - t) for e, t in zip(n_est_list, n_true_list, strict=False)) / len(
-        n_est_list
-    )
+    # Compute OSPA (outside timing - O(n³) per step due to Hungarian algorithm)
+    ospa = compute_ospa(estimated_positions, ground_truth_positions, c=50.0, p=2.0)
 
-    return elapsed_ms, card_err, len(steps)
+    return elapsed_ms, ospa, len(steps)
 
 
 def main():
@@ -185,7 +247,7 @@ def main():
     except (AttributeError, ValueError):
         use_timeout = False
 
-    print(f"{'Scenario':<22} | {'Filter':<18} | {'Time(ms)':>9} | {'CardErr':>7} | {'Progress':>8}")
+    print(f"{'Scenario':<22} | {'Filter':<18} | {'Time(ms)':>9} | {'OSPA':>7} | {'Progress':>8}")
     print("-" * 75)
 
     for path in scenarios:
@@ -206,14 +268,14 @@ def main():
                 )
 
                 # Run and time
-                elapsed_ms, card_err, steps_done = run_filter(filt, steps, is_multi)
+                elapsed_ms, ospa, steps_done = run_filter(filt, steps, is_multi)
 
                 if use_timeout:
                     signal.alarm(0)
 
                 progress = f"{steps_done}/{len(steps)}"
                 print(
-                    f"{name:<22} | {filter_name:<18} | {elapsed_ms:>9.1f} | {card_err:>7.2f} | {progress:>8}"
+                    f"{name:<22} | {filter_name:<18} | {elapsed_ms:>9.1f} | {ospa:>7.2f} | {progress:>8}"
                 )
 
             except TimeoutError:
