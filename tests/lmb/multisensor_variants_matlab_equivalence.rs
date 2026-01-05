@@ -27,7 +27,9 @@ use helpers::fixtures::{deserialize_matrix, deserialize_posterior_w, deserialize
 const TOLERANCE: f64 = 1e-10;
 
 /// Deserialize step5_fusion which can be either null, empty array [], or actual data
-fn deserialize_optional_fusion<'de, D>(deserializer: D) -> Result<Option<VariantFusionStep>, D::Error>
+fn deserialize_optional_fusion<'de, D>(
+    deserializer: D,
+) -> Result<Option<VariantFusionStep>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -74,7 +76,8 @@ where
             M: de::MapAccess<'de>,
         {
             // Actual fusion data
-            let fusion = VariantFusionStep::deserialize(de::value::MapAccessDeserializer::new(map))?;
+            let fusion =
+                VariantFusionStep::deserialize(de::value::MapAccessDeserializer::new(map))?;
             Ok(Some(fusion))
         }
     }
@@ -99,7 +102,10 @@ struct VariantFixture {
     step1_prediction: VariantPredictionStep,
     #[serde(rename = "sensorUpdates")]
     sensor_updates: Vec<VariantSensorUpdateData>,
-    #[serde(rename = "step5_fusion", deserialize_with = "deserialize_optional_fusion")]
+    #[serde(
+        rename = "step5_fusion",
+        deserialize_with = "deserialize_optional_fusion"
+    )]
     step5_fusion: Option<VariantFusionStep>,
     #[serde(rename = "stepFinal_cardinality")]
     step_final_cardinality: VariantCardinalityStep,
@@ -605,6 +611,162 @@ fn test_update_output_equivalence(variant: &str) {
     }
 }
 
+fn test_fusion_equivalence(variant: &str) {
+    use multisensor_lmb_filters_rs::lmb::{
+        ArithmeticAverageMerger, GeometricAverageMerger, Merger, ParallelUpdateMerger,
+    };
+
+    let fixture = load_variant_fixture(variant);
+
+    // IC-LMB has no fusion step
+    if fixture.step5_fusion.is_none() {
+        println!(
+            "  ⏭ {}-LMB has no fusion step (sequential processing)",
+            variant.to_uppercase()
+        );
+        return;
+    }
+
+    let fusion = fixture.step5_fusion.as_ref().unwrap();
+
+    println!(
+        "Testing {}-LMB fusion against MATLAB...",
+        variant.to_uppercase()
+    );
+
+    // Convert per-sensor tracks from fixture
+    let per_sensor_tracks: Vec<Vec<Track>> = fusion
+        .input
+        .per_sensor_objects
+        .iter()
+        .map(|objs| variant_objects_to_tracks(objs))
+        .collect();
+
+    // Get sensor weights from model (uniform for this fixture)
+    let num_sensors = fixture.model.p_d.len();
+    let weights: Vec<f64> = vec![1.0 / num_sensors as f64; num_sensors];
+
+    // Apply the appropriate merger
+    let fused_tracks: Vec<Track> = match variant {
+        "aa" => {
+            let merger = ArithmeticAverageMerger::with_weights(weights.clone(), 20);
+            merger.merge(&per_sensor_tracks, Some(&weights))
+        }
+        "ga" => {
+            let merger = GeometricAverageMerger::with_weights(weights.clone());
+            merger.merge(&per_sensor_tracks, Some(&weights))
+        }
+        "pu" => {
+            // PU merger needs predicted tracks (prior) for decorrelation
+            let predicted_tracks = variant_objects_to_tracks(&fusion.input.predicted_objects);
+            let mut merger = ParallelUpdateMerger::new(Vec::new());
+            merger.set_prior(predicted_tracks);
+            merger.merge(&per_sensor_tracks, None)
+        }
+        _ => panic!("Unknown variant: {}", variant),
+    };
+
+    // Compare against expected
+    let expected = &fusion.output.fused_objects;
+
+    assert_eq!(
+        fused_tracks.len(),
+        expected.len(),
+        "{}-LMB fusion: track count mismatch (got {}, expected {})",
+        variant.to_uppercase(),
+        fused_tracks.len(),
+        expected.len()
+    );
+
+    for (i, (actual, exp)) in fused_tracks.iter().zip(expected.iter()).enumerate() {
+        helpers::assertions::assert_scalar_close(
+            actual.existence,
+            exp.r,
+            TOLERANCE,
+            &format!("{}-LMB fused track {} existence", variant.to_uppercase(), i),
+        );
+
+        assert_eq!(
+            actual.label.birth_time,
+            exp.birth_time,
+            "{}-LMB fused track {} birth_time mismatch",
+            variant.to_uppercase(),
+            i
+        );
+
+        assert_eq!(
+            actual.label.birth_location,
+            exp.birth_location,
+            "{}-LMB fused track {} birth_location mismatch",
+            variant.to_uppercase(),
+            i
+        );
+
+        assert_eq!(
+            actual.components.len(),
+            exp.mu.len(),
+            "{}-LMB fused track {} component count mismatch",
+            variant.to_uppercase(),
+            i
+        );
+
+        for (j, comp) in actual.components.iter().enumerate() {
+            helpers::assertions::assert_scalar_close(
+                comp.weight,
+                exp.w[j],
+                TOLERANCE,
+                &format!(
+                    "{}-LMB fused track {} component {} weight",
+                    variant.to_uppercase(),
+                    i,
+                    j
+                ),
+            );
+
+            for (k, (&actual_val, &expected_val)) in
+                comp.mean.iter().zip(exp.mu[j].iter()).enumerate()
+            {
+                helpers::assertions::assert_scalar_close(
+                    actual_val,
+                    expected_val,
+                    TOLERANCE,
+                    &format!(
+                        "{}-LMB fused track {} component {} mean[{}]",
+                        variant.to_uppercase(),
+                        i,
+                        j,
+                        k
+                    ),
+                );
+            }
+
+            for row in 0..comp.covariance.nrows() {
+                for col in 0..comp.covariance.ncols() {
+                    helpers::assertions::assert_scalar_close(
+                        comp.covariance[(row, col)],
+                        exp.sigma[j][row][col],
+                        TOLERANCE,
+                        &format!(
+                            "{}-LMB fused track {} component {} Sigma[{},{}]",
+                            variant.to_uppercase(),
+                            i,
+                            j,
+                            row,
+                            col
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    println!(
+        "  ✓ {}-LMB fusion matches MATLAB ({} tracks)",
+        variant.to_uppercase(),
+        fused_tracks.len()
+    );
+}
+
 fn test_cardinality_equivalence(variant: &str) {
     use multisensor_lmb_filters_rs::lmb::cardinality::lmb_map_cardinality_estimate;
 
@@ -621,7 +783,8 @@ fn test_cardinality_equivalence(variant: &str) {
     let (n_estimated, map_indices) = lmb_map_cardinality_estimate(existence_probs);
 
     assert_eq!(
-        n_estimated, expected.n_estimated,
+        n_estimated,
+        expected.n_estimated,
         "{}-LMB n_estimated: expected {}, got {}",
         variant.to_uppercase(),
         expected.n_estimated,
@@ -684,6 +847,11 @@ fn test_aa_lmb_cardinality_equivalence() {
     test_cardinality_equivalence("aa");
 }
 
+#[test]
+fn test_aa_lmb_fusion_equivalence() {
+    test_fusion_equivalence("aa");
+}
+
 //=============================================================================
 // GA-LMB Tests
 //=============================================================================
@@ -713,6 +881,11 @@ fn test_ga_lmb_cardinality_equivalence() {
     test_cardinality_equivalence("ga");
 }
 
+#[test]
+fn test_ga_lmb_fusion_equivalence() {
+    test_fusion_equivalence("ga");
+}
+
 //=============================================================================
 // PU-LMB Tests
 //=============================================================================
@@ -740,6 +913,11 @@ fn test_pu_lmb_update_output_equivalence() {
 #[test]
 fn test_pu_lmb_cardinality_equivalence() {
     test_cardinality_equivalence("pu");
+}
+
+#[test]
+fn test_pu_lmb_fusion_equivalence() {
+    test_fusion_equivalence("pu");
 }
 
 //=============================================================================
