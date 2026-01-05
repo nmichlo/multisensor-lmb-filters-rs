@@ -15,6 +15,9 @@ mod lmbm_matlab_equivalence;
 #[path = "lmb/multisensor_matlab_equivalence.rs"]
 mod multisensor_matlab_equivalence;
 
+#[path = "lmb/multisensor_variants_matlab_equivalence.rs"]
+mod multisensor_variants_matlab_equivalence;
+
 #[path = "lmb/multisensor_lmbm_matlab_equivalence.rs"]
 mod multisensor_lmbm_matlab_equivalence;
 
