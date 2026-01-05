@@ -1,148 +1,174 @@
-# Fixture Coverage & Test Status
+# Fixture Coverage & Test Equivalence Plan
 
 **IMPORTANT**: This file MUST be updated when tests are added/modified. Coverage matrix is the source of truth.
 
 ## Current Status
 
 **Test Counts**: 120+ tests total (56 Rust + 65+ Python)
-- **Single-Sensor LMB**: 100% VALUE coverage (Python + Rust)
-- **Single-Sensor LMBM**: 100% VALUE coverage (Python + Rust)
-- **Multisensor LMB**: 100% VALUE coverage (Python + Rust) - per-sensor data now exposed
-- **Multisensor LMBM**: 100% VALUE coverage (Python + Rust)
 
-**Completion**: 100% (51/51 TODO items)
+### Coverage Summary
+
+| Filter Type | Step-by-Step Fixture | Python Tests | Rust Tests | Status |
+|-------------|---------------------|--------------|------------|--------|
+| LMB | Full (7 steps) | Comprehensive | Comprehensive | **COMPLETE** |
+| LMBM | Full (7 steps) | Comprehensive | Comprehensive | **COMPLETE** |
+| AA-LMB | None | Basic only | Basic only | **NEEDS WORK** |
+| GA-LMB | None | Basic only | Basic only | **NEEDS WORK** |
+| PU-LMB | None | Basic only | Basic only | **NEEDS WORK** |
+| IC-LMB | Partial (per-sensor) | Per-sensor only | Per-sensor only | **NEEDS WORK** |
+| MS-LMBM | Full (6 steps) | Partial (missing w,mu,Sigma) | Partial | **NEEDS WORK** |
 
 **ALL TESTS USE TOLERANCE=1e-10 FOR NUMERICAL COMPARISONS**
 
 ---
 
-## Recent Work (2025-12-29)
+## Implementation Plan: Complete Test Equivalence
 
-### Per-Sensor Data Exposure for Multisensor LMB
+### Phase 1: Generate Comprehensive MATLAB Fixtures
 
-**Problem**: Python API did not expose per-sensor intermediate data for multisensor LMB filters. The Rust code computed per-sensor association matrices, data association results, and updated tracks, but explicitly set `association_matrices=None` in `step_detailed()`.
+**File to Create:** `benchmarks/generate_step_by_step_fixtures.m`
 
-**Solution**: Exposed per-sensor data through new `sensor_updates` field in `StepDetailedOutput`.
+Generate step-by-step fixtures with ALL intermediate values for each filter:
 
-**Files Modified**:
-- `src/lmb/types.rs` - Added `SensorUpdateOutput` struct and `sensor_updates` field
-- `src/lmb/multisensor/lmb.rs` - Capture per-sensor data in `step_detailed()` and `step()`
-- `src/lmb/traits.rs` - Added `is_sequential()` method to `Merger` trait
-- `src/lmb/multisensor/fusion.rs` - Implemented `is_sequential()` for `IteratedCorrectorMerger`
-- `src/python/intermediate.rs` - Added `PySensorUpdateOutput` Python binding
-- `src/python/filters.rs` - Updated `step_output_to_py()` conversion
-- `src/python/mod.rs` - Exported new type
-- `python/multisensor_lmb_filters_rs/_multisensor_lmb_filters_rs.pyi` - Added type stub
+#### 1.1 Multi-Sensor LMB Step-by-Step Fixtures (AA, GA, PU, IC)
 
-### IC-LMB Sequential Processing Bug Fix
+Each fixture needs these steps:
+```
+step1_prediction:
+  - tracks: [{r, w, mu, Sigma, birthTime, birthLocation}, ...]
 
-**Problem**: IC-LMB (Iterated Corrector) was incorrectly using parallel processing - all sensors received the same predicted tracks as input. MATLAB uses sequential processing where each sensor's output is passed to the next sensor as input.
+step2_per_sensor_association:
+  - sensor0: {C, L, R, P, eta, posteriorParameters}
+  - sensor1: {C, L, R, P, eta, posteriorParameters}
 
-**MATLAB Evidence** (from `generateMultisensorLmbStepByStepData.m` lines 99-156):
-```matlab
-currentObjects = predictedObjects;
-for s = 1:numberOfSensors
-    sensorUpdate.input.objects = captureObjectsData(currentObjects);  % Uses current state
-    ...
-    currentObjects = computePosteriorLmbSpatialDistributions(...);    % Updates for next sensor
-end
+step3_per_sensor_data_association:
+  - sensor0: {r, W}  # posterior existence, marginal weights
+  - sensor1: {r, W}
+
+step4_per_sensor_update:
+  - sensor0: {tracks: [{r, w, mu, Sigma}, ...]}
+  - sensor1: {tracks: [{r, w, mu, Sigma}, ...]}
+
+step5_fusion:
+  - fused_tracks: [{r, w, mu, Sigma}, ...]  # After merger
+
+step6_cardinality:
+  - n_estimated, map_indices
 ```
 
-**Fix Applied**:
-1. Added `is_sequential()` method to `Merger` trait (default: `false`)
-2. `IteratedCorrectorMerger` returns `true` for `is_sequential()`
-3. Updated sensor loop in `step_detailed()` and `step()` to use sequential processing when `merger.is_sequential()` is true
-4. For sequential mergers: `current_tracks` is updated after each sensor and passed to next sensor
-5. For parallel mergers (AA, GA, PU): all sensors still receive the same `self.tracks.clone()`
+Generate 4 fixtures:
+- `tests/data/step_by_step/aa_lmb_step_by_step_seed42.json`
+- `tests/data/step_by_step/ga_lmb_step_by_step_seed42.json`
+- `tests/data/step_by_step/pu_lmb_step_by_step_seed42.json`
+- `tests/data/step_by_step/ic_lmb_step_by_step_seed42.json` (replace partial)
 
-**Verification**: All Rust and Python tests pass with TOLERANCE=1e-10.
+#### 1.2 LMBM Benchmark Fixture
 
-### Additional Fixes (2025-12-30)
+Generate LMBM fixture for end-to-end validation:
+- `benchmarks/fixtures/bouncing_n5_s1_LMBM_LBP.json`
 
-#### RNG Precision Bug Fix
+#### 1.3 Fix Multi-Sensor LMBM Fixture
 
-**Problem**: The `Rng::rand()` method in `src/common/rng.rs` used `u64::MAX as f64 + 1.0` as the divisor, which loses precision when converting the huge integer to f64. This caused subtle differences from MATLAB's RNG.
+Add missing fields to existing fixture:
+- `step1_prediction` needs: w, mu, Sigma (not just r, birthTime, birthLocation)
 
-**Fix**: Changed `rand()` to use `2_f64.powi(64)` as the divisor, matching MATLAB's `double(u) / (2^64)` exactly.
+### Phase 2: Python Test Implementation
 
-#### LBP sigma_mt_old Bug Fix
+**File to Modify:** `tests/test_equivalence.py`
 
-**Problem**: Python integration tests using LBP with 1e-6 tolerance produced ~1e-9 differences from MATLAB.
+#### 2.1 Add Multi-Sensor LMB Comprehensive Tests
 
-**Root Cause**: MATLAB computes `B = Psi .* SigmaMT` at the START of each iteration (before SigmaMT is updated), then after the loop uses that `B` directly for computing `Gamma`. But Rust was recomputing `B` using the FINAL `sigma_mt` after the loop. This is off by one iteration!
+Create new test class: `TestMultisensorLmbStepByStepEquivalence`
 
-**MATLAB behavior** (converges at iter N):
-- `B = Psi .* sigma_mt_{N-1}` (computed at start of last iteration)
-- `Gamma = [phi, B .* eta]`
+```python
+class TestMultisensorLmbStepByStepEquivalence:
+    """Comprehensive multi-sensor LMB tests (like single-sensor LMB)."""
 
-**Rust bug** (converges at iter N):
-- `b = Psi .* sigma_mt_N` (recomputed after loop with final value)
-- `Gamma = [phi, b .* eta]`
+    @pytest.fixture(params=["aa", "ga", "pu", "ic"])
+    def ms_lmb_fixture(self, request):
+        """Load step-by-step fixture for each merger type."""
+        ...
 
-**Fix**: Changed `compute_lbp_result()` to take `sigma_mt_old` (from before the last message passing iteration) instead of the final `sigma_mt`. This matches MATLAB exactly.
+    def test_prediction_equivalence(self, ms_lmb_fixture): ...
+    def test_per_sensor_association_matrices_equivalence(self, ms_lmb_fixture): ...
+    def test_per_sensor_data_association_equivalence(self, ms_lmb_fixture): ...
+    def test_per_sensor_update_equivalence(self, ms_lmb_fixture): ...
+    def test_fusion_equivalence(self, ms_lmb_fixture): ...
+    def test_cardinality_equivalence(self, ms_lmb_fixture): ...
+```
 
-**Files Modified**: `src/common/association/lbp.rs`
+#### 2.2 Fix Multi-Sensor LMBM Tests
 
-#### Association Builder Log-Sum-Exp Fix
+Update `TestMultisensorLmbmFixtureEquivalence`:
+- `test_multisensor_lmbm_prediction_full_equivalence`: Add w, mu, Sigma validation
 
-**Problem**: LMBM tests failed with `cost = inf` instead of expected finite values (e.g., 1120.12).
+### Phase 3: Rust Test Implementation
 
-**Root Cause**: Linear-space accumulation `l_ij += exp(log_term)` underflows to 0 when `log_term` is very negative (e.g., -1120), causing `log(0) = NEG_INFINITY` and `cost = inf`.
+**File to Modify:** `tests/lmb/multisensor_matlab_equivalence.rs`
 
-**Fix**: Changed L matrix accumulation from linear-space to log-sum-exp for numerical stability.
+#### 3.1 Add Multi-Sensor LMB Comprehensive Tests
 
-**Files Modified**: `src/association/builder.rs`
+Mirror the Python tests in Rust:
 
-### Locations with 1e-15 Division Guards (Potential MATLAB Mismatches)
+```rust
+// For each merger type (AA, GA, PU, IC)
+#[test]
+fn test_aa_lmb_prediction_equivalence() { ... }
+#[test]
+fn test_aa_lmb_per_sensor_association_equivalence() { ... }
+#[test]
+fn test_aa_lmb_per_sensor_update_equivalence() { ... }
+#[test]
+fn test_aa_lmb_fusion_equivalence() { ... }
+#[test]
+fn test_aa_lmb_cardinality_equivalence() { ... }
+```
 
-These locations have guards that MATLAB doesn't have - may need review if numerical differences persist:
+### Phase 4: LMBM Benchmark Tests
 
-| File | Line | Context |
-|------|------|---------|
-| `src/common/utils.rs` | 48, 105, 221 | normalize functions |
-| `src/common/association/gibbs.rs` | 198, 214, 288 | Gibbs sampling |
-| `src/association/builder.rs` | 231, 411 | association matrix building |
-| `src/components/update.rs` | 26, 62 | track update |
-| `src/python/intermediate.rs` | 406 | Python conversion |
-| `src/common/association/lbp.rs` | (removed) | LBP message passing |
+**Files to Modify:**
+- `benchmarks/test_matlab_fixtures.py`: Add LMBM fixture test
+- `tests/benchmark_fixture_equivalence.rs`: Add LMBM fixture test
+
+### Phase 5: Validation
+
+Run all tests and verify:
+1. `cargo test --release` - All Rust tests pass
+2. `uv run pytest -v` - All Python tests pass
+3. Same number of tests for each filter type in both languages
 
 ---
 
-## Code Review Fixes Complete (2025-12-29)
+## Files to Create/Modify
 
-Senior engineer code review of branch `nathan/feat/python` vs `main` identified and fixed the following issues:
+| File | Action | Purpose |
+|------|--------|---------|
+| `benchmarks/generate_step_by_step_fixtures.m` | Create | Generate comprehensive fixtures |
+| `tests/data/step_by_step/aa_lmb_step_by_step_seed42.json` | Create | AA-LMB fixture |
+| `tests/data/step_by_step/ga_lmb_step_by_step_seed42.json` | Create | GA-LMB fixture |
+| `tests/data/step_by_step/pu_lmb_step_by_step_seed42.json` | Create | PU-LMB fixture |
+| `tests/data/step_by_step/ic_lmb_step_by_step_seed42.json` | Create | IC-LMB full fixture |
+| `tests/data/step_by_step/multisensor_lmbm_step_by_step_seed42.json` | Modify | Add w,mu,Sigma |
+| `benchmarks/fixtures/bouncing_n5_s1_LMBM_LBP.json` | Create | LMBM benchmark |
+| `tests/test_equivalence.py` | Modify | Add comprehensive MS-LMB tests |
+| `tests/lmb/multisensor_matlab_equivalence.rs` | Modify | Add comprehensive MS-LMB tests |
+| `benchmarks/test_matlab_fixtures.py` | Modify | Add LMBM test |
+| `tests/benchmark_fixture_equivalence.rs` | Modify | Add LMBM test |
 
-### Issues Identified & Fixed
+---
 
-#### 1. SimpleRng Code Duplication FIXED
+## Test Count Target
 
-**Problem**: `src/lmb/simple_rng.rs` (165 lines) duplicated almost all functionality from `src/common/rng.rs`.
-
-**Fix Applied**:
-- Deleted `src/lmb/simple_rng.rs`
-- Added `Uniform01` struct to `src/common/rng.rs`
-- Updated imports
-
-#### 2. Test Code Duplication (~500-600 lines) FIXED
-
-**Problem**: Duplicated code across 4 MATLAB equivalence test files.
-
-**Fix Applied**:
-- Created `tests/lmb/helpers/fixtures.rs` (~300 lines) with all centralized helpers
-- Updated all 4 test files to use centralized helpers
-
-#### 3. Python Type Stub (.pyi) Missing Methods FIXED
-
-**Fix Applied**:
-- Added intermediate type stubs: `_TrackData`, `_PosteriorParameters`, `_AssociationMatrices`, `_AssociationResult`, `_CardinalityEstimate`, `_LmbmHypothesis`, `_StepOutput`, `_SensorUpdateOutput`
-- Added `step_detailed()` to all 7 filter classes
-- Added `get_tracks()`, `reset()`, `set_tracks()`, `set_hypotheses()` as appropriate
-
-#### 4. Debug Artifacts Committed FIXED
-
-**Fix Applied**:
-- Deleted `tests/debug_gibbs_test.rs`
-- Removed `#[allow(unused_variables)]` annotations
+| Filter | Python Tests | Rust Tests |
+|--------|--------------|------------|
+| LMB | 8 | 8 |
+| LMBM | 7 | 7 |
+| AA-LMB | 6 | 6 |
+| GA-LMB | 6 | 6 |
+| PU-LMB | 6 | 6 |
+| IC-LMB | 6 | 6 |
+| MS-LMBM | 6 | 6 |
+| **Total** | **45** | **45** |
 
 ---
 
@@ -150,7 +176,7 @@ Senior engineer code review of branch `nathan/feat/python` vs `main` identified 
 
 **Legend**: values (TOLERANCE=1e-10), structure (dimensions only), (not tested)
 
-### LMB FIXTURE (lmb_step_by_step_seed42.json)
+### LMB FIXTURE (lmb_step_by_step_seed42.json) - COMPLETE
 
 | Field | Python | Rust | Status |
 |-------|--------|------|--------|
@@ -173,7 +199,7 @@ Senior engineer code review of branch `nathan/feat/python` vs `main` identified 
 | step5.n_estimated | values | values | **COMPLETE** |
 | step5.map_indices | values | values | **COMPLETE** |
 
-### LMBM FIXTURE (lmbm_step_by_step_seed42.json)
+### LMBM FIXTURE (lmbm_step_by_step_seed42.json) - COMPLETE
 
 | Field | Python | Rust | Status |
 |-------|--------|------|--------|
@@ -196,7 +222,7 @@ Senior engineer code review of branch `nathan/feat/python` vs `main` identified 
 | step6.cardinality_estimate | values | values | **COMPLETE** |
 | step6.extraction_indices | values | values | **COMPLETE** |
 
-### MULTISENSOR LMB FIXTURE (multisensor_lmb_step_by_step_seed42.json)
+### MULTISENSOR LMB FIXTURE (multisensor_lmb_step_by_step_seed42.json) - PARTIAL
 
 | Field | Python | Rust | Status |
 |-------|--------|------|--------|
@@ -211,14 +237,18 @@ Senior engineer code review of branch `nathan/feat/python` vs `main` identified 
 | sensorUpdates[1].updated_objects | values | values | **COMPLETE** |
 | stepFinal.n_estimated | values | values | **COMPLETE** |
 | stepFinal.map_indices | values | values | **COMPLETE** |
+| **step5_fusion (AA/GA/PU)** | - | - | **NEEDS FIXTURE** |
 
-### MULTISENSOR LMBM FIXTURE (multisensor_lmbm_step_by_step_seed42.json)
+### MULTISENSOR LMBM FIXTURE (multisensor_lmbm_step_by_step_seed42.json) - PARTIAL
 
 | Field | Python | Rust | Status |
 |-------|--------|------|--------|
 | step1.predicted_hypothesis.r | values | values | **COMPLETE** |
 | step1.predicted_hypothesis.birthTime | values | values | **COMPLETE** |
 | step1.predicted_hypothesis.birthLocation | values | values | **COMPLETE** |
+| **step1.predicted_hypothesis.w** | - | - | **NEEDS FIXTURE** |
+| **step1.predicted_hypothesis.mu** | - | - | **NEEDS FIXTURE** |
+| **step1.predicted_hypothesis.Sigma** | - | - | **NEEDS FIXTURE** |
 | step2.L | structure | values | **COMPLETE** |
 | step2.posteriorParameters | structure | values | **COMPLETE** |
 | step3_gibbs.A (sample count) | values | values | **COMPLETE** |
@@ -227,50 +257,6 @@ Senior engineer code review of branch `nathan/feat/python` vs `main` identified 
 | step5.objects_likely_to_exist | structure | values | **COMPLETE** |
 | step6.cardinality_estimate | values | values | **COMPLETE** |
 | step6.extraction_indices | values | values | **COMPLETE** |
-
----
-
-## TODO List - 100% COMPLETE (51/51)
-
-### Python Tests (ALL COMPLETE)
-
-**LMBM Single-Sensor**
-- [x] `test_lmbm_prediction_full_equivalence()` - w, r, mu, Sigma, birthTime, birthLocation
-- [x] Extended `test_lmbm_association_matrices_equivalence()` - added posteriorParameters (conditional)
-- [x] `test_lmbm_normalized_hypotheses_full_equivalence()` - all hypothesis fields
-
-**Multisensor LMB** (ALL 8 GAPS FILLED)
-- [x] `test_ic_lmb_prediction_equivalence()` - step1.predicted_objects
-- [x] `test_ic_lmb_cardinality_equivalence()` - stepFinal.n_estimated, map_indices
-- [x] `test_sensor0_association_matrices_equivalence()` - C/L/R/P/eta
-- [x] `test_sensor0_posterior_parameters_equivalence()` - w/mu/Sigma
-- [x] `test_sensor0_data_association_equivalence()` - r/W
-- [x] `test_sensor0_updated_tracks_equivalence()` - updated_objects
-- [x] `test_sensor1_association_matrices_equivalence()` - C/L/R/P/eta
-- [x] `test_sensor1_posterior_parameters_equivalence()` - w/mu/Sigma
-- [x] `test_sensor1_data_association_equivalence()` - r/W
-- [x] `test_sensor1_updated_tracks_equivalence()` - updated_objects
-
-**Multisensor LMBM**
-- [x] `test_multisensor_lmbm_prediction_full_equivalence()` - r, birthTime, birthLocation
-- [x] `test_multisensor_lmbm_association_full_equivalence()` - L matrix validation
-- [x] `test_multisensor_lmbm_gibbs_full_equivalence()` - sample count
-- [x] `test_multisensor_lmbm_extraction_full_equivalence()` - cardinality + indices
-
-### Rust Tests (ALL COMPLETE)
-
-All tests use VALUE comparisons with TOLERANCE=1e-10.
-
----
-
-## Completion Criteria - 100% COMPLETE
-
-- [x] ZERO "GAP" entries remaining
-- [x] ALL tests use TOLERANCE=1e-10 (or 0 for integers)
-- [x] ALL Python tests pass (120+ tests)
-- [x] ALL Rust tests pass (56+ MATLAB equivalence tests)
-- [x] Coverage matrix shows "values" for all critical fields
-- [x] NO "BLOCKED" entries
 
 ---
 
@@ -285,8 +271,42 @@ All tests use VALUE comparisons with TOLERANCE=1e-10.
 4. **RNG seeds matter** - each step may have independent `rng_seed` field
 5. **SimpleRng required** - Must match MATLAB's xorshift64 exactly
 6. **Uniform01 distribution** - Must use full 64-bit: `u / 2^64`
+7. **State ordering**: [x, y, vx, vy] (MATLAB convention, not [x, vx, y, vy])
 
-**Major Fixes This Session**:
-- IC-LMB sequential processing bug - was using parallel (all sensors get same input), now sequential (each sensor uses previous output)
-- Per-sensor data exposure - added `sensor_updates` field to Python API
-- Added `is_sequential()` method to `Merger` trait for distinguishing fusion strategies
+---
+
+## Historical Bug Fixes (Reference)
+
+### RNG Precision Bug
+**Problem**: `Rng::rand()` used `u64::MAX as f64 + 1.0` as divisor, loses precision.
+**Fix**: Changed to `2_f64.powi(64)` matching MATLAB's `double(u) / (2^64)`.
+
+### LBP sigma_mt_old Bug
+**Problem**: MATLAB computes `B = Psi .* SigmaMT` at START of iteration, Rust recomputed after loop.
+**Fix**: Pass `sigma_mt_old` (from before last iteration) to `compute_lbp_result()`.
+
+### IC-LMB Sequential Processing Bug
+**Problem**: IC-LMB used parallel processing (all sensors get same input).
+**Fix**: Added `is_sequential()` to `Merger` trait; IC-LMB now passes each sensor's output to next.
+
+### PU-LMB Cartesian Product Bug
+**Problem**: Rust only used first GM component from each sensor.
+**Fix**: Implemented full Cartesian product of all GM components across sensors (matching MATLAB).
+
+### State Ordering Mismatch
+**Problem**: Rust used [x, vx, y, vy], MATLAB uses [x, y, vx, vy].
+**Fix**: Changed `MotionModel::constant_velocity_2d` and `SensorModel::position_sensor_2d`.
+
+---
+
+## Locations with 1e-15 Division Guards
+
+These locations have guards that MATLAB doesn't have - may need review if numerical differences persist:
+
+| File | Line | Context |
+|------|------|---------|
+| `src/common/utils.rs` | 48, 105, 221 | normalize functions |
+| `src/common/association/gibbs.rs` | 198, 214, 288 | Gibbs sampling |
+| `src/association/builder.rs` | 231, 411 | association matrix building |
+| `src/components/update.rs` | 26, 62 | track update |
+| `src/python/intermediate.rs` | 406 | Python conversion |
