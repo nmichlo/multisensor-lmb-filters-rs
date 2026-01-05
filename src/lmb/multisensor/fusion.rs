@@ -208,9 +208,16 @@ impl Merger for GeometricAverageMerger {
             }
 
             // Convert back to moment form
-            if let Some(sigma_fused) = k_sum.try_inverse() {
+            if let Some(sigma_fused) = k_sum.clone().try_inverse() {
                 let mu_fused = &sigma_fused * &h_sum;
-                let eta = g_sum.exp();
+
+                // GA normalization: eta = exp(g + 0.5 * mu' * K * mu + 0.5 * log(det(2π*Σ)))
+                // MATLAB: eta = exp(g + 0.5 * muGa' * K * muGa + 0.5 * log(det(2*pi*SigmaGa)));
+                let det_2pi_sigma =
+                    (2.0 * std::f64::consts::PI).powi(dim as i32) * sigma_fused.determinant();
+                let eta =
+                    (g_sum + 0.5 * mu_fused.dot(&(&k_sum * &mu_fused)) + 0.5 * det_2pi_sigma.ln())
+                        .exp();
 
                 // Geometric mean of existence
                 let mut r_num = eta;
@@ -273,6 +280,10 @@ impl ParallelUpdateMerger {
 }
 
 impl Merger for ParallelUpdateMerger {
+    fn set_prior(&mut self, prior_tracks: Vec<Track>) {
+        self.prior_tracks = prior_tracks;
+    }
+
     fn merge(&self, per_sensor_tracks: &[Vec<Track>], _weights: Option<&[f64]>) -> Vec<Track> {
         if per_sensor_tracks.is_empty() || per_sensor_tracks[0].is_empty() {
             return Vec::new();
@@ -303,7 +314,15 @@ impl Merger for ParallelUpdateMerger {
             // For simplicity, use first component from each sensor
             let mut k_fused = &prior_k * decorr_factor;
             let mut h_fused = &prior_h * decorr_factor;
-            let mut g_fused = 0.0;
+
+            // Prior's g contribution, scaled by decorr_factor
+            // MATLAB: gPrior = -0.5 * mu' * K * mu - 0.5 * log(det(2π*Σ))
+            // MATLAB: g = (1 - S) * gPrior
+            let det_2pi_prior =
+                (2.0 * std::f64::consts::PI).powi(dim as i32) * prior_comp.covariance.determinant();
+            let g_prior = -0.5 * prior_comp.mean.dot(&(&prior_k * &prior_comp.mean))
+                - 0.5 * det_2pi_prior.ln();
+            let mut g_fused = decorr_factor * g_prior;
 
             for sensor_tracks in per_sensor_tracks.iter().take(num_sensors) {
                 if i >= sensor_tracks.len() || sensor_tracks[i].components.is_empty() {
@@ -327,9 +346,17 @@ impl Merger for ParallelUpdateMerger {
             }
 
             // Convert back to moment form
-            if let Some(sigma_fused) = k_fused.try_inverse() {
+            if let Some(sigma_fused) = k_fused.clone().try_inverse() {
                 let mu_fused = &sigma_fused * &h_fused;
-                let eta = g_fused.exp();
+
+                // PU normalization: eta = exp(g + 0.5 * mu' * K * mu + 0.5 * log(det(2π*Σ)))
+                // MATLAB: g(j) = g(j) + 0.5 * h{j}' * T * h{j} + 0.5 * log(det(2 * pi * K{j}));
+                let det_2pi_sigma =
+                    (2.0 * std::f64::consts::PI).powi(dim as i32) * sigma_fused.determinant();
+                let eta = (g_fused
+                    + 0.5 * mu_fused.dot(&(&k_fused * &mu_fused))
+                    + 0.5 * det_2pi_sigma.ln())
+                .exp();
 
                 // Existence fusion with decorrelation
                 let prior_r = self.prior_tracks[i].existence;

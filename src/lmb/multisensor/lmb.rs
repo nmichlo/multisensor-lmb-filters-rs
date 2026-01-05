@@ -354,6 +354,8 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
                 per_sensor_tracks.push(sensor_tracks);
             }
 
+            // Set prior for PU-LMB decorrelation (no-op for other mergers)
+            self.merger.set_prior(self.tracks.clone());
             self.tracks = self.merger.merge(&per_sensor_tracks, None);
         } else if !has_any_measurements {
             self.update_existence_no_measurements();
@@ -512,6 +514,8 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
             }
 
             // --- STEP 3b: Fuse per-sensor updates ---
+            // Set prior for PU-LMB decorrelation (no-op for other mergers)
+            self.merger.set_prior(self.tracks.clone());
             self.tracks = self.merger.merge(&per_sensor_tracks, None);
         } else if !has_any_measurements {
             // No measurements from any sensor
