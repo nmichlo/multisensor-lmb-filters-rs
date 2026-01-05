@@ -255,6 +255,94 @@ pub trait TrackDataAccess {
     fn label(&self) -> Option<&[usize]> {
         None
     }
+    /// Birth time for variant fixtures that use separate fields
+    fn birth_time(&self) -> usize {
+        0
+    }
+    /// Birth location for variant fixtures that use separate fields
+    fn birth_location(&self) -> usize {
+        0
+    }
+}
+
+/// Compare tracks using birth_time/birth_location fields (variant fixture format)
+pub fn assert_variant_tracks_close<T>(actual: &[Track], expected: &[T], tolerance: f64)
+where
+    T: TrackDataAccess,
+{
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "Track count mismatch (actual={}, expected={})",
+        actual.len(),
+        expected.len()
+    );
+
+    for (i, (actual_track, expected_track)) in actual.iter().zip(expected.iter()).enumerate() {
+        // Compare existence
+        assert_scalar_close(
+            actual_track.existence,
+            expected_track.r(),
+            tolerance,
+            &format!("Track {} existence", i),
+        );
+
+        // Compare label using birth_time/birth_location methods
+        assert_eq!(
+            actual_track.label.birth_time,
+            expected_track.birth_time(),
+            "Track {} birthTime mismatch",
+            i
+        );
+        assert_eq!(
+            actual_track.label.birth_location,
+            expected_track.birth_location(),
+            "Track {} birthLocation mismatch",
+            i
+        );
+
+        // Compare number of components
+        assert_eq!(
+            actual_track.components.len(),
+            expected_track.mu().len(),
+            "Track {} component count mismatch",
+            i
+        );
+
+        // Compare each component
+        for (comp_idx, comp) in actual_track.components.iter().enumerate() {
+            // Component weight
+            assert_scalar_close(
+                comp.weight,
+                expected_track.w()[comp_idx],
+                tolerance,
+                &format!("Track {} component {} weight", i, comp_idx),
+            );
+
+            // Component mean
+            let expected_mean_vec =
+                nalgebra::DVector::from_vec(expected_track.mu()[comp_idx].clone());
+            assert_dvector_close(
+                &comp.mean,
+                &expected_mean_vec,
+                tolerance,
+                &format!("Track {} component {} mean", i, comp_idx),
+            );
+
+            // Component covariance
+            let dim = comp.covariance.nrows();
+            for row in 0..dim {
+                for col in 0..dim {
+                    assert_scalar_close(
+                        comp.covariance[(row, col)],
+                        expected_track.sigma()[comp_idx][row][col],
+                        tolerance,
+                        &format!("Track {} component {} Sigma[{},{}]", i, comp_idx, row, col),
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Trait to abstract over different Hypothesis data types
