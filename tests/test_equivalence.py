@@ -1568,6 +1568,247 @@ class TestMultisensorLmbmFixtureEquivalence:
         assert filter.num_hypotheses >= 1
 
 
+class TestMultisensorLmbVariantsStepByStepEquivalence:
+    """Comprehensive step-by-step tests for ALL multi-sensor LMB variants (AA, GA, PU, IC).
+
+    These tests run with the parametrized ms_lmb_variant_fixture, which loads fixtures
+    for each variant and runs tests 4 times total (once per variant).
+
+    Tests validate:
+    1. Prediction step equivalence
+    2. Per-sensor association matrices (C, L, R, P, eta, posteriorParameters)
+    3. Per-sensor data association (r, W from LBP)
+    4. Per-sensor update (updated tracks)
+    5. Fusion step (AA/GA/PU only - IC has no separate fusion)
+    6. Cardinality estimation
+    """
+
+    def _run_filter_step(self, fixture):
+        """Helper to run a multisensor filter step and return output.
+
+        Uses thresholds matching MATLAB exactly:
+        - max_components=20 (model.maximumNumberOfGmComponents)
+        - gm_weight=1e-6 (model.gmWeightThreshold)
+        - max_iterations=1000 (model.maximumNumberOfLbpIterations)
+        - tolerance=1e-6 (model.lbpConvergenceTolerance)
+        """
+        from conftest import (
+            get_multisensor_filter_class,
+            load_prior_tracks_from_variant_fixture,
+            make_birth_model_from_fixture,
+            make_motion_model,
+            make_multisensor_config,
+            nested_measurements_to_numpy,
+        )
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterThresholds
+
+        model = fixture["model"]
+        motion = make_motion_model(model)
+        sensor_config = make_multisensor_config(model)
+        birth = make_birth_model_from_fixture(fixture)
+
+        # Get filter class based on variant
+        variant = fixture["variant"]
+        FilterCls = get_multisensor_filter_class(variant)
+
+        # Use thresholds matching MATLAB exactly:
+        # - gmWeightThreshold = 1e-6
+        # - maximumNumberOfGmComponents = 20
+        # - maximumNumberOfLbpIterations = 1e3
+        # - lbpConvergenceTolerance = 1e-6
+        thresholds = FilterThresholds(max_components=20, gm_weight=1e-6)
+        association = AssociatorConfig.lbp(max_iterations=1000, tolerance=1e-6)
+
+        filter = FilterCls(
+            motion,
+            sensor_config,
+            birth,
+            association=association,
+            thresholds=thresholds,
+            seed=fixture["seed"],
+        )
+
+        # Load and set prior tracks
+        prior_tracks = load_prior_tracks_from_variant_fixture(fixture)
+        filter.set_tracks(prior_tracks)
+
+        # Run filter step
+        measurements = nested_measurements_to_numpy(fixture["measurements"])
+        return filter.step_detailed(measurements, timestep=fixture["timestep"])
+
+    def test_prediction_equivalence(self, ms_lmb_variant_fixture):
+        """Verify prediction step matches MATLAB for all variants."""
+        from conftest import compare_fused_tracks
+
+        fixture = ms_lmb_variant_fixture
+        variant = fixture["variant"]
+        output = self._run_filter_step(fixture)
+
+        expected_predicted = fixture["step1_prediction"]["output"]["predicted_objects"]
+        compare_fused_tracks(
+            f"{variant.upper()}-LMB.step1_predicted",
+            expected_predicted,
+            output.predicted_tracks,
+            TOLERANCE,
+        )
+
+    def test_per_sensor_association_matrices_equivalence(self, ms_lmb_variant_fixture):
+        """Verify per-sensor association matrices (C, L, R, P, eta) match MATLAB for all variants."""
+        fixture = ms_lmb_variant_fixture
+        variant = fixture["variant"]
+        output = self._run_filter_step(fixture)
+
+        assert output.sensor_updates is not None, f"{variant.upper()}-LMB: sensor_updates missing"
+
+        for sensor_update in fixture["sensorUpdates"]:
+            sensor_idx = sensor_update["sensorIndex"] - 1  # MATLAB is 1-indexed
+            expected_assoc = sensor_update.get("association")
+
+            if expected_assoc is None or expected_assoc == []:
+                continue  # No measurements for this sensor
+
+            actual = output.sensor_updates[sensor_idx]
+            assert (
+                actual.association_matrices is not None
+            ), f"{variant.upper()}-LMB sensor{sensor_idx}: matrices missing"
+
+            prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
+            compare_array(f"{prefix}.C", expected_assoc["C"], actual.association_matrices.cost, TOLERANCE)
+            compare_array(f"{prefix}.L", expected_assoc["L"], actual.association_matrices.likelihood, TOLERANCE)
+            compare_array(f"{prefix}.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE)
+            compare_array(f"{prefix}.P", expected_assoc["P"], actual.association_matrices.sampling_prob, TOLERANCE)
+            compare_array(f"{prefix}.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE)
+
+    def test_per_sensor_posterior_parameters_equivalence(self, ms_lmb_variant_fixture):
+        """Verify per-sensor posteriorParameters (w, mu, Sigma) match MATLAB for all variants."""
+        from conftest import compare_posterior_parameters
+
+        fixture = ms_lmb_variant_fixture
+        variant = fixture["variant"]
+        output = self._run_filter_step(fixture)
+
+        assert output.sensor_updates is not None
+
+        for sensor_update in fixture["sensorUpdates"]:
+            sensor_idx = sensor_update["sensorIndex"] - 1
+            expected_assoc = sensor_update.get("association")
+
+            if expected_assoc is None or expected_assoc == []:
+                continue
+
+            actual = output.sensor_updates[sensor_idx]
+            assert actual.association_matrices is not None
+
+            prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
+            compare_posterior_parameters(
+                f"{prefix}.posteriorParameters",
+                expected_assoc["posteriorParameters"],
+                actual.association_matrices.posterior_parameters,
+                TOLERANCE,
+            )
+
+    def test_per_sensor_data_association_equivalence(self, ms_lmb_variant_fixture):
+        """Verify per-sensor data association (r, W) match MATLAB for all variants."""
+        fixture = ms_lmb_variant_fixture
+        variant = fixture["variant"]
+        output = self._run_filter_step(fixture)
+
+        assert output.sensor_updates is not None
+
+        for sensor_update in fixture["sensorUpdates"]:
+            sensor_idx = sensor_update["sensorIndex"] - 1
+            expected_da = sensor_update.get("dataAssociation")
+
+            if expected_da is None or expected_da == []:
+                continue
+
+            actual = output.sensor_updates[sensor_idx]
+            assert (
+                actual.association_result is not None
+            ), f"{variant.upper()}-LMB sensor{sensor_idx}: result missing"
+
+            prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
+            compare_array(f"{prefix}.r", expected_da["r"], actual.association_result.posterior_existence, TOLERANCE)
+
+            # Compare marginal weights W (skip first column which is miss)
+            expected_w = expected_da["W"]
+            expected_marginals = [row[1:] for row in expected_w]
+            compare_array(
+                f"{prefix}.W_marginals",
+                expected_marginals,
+                actual.association_result.marginal_weights,
+                TOLERANCE,
+            )
+
+    def test_per_sensor_update_equivalence(self, ms_lmb_variant_fixture):
+        """Verify per-sensor updated tracks match MATLAB for all variants."""
+        from conftest import compare_fused_tracks
+
+        fixture = ms_lmb_variant_fixture
+        variant = fixture["variant"]
+        output = self._run_filter_step(fixture)
+
+        assert output.sensor_updates is not None
+
+        for sensor_update in fixture["sensorUpdates"]:
+            sensor_idx = sensor_update["sensorIndex"] - 1
+            expected_tracks = sensor_update["output"]["updated_objects"]
+
+            actual = output.sensor_updates[sensor_idx]
+            prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
+            compare_fused_tracks(f"{prefix}.updated_tracks", expected_tracks, actual.updated_tracks, TOLERANCE)
+
+    def test_fusion_equivalence(self, ms_lmb_variant_fixture):
+        """Verify fusion step matches MATLAB for parallel variants (AA/GA/PU).
+
+        IC-LMB is sequential and has no separate fusion step.
+        """
+        from conftest import compare_fused_tracks
+
+        fixture = ms_lmb_variant_fixture
+        variant = fixture["variant"]
+
+        # IC-LMB has no fusion step (sequential processing)
+        if variant == "ic":
+            assert fixture.get("step5_fusion") is None or fixture["step5_fusion"] == []
+            return
+
+        output = self._run_filter_step(fixture)
+
+        expected_fusion = fixture["step5_fusion"]["output"]["fused_objects"]
+        compare_fused_tracks(
+            f"{variant.upper()}-LMB.step5_fused",
+            expected_fusion,
+            output.updated_tracks,
+            TOLERANCE,
+        )
+
+    def test_cardinality_equivalence(self, ms_lmb_variant_fixture):
+        """Verify cardinality estimation matches MATLAB for all variants."""
+        fixture = ms_lmb_variant_fixture
+        variant = fixture["variant"]
+        output = self._run_filter_step(fixture)
+
+        expected_card = fixture["stepFinal_cardinality"]["output"]
+
+        assert output.cardinality.n_estimated == expected_card["n_estimated"], (
+            f"{variant.upper()}-LMB.cardinality.n_estimated: "
+            f"expected {expected_card['n_estimated']}, got {output.cardinality.n_estimated}"
+        )
+
+        # Compare MAP indices (convert to 0-indexed)
+        # Handle MATLAB scalar vs list: when n_estimated=1, MATLAB may return scalar
+        expected_indices = expected_card["map_indices"]
+        if isinstance(expected_indices, int):
+            expected_indices = [expected_indices]
+        expected_indices_0 = sorted([i - 1 for i in expected_indices]) if expected_indices else []
+        actual_indices = sorted(list(output.cardinality.map_indices))
+        assert actual_indices == expected_indices_0, (
+            f"{variant.upper()}-LMB.cardinality.map_indices: "
+            f"expected {expected_indices_0}, got {actual_indices}"
+        )
+
+
 class TestAllFixturesLoad:
     """Verify all fixture files exist and load correctly."""
 
@@ -1578,6 +1819,10 @@ class TestAllFixturesLoad:
             "step_by_step/lmbm_step_by_step_seed42.json",
             "step_by_step/multisensor_lmb_step_by_step_seed42.json",
             "step_by_step/multisensor_lmbm_step_by_step_seed42.json",
+            "step_by_step/aa_lmb_step_by_step_seed42.json",
+            "step_by_step/ga_lmb_step_by_step_seed42.json",
+            "step_by_step/pu_lmb_step_by_step_seed42.json",
+            "step_by_step/ic_lmb_step_by_step_seed42.json",
             "single_trial_42.json",
             "single_trial_42_quick.json",
             "single_detection_trial_42_quick.json",
@@ -1587,6 +1832,6 @@ class TestAllFixturesLoad:
         ],
     )
     def test_fixture_loads(self, fixture_name):
-        """All 10 fixture files load without error."""
+        """All fixture files load without error."""
         fixture = load_fixture(fixture_name)
         assert "seed" in fixture or "filterVariants" in fixture
