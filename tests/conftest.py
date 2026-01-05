@@ -44,7 +44,7 @@ def lmbm_fixture():
 
 @pytest.fixture
 def multisensor_lmb_fixture():
-    """Load multi-sensor LMB step-by-step fixture."""
+    """Load multi-sensor LMB step-by-step fixture (IC-LMB)."""
     return load_fixture("step_by_step/multisensor_lmb_step_by_step_seed42.json")
 
 
@@ -52,6 +52,46 @@ def multisensor_lmb_fixture():
 def multisensor_lmbm_fixture():
     """Load multi-sensor LMBM step-by-step fixture."""
     return load_fixture("step_by_step/multisensor_lmbm_step_by_step_seed42.json")
+
+
+@pytest.fixture
+def aa_lmb_fixture():
+    """Load AA-LMB step-by-step fixture."""
+    return load_fixture("step_by_step/aa_lmb_step_by_step_seed42.json")
+
+
+@pytest.fixture
+def ga_lmb_fixture():
+    """Load GA-LMB step-by-step fixture."""
+    return load_fixture("step_by_step/ga_lmb_step_by_step_seed42.json")
+
+
+@pytest.fixture
+def pu_lmb_fixture():
+    """Load PU-LMB step-by-step fixture."""
+    return load_fixture("step_by_step/pu_lmb_step_by_step_seed42.json")
+
+
+@pytest.fixture
+def ic_lmb_fixture():
+    """Load IC-LMB step-by-step fixture."""
+    return load_fixture("step_by_step/ic_lmb_step_by_step_seed42.json")
+
+
+@pytest.fixture(params=["aa", "ga", "pu", "ic"])
+def ms_lmb_variant_fixture(request):
+    """Parametrized fixture loading step-by-step data for each multisensor LMB variant.
+
+    This fixture runs each test 4 times, once for each multi-sensor LMB variant:
+    - AA-LMB (Arithmetic Average)
+    - GA-LMB (Geometric Average)
+    - PU-LMB (Parallel Update)
+    - IC-LMB (Iterated Corrector)
+    """
+    variant = request.param
+    fixture = load_fixture(f"step_by_step/{variant}_lmb_step_by_step_seed42.json")
+    fixture["variant"] = variant  # Add variant name to fixture for test identification
+    return fixture
 
 
 # =============================================================================
@@ -310,7 +350,19 @@ def make_birth_model_from_fixture(fixture: dict):
     if "predicted_objects" in prediction_output:
         # LMB format: list of track objects
         predicted_objects = prediction_output["predicted_objects"]
-        birth_tracks = [obj for obj in predicted_objects if obj["label"][0] == timestep]
+
+        # Handle different label formats:
+        # - Old format: obj["label"] = [birthTime, birthLocation]
+        # - New format: obj["birthTime"], obj["birthLocation"]
+        birth_tracks = []
+        for obj in predicted_objects:
+            if "label" in obj:
+                birth_time = obj["label"][0]
+            else:
+                birth_time = obj.get("birthTime", 0)
+
+            if birth_time == timestep:
+                birth_tracks.append(obj)
 
         if not birth_tracks:
             return make_birth_model_empty()
@@ -318,10 +370,15 @@ def make_birth_model_from_fixture(fixture: dict):
         lmb_existence = birth_tracks[0]["r"]
         locations = []
         for obj in birth_tracks:
-            label = obj["label"]
+            # Handle different label formats
+            if "label" in obj:
+                birth_loc = obj["label"][1]
+            else:
+                birth_loc = obj.get("birthLocation", 0)
+
             locations.append(
                 BirthLocation(
-                    label=label[1],
+                    label=birth_loc,
                     mean=np.array(obj["mu"][0], dtype=np.float64),
                     covariance=np.array(obj["Sigma"][0], dtype=np.float64),
                 )
@@ -544,3 +601,105 @@ def compare_lmbm_hypotheses(name: str, expected: list, actual: list, tol: float 
 
     for i, (exp, act) in enumerate(zip(expected, actual)):
         compare_lmbm_hypothesis(f"{name}[{i}]", exp, act, tol)
+
+
+# =============================================================================
+# Multi-sensor LMB Variant Helpers
+# =============================================================================
+
+
+def get_multisensor_filter_class(variant: str):
+    """Get the filter class for a multi-sensor LMB variant.
+
+    Args:
+        variant: One of "aa", "ga", "pu", "ic"
+
+    Returns:
+        Filter class (FilterAaLmb, FilterGaLmb, FilterPuLmb, FilterIcLmb)
+    """
+    import multisensor_lmb_filters_rs as lmb
+
+    variant_map = {
+        "aa": lmb.FilterAaLmb,
+        "ga": lmb.FilterGaLmb,
+        "pu": lmb.FilterPuLmb,
+        "ic": lmb.FilterIcLmb,
+    }
+    if variant not in variant_map:
+        raise ValueError(f"Unknown variant: {variant}. Expected one of {list(variant_map.keys())}")
+    return variant_map[variant]
+
+
+def load_prior_tracks_from_variant_fixture(fixture: dict) -> list:
+    """Load prior tracks from a variant fixture.
+
+    The variant fixtures have a slightly different structure than the
+    original multisensor_lmb fixture:
+    - step1_prediction.input.prior_objects contains the prior track data
+
+    Returns:
+        List of _TrackData objects for filter initialization
+    """
+    prior_objects = fixture["step1_prediction"]["input"]["prior_objects"]
+    return [make_track_data_from_variant_fixture(obj) for obj in prior_objects]
+
+
+def make_track_data_from_variant_fixture(obj: dict):
+    """Convert a variant fixture object to _TrackData.
+
+    Variant fixtures store label as (birthTime, birthLocation) tuple directly.
+    """
+    from multisensor_lmb_filters_rs import _TrackData
+
+    # Parse label - variant fixtures use birthTime and birthLocation fields
+    birth_time = obj.get("birthTime", obj.get("label", [0, 0])[0] if "label" in obj else 0)
+    birth_location = obj.get("birthLocation", obj.get("label", [0, 0])[1] if "label" in obj else 0)
+    label_tuple = (birth_time, birth_location)
+
+    # Parse weights (can be scalar or list)
+    weights = obj["w"]
+    if not isinstance(weights, list):
+        weights = [weights]
+
+    return _TrackData(
+        label=label_tuple,
+        existence=obj["r"],
+        means=obj["mu"],
+        covariances=obj["Sigma"],
+        weights=weights,
+    )
+
+
+def compare_fused_tracks(name: str, expected: list, actual: list, tol: float = TOLERANCE):
+    """Compare fused tracks from fixture against actual filter output.
+
+    Args:
+        name: Name for error messages
+        expected: List of fixture dicts with keys: r, w, mu, Sigma, birthTime, birthLocation
+        actual: List of _TrackData objects from filter
+        tol: Numerical tolerance
+    """
+    if len(expected) != len(actual):
+        raise AssertionError(
+            f"{name}: track count mismatch - expected {len(expected)}, got {len(actual)}"
+        )
+
+    for i, (exp, act) in enumerate(zip(expected, actual)):
+        prefix = f"{name}[{i}]"
+
+        # Compare label (birthTime, birthLocation)
+        exp_birth_time = exp.get("birthTime", 0)
+        exp_birth_loc = exp.get("birthLocation", 0)
+        exp_label = (exp_birth_time, exp_birth_loc)
+
+        if act.label != exp_label:
+            raise AssertionError(f"{prefix}.label: expected {exp_label}, got {act.label}")
+
+        # Compare existence (r)
+        compare_scalar(f"{prefix}.existence", exp["r"], act.existence, tol)
+
+        # Compare GM components
+        exp_w = exp["w"] if isinstance(exp["w"], list) else [exp["w"]]
+        compare_array(f"{prefix}.w", exp_w, act.w, tol)
+        compare_array(f"{prefix}.mu", exp["mu"], act.mu, tol)
+        compare_array(f"{prefix}.sigma", exp["Sigma"], act.sigma, tol)
