@@ -41,40 +41,33 @@ impl MotionModel {
     }
 
     /// Create a constant velocity motion model in 2D
-    /// State: [x, vx, y, vy]
+    /// State: [x, y, vx, vy] (matches MATLAB convention)
+    ///
+    /// Transition matrix A = [I, dt*I; 0, I] where I is 2x2 identity
+    /// Process noise R = q * [(dt³/3)*I, (dt²/2)*I; (dt²/2)*I, dt*I]
     pub fn constant_velocity_2d(dt: f64, process_noise_std: f64, survival_prob: f64) -> Self {
-        let a = DMatrix::from_row_slice(
-            4,
-            4,
-            &[
-                1.0, dt, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, dt, 0.0, 0.0, 0.0, 1.0,
-            ],
-        );
+        // A = [eye(2), dt*eye(2); zeros(2), eye(2)]
+        // State ordering: [x, y, vx, vy]
+        #[rustfmt::skip]
+        let a = DMatrix::from_row_slice(4, 4, &[
+            1.0, 0.0, dt,  0.0,   // x' = x + dt*vx
+            0.0, 1.0, 0.0, dt,    // y' = y + dt*vy
+            0.0, 0.0, 1.0, 0.0,   // vx' = vx
+            0.0, 0.0, 0.0, 1.0,   // vy' = vy
+        ]);
 
         // Process noise (continuous white noise acceleration)
+        // R = q * [(1/3)*dt^3*eye(2), 0.5*dt^2*eye(2); 0.5*dt^2*eye(2), dt*eye(2)]
         let q = process_noise_std * process_noise_std;
-        let r = DMatrix::from_row_slice(
-            4,
-            4,
-            &[
-                q * dt.powi(3) / 3.0,
-                q * dt.powi(2) / 2.0,
-                0.0,
-                0.0,
-                q * dt.powi(2) / 2.0,
-                q * dt,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                q * dt.powi(3) / 3.0,
-                q * dt.powi(2) / 2.0,
-                0.0,
-                0.0,
-                q * dt.powi(2) / 2.0,
-                q * dt,
-            ],
-        );
+        let dt2 = dt * dt;
+        let dt3 = dt2 * dt;
+        #[rustfmt::skip]
+        let r = DMatrix::from_row_slice(4, 4, &[
+            q * dt3 / 3.0,  0.0,            q * dt2 / 2.0,  0.0,
+            0.0,            q * dt3 / 3.0,  0.0,            q * dt2 / 2.0,
+            q * dt2 / 2.0,  0.0,            q * dt,         0.0,
+            0.0,            q * dt2 / 2.0,  0.0,            q * dt,
+        ]);
 
         let u = DVector::zeros(4);
 
@@ -133,15 +126,22 @@ impl SensorModel {
         self.clutter_rate / self.observation_volume
     }
 
-    /// Create a position-only sensor for 4D state [x, vx, y, vy]
-    /// Measures [x, y]
+    /// Create a position-only sensor for 4D state [x, y, vx, vy]
+    /// Measures [x, y] (matches MATLAB convention)
+    ///
+    /// Observation matrix C = [eye(2), zeros(2)]
     pub fn position_sensor_2d(
         measurement_noise_std: f64,
         detection_prob: f64,
         clutter_rate: f64,
         obs_volume: f64,
     ) -> Self {
-        let c = DMatrix::from_row_slice(2, 4, &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        // C = [eye(2), zeros(2)] for state [x, y, vx, vy]
+        #[rustfmt::skip]
+        let c = DMatrix::from_row_slice(2, 4, &[
+            1.0, 0.0, 0.0, 0.0,   // z[0] = x
+            0.0, 1.0, 0.0, 0.0,   // z[1] = y
+        ]);
 
         let q_var = measurement_noise_std * measurement_noise_std;
         let q = DMatrix::from_diagonal(&DVector::from_vec(vec![q_var, q_var]));

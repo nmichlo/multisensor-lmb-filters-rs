@@ -120,9 +120,10 @@ mod tests {
     fn test_predict_component() {
         let motion = create_test_motion();
 
+        // State ordering: [x, y, vx, vy] (MATLAB convention)
         let mut comp = GaussianComponent::new(
             1.0,
-            DVector::from_vec(vec![0.0, 1.0, 0.0, 1.0]),
+            DVector::from_vec(vec![0.0, 0.0, 1.0, 1.0]),
             DMatrix::identity(4, 4),
         );
 
@@ -130,17 +131,18 @@ mod tests {
 
         // After prediction with dt=1, position should increase by velocity
         assert!((comp.mean[0] - 1.0).abs() < 1e-10); // x + vx*dt = 0 + 1*1
-        assert!((comp.mean[2] - 1.0).abs() < 1e-10); // y + vy*dt = 0 + 1*1
+        assert!((comp.mean[1] - 1.0).abs() < 1e-10); // y + vy*dt = 0 + 1*1
     }
 
     #[test]
     fn test_predict_track() {
         let motion = create_test_motion();
 
+        // State ordering: [x, y, vx, vy] (MATLAB convention)
         let mut track = Track::new(
             TrackLabel::new(0, 0),
             0.9,
-            DVector::from_vec(vec![0.0, 1.0, 0.0, 1.0]),
+            DVector::from_vec(vec![0.0, 0.0, 1.0, 1.0]),
             DMatrix::identity(4, 4),
         );
 
@@ -154,9 +156,10 @@ mod tests {
     fn test_predict_tracks_with_birth() {
         let motion = create_test_motion();
 
+        // State ordering: [x, y, vx, vy] (MATLAB convention)
         let birth_loc = crate::lmb::BirthLocation::new(
             0,
-            DVector::from_vec(vec![10.0, 0.0, 10.0, 0.0]),
+            DVector::from_vec(vec![10.0, 10.0, 0.0, 0.0]),
             DMatrix::identity(4, 4) * 100.0,
         );
         let birth = BirthModel::new(vec![birth_loc], 0.1, 0.01);
@@ -164,7 +167,7 @@ mod tests {
         let mut tracks = vec![Track::new(
             TrackLabel::new(0, 0),
             0.9,
-            DVector::from_vec(vec![0.0, 1.0, 0.0, 1.0]),
+            DVector::from_vec(vec![0.0, 0.0, 1.0, 1.0]),
             DMatrix::identity(4, 4),
         )];
 

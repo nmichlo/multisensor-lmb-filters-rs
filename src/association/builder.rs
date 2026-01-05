@@ -461,10 +461,11 @@ mod tests {
     use nalgebra::DMatrix;
 
     fn create_test_track() -> Track {
+        // State ordering: [x, y, vx, vy] (MATLAB convention)
         Track::new(
             TrackLabel::new(0, 0),
             0.9,
-            DVector::from_vec(vec![0.0, 1.0, 0.0, 1.0]),
+            DVector::from_vec(vec![0.0, 0.0, 1.0, 1.0]),
             DMatrix::identity(4, 4) * 10.0,
         )
     }

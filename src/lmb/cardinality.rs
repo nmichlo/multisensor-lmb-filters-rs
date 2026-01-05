@@ -178,12 +178,23 @@ pub fn lmb_map_cardinality_estimate(r: &[f64]) -> (usize, Vec<usize>) {
         .collect();
     indexed_r.sort_by(|(i_a, a), (i_b, b)| {
         // Primary: sort by value descending
-        match b.partial_cmp(a).unwrap() {
-            std::cmp::Ordering::Equal => {
+        // Handle NaN by treating it as smallest (push to end)
+        match b.partial_cmp(a) {
+            Some(std::cmp::Ordering::Equal) => {
                 // Secondary: sort by index ascending (stable sort)
                 i_a.cmp(i_b)
             }
-            other => other,
+            Some(other) => other,
+            None => {
+                // NaN handling: NaN values go to the end
+                if a.is_nan() && b.is_nan() {
+                    i_a.cmp(i_b)
+                } else if a.is_nan() {
+                    std::cmp::Ordering::Greater // a goes after b
+                } else {
+                    std::cmp::Ordering::Less // b goes after a
+                }
+            }
         }
     });
 

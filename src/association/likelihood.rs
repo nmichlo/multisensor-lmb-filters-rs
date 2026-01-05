@@ -251,15 +251,17 @@ mod tests {
         let sensor = create_test_sensor();
         let mut ws = LikelihoodWorkspace::new(4, 2);
 
-        let prior_mean = DVector::from_vec(vec![0.0, 1.0, 0.0, 1.0]);
+        // State ordering: [x, y, vx, vy] (MATLAB convention)
+        let prior_mean = DVector::from_vec(vec![0.0, 0.0, 1.0, 1.0]);
         let prior_cov = DMatrix::identity(4, 4) * 10.0;
         let measurement = DVector::from_vec(vec![0.1, 0.1]);
 
         let result = compute_likelihood(&prior_mean, &prior_cov, &measurement, &sensor, &mut ws);
 
         // Posterior mean should be pulled toward measurement
-        assert!(result.posterior_mean[0].abs() > 0.0); // Should move toward 0.1
-        assert!(result.posterior_mean[2].abs() > 0.0); // Should move toward 0.1
+        // Observation is [x, y] so mean[0] (x) and mean[1] (y) should move toward 0.1
+        assert!(result.posterior_mean[0].abs() > 0.0); // x should move toward 0.1
+        assert!(result.posterior_mean[1].abs() > 0.0); // y should move toward 0.1
 
         // Posterior covariance should be smaller than prior
         assert!(result.posterior_covariance[(0, 0)] < prior_cov[(0, 0)]);
