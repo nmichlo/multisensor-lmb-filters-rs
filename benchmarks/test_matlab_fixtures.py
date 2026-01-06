@@ -12,7 +12,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from multisensor_lmb_filters_rs import (
     AssociatorConfig,
     BirthLocation,
@@ -21,6 +20,9 @@ from multisensor_lmb_filters_rs import (
     FilterGaLmb,
     FilterIcLmb,
     FilterLmb,
+    FilterLmbm,
+    FilterLmbmConfig,
+    FilterMultisensorLmbm,
     FilterPuLmb,
     FilterThresholds,
     MotionModel,
@@ -92,9 +94,7 @@ def build_filter_from_fixture(fixture: dict, scenario: dict):
     assoc_params = assoc_cfg["params"]
 
     if assoc_type == "LBP":
-        assoc = AssociatorConfig.lbp(
-            assoc_params["max_iterations"], assoc_params["tolerance"]
-        )
+        assoc = AssociatorConfig.lbp(assoc_params["max_iterations"], assoc_params["tolerance"])
     elif assoc_type == "Gibbs":
         assoc = AssociatorConfig.gibbs(assoc_params["num_samples"])
     elif assoc_type == "Murty":
@@ -102,11 +102,16 @@ def build_filter_from_fixture(fixture: dict, scenario: dict):
     else:
         raise ValueError(f"Unknown associator: {assoc_type}")
 
+    # LMBM config (used for LMBM and MS-LMBM)
+    lmbm_config = FilterLmbmConfig(max_hypotheses=25, hypothesis_weight_threshold=1e-3)
+
     # Filter type from fixture
     filter_type = filt_cfg["type"]
 
     if filter_type == "LMB":
         return FilterLmb(motion, sensor, birth, assoc, thresholds), False
+    elif filter_type == "LMBM":
+        return FilterLmbm(motion, sensor, birth, assoc, thresholds, lmbm_config), False
     elif filter_type == "AA-LMB":
         sensors = SensorConfigMulti([sensor] * n_sensors)
         return FilterAaLmb(motion, sensors, birth, assoc, thresholds), True
@@ -119,6 +124,9 @@ def build_filter_from_fixture(fixture: dict, scenario: dict):
     elif filter_type == "IC-LMB":
         sensors = SensorConfigMulti([sensor] * n_sensors)
         return FilterIcLmb(motion, sensors, birth, assoc, thresholds), True
+    elif filter_type == "MS-LMBM":
+        sensors = SensorConfigMulti([sensor] * n_sensors)
+        return FilterMultisensorLmbm(motion, sensors, birth, assoc, thresholds, lmbm_config), True
     else:
         raise ValueError(f"Unknown filter type: {filter_type}")
 
@@ -129,9 +137,7 @@ def run_filter(filt, scenario: dict, is_multi: bool, num_steps: int) -> list[dic
     for t in range(num_steps):
         step = scenario["steps"][t]
         if is_multi:
-            meas = [
-                np.array(s) if s else np.empty((0, 2)) for s in step["sensor_readings"]
-            ]
+            meas = [np.array(s) if s else np.empty((0, 2)) for s in step["sensor_readings"]]
         else:
             meas = (
                 np.array(step["sensor_readings"][0])
@@ -140,11 +146,13 @@ def run_filter(filt, scenario: dict, is_multi: bool, num_steps: int) -> list[dic
             )
 
         result = filt.step(meas, t)
-        results.append({
-            "step": t,
-            "num_tracks": len(result.tracks),
-            "means": [list(tr.mean) for tr in result.tracks],
-        })
+        results.append(
+            {
+                "step": t,
+                "num_tracks": len(result.tracks),
+                "means": [list(tr.mean) for tr in result.tracks],
+            }
+        )
     return results
 
 
@@ -208,9 +216,7 @@ def test_matlab_equivalence(fixture_path: Path):
     # Compare
     errors = compare_results(rust_results, fixture)
     if errors:
-        pytest.fail(
-            f"{fixture['filter']['name']}:\n" + "\n".join(errors[:10])
-        )
+        pytest.fail(f"{fixture['filter']['name']}:\n" + "\n".join(errors[:10]))
 
 
 if __name__ == "__main__":
@@ -221,7 +227,7 @@ if __name__ == "__main__":
 
         scenario_path = SCENARIOS_DIR / fixture["scenario_file"]
         if not scenario_path.exists():
-            print(f"  SKIP: scenario not found")
+            print("  SKIP: scenario not found")
             continue
 
         scenario = json.load(open(scenario_path))
@@ -234,4 +240,4 @@ if __name__ == "__main__":
             for e in errors[:3]:
                 print(f"    {e}")
         else:
-            print(f"  PASS")
+            print("  PASS")

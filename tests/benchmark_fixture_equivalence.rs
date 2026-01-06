@@ -5,13 +5,16 @@
 //! Fixtures are fully self-describing: model params, filter config, expected outputs.
 
 use multisensor_lmb_filters_rs::lmb::config::{
-    AssociationConfig, BirthLocation, BirthModel, MotionModel, MultisensorConfig, SensorModel,
+    AssociationConfig, BirthLocation, BirthModel, LmbmConfig, MotionModel, MultisensorConfig,
+    SensorModel,
 };
 use multisensor_lmb_filters_rs::lmb::multisensor::lmb::{
     ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger, MultisensorLmbFilter,
     ParallelUpdateMerger,
 };
+use multisensor_lmb_filters_rs::lmb::multisensor::lmbm::MultisensorLmbmFilter;
 use multisensor_lmb_filters_rs::lmb::singlesensor::lmb::LmbFilter;
+use multisensor_lmb_filters_rs::lmb::singlesensor::lmbm::LmbmFilter;
 use multisensor_lmb_filters_rs::lmb::traits::{Filter, LbpAssociator};
 use multisensor_lmb_filters_rs::lmb::FilterBuilder;
 
@@ -128,10 +131,12 @@ struct ScenarioStep {
 
 enum AnyFilter {
     Lmb(LmbFilter),
+    Lmbm(LmbmFilter),
     AaLmb(MultisensorLmbFilter<LbpAssociator, ArithmeticAverageMerger>),
     GaLmb(MultisensorLmbFilter<LbpAssociator, GeometricAverageMerger>),
     PuLmb(MultisensorLmbFilter<LbpAssociator, ParallelUpdateMerger>),
     IcLmb(MultisensorLmbFilter<LbpAssociator, IteratedCorrectorMerger>),
+    MsLmbm(MultisensorLmbmFilter),
 }
 
 fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
@@ -179,6 +184,13 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
         other => panic!("Unknown associator: {}", other),
     };
 
+    // LMBM-specific config
+    let lmbm_config = LmbmConfig {
+        max_hypotheses: 25,
+        hypothesis_weight_threshold: 1e-3,
+        use_eap: false,
+    };
+
     // Build filter based on type
     match f.filter_type.as_str() {
         "LMB" => {
@@ -186,6 +198,12 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
                 .with_gm_pruning(t.gm_weight, t.max_components)
                 .with_existence_threshold(t.existence);
             (AnyFilter::Lmb(filter), false)
+        }
+        "LMBM" => {
+            // LMBM uses hypothesis-level pruning, not GM pruning
+            let filter = LmbmFilter::new(motion, sensor, birth, assoc, lmbm_config.clone())
+                .with_existence_threshold(t.existence);
+            (AnyFilter::Lmbm(filter), false)
         }
         "AA-LMB" => {
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
@@ -218,6 +236,14 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
                 .with_gm_pruning(t.gm_weight, t.max_components)
                 .with_existence_threshold(t.existence);
             (AnyFilter::IcLmb(filter), true)
+        }
+        "MS-LMBM" => {
+            // MS-LMBM uses hypothesis-level pruning, not GM pruning
+            let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
+            let filter =
+                MultisensorLmbmFilter::new(motion, sensors, birth, assoc, lmbm_config.clone())
+                    .with_existence_threshold(t.existence);
+            (AnyFilter::MsLmbm(filter), true)
         }
         other => panic!("Unknown filter type: {}", other),
     }
@@ -260,6 +286,20 @@ fn run_and_compare(fixture: &Fixture, scenario: &Scenario) -> Vec<String> {
                 });
             }
         }
+        AnyFilter::Lmbm(mut f) => {
+            for t in 0..fixture.num_steps {
+                let meas = convert_meas(&scenario.steps[t].sensor_readings[0]);
+                let est = f.step(&mut rng, &meas, t).unwrap();
+                results.push(StepResult {
+                    num_tracks: est.tracks.len(),
+                    means: est
+                        .tracks
+                        .iter()
+                        .map(|tr| tr.mean.as_slice().to_vec())
+                        .collect(),
+                });
+            }
+        }
         AnyFilter::AaLmb(mut f) => {
             run_multi(&mut f, &mut rng, scenario, fixture.num_steps, &mut results)
         }
@@ -271,6 +311,24 @@ fn run_and_compare(fixture: &Fixture, scenario: &Scenario) -> Vec<String> {
         }
         AnyFilter::IcLmb(mut f) => {
             run_multi(&mut f, &mut rng, scenario, fixture.num_steps, &mut results)
+        }
+        AnyFilter::MsLmbm(mut f) => {
+            for t in 0..fixture.num_steps {
+                let meas: Vec<Vec<DVector<f64>>> = scenario.steps[t]
+                    .sensor_readings
+                    .iter()
+                    .map(|s| convert_meas(s))
+                    .collect();
+                let est = f.step(&mut rng, &meas, t).unwrap();
+                results.push(StepResult {
+                    num_tracks: est.tracks.len(),
+                    means: est
+                        .tracks
+                        .iter()
+                        .map(|tr| tr.mean.as_slice().to_vec())
+                        .collect(),
+                });
+            }
         }
     }
 

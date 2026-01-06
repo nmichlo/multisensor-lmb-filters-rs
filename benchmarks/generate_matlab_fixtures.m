@@ -22,25 +22,40 @@ addpath(genpath(matlabDir));
 scenariosDir = fullfile(scriptDir, 'scenarios');
 fixturesDir = fullfile(scriptDir, 'fixtures');
 
-% Scenarios to process
-scenarios = {
-    'bouncing_n5_s1.json';  % Single-sensor
-    'bouncing_n5_s2.json';  % Multi-sensor
-};
+% Scenarios to process - dynamically discover all scenario files
+% Filter by size to avoid timeouts (n50 is too slow)
+allScenarios = dir(fullfile(scenariosDir, 'bouncing_*.json'));
+scenarios = {};
+for i = 1:numel(allScenarios)
+    name = allScenarios(i).name;
+    % Skip n50 scenarios (too slow) and n20 with many sensors
+    % Use strfind for Octave compatibility (contains() is MATLAB-only)
+    if ~isempty(strfind(name, 'n50')) || ~isempty(strfind(name, 'n20_s8')) || ~isempty(strfind(name, 'n20_s4'))
+        fprintf('Skipping large scenario: %s\n', name);
+        continue;
+    end
+    scenarios{end+1} = name;
+end
+fprintf('Processing %d scenarios\n', numel(scenarios));
 
 % Filter configurations (will be stored in fixture)
 % Format: {name, type, associator, assoc_params, update_mode}
 % NOTE: Gibbs and Murty require MEX files that may fail with code signing on macOS
 filterConfigs = {
-    % Single-sensor filters
+    % Single-sensor LMB filters
     'LMB-LBP',   'LMB',  'LBP',   struct('max_iterations', 100, 'tolerance', 1e-6), '';
     'LMB-Gibbs', 'LMB',  'Gibbs', struct('num_samples', 1000), '';
     'LMB-Murty', 'LMB',  'Murty', struct('num_assignments', 25), '';
-    % Multi-sensor filters
+    % Single-sensor LMBM filters (Gibbs/Murty only, no LBP)
+    'LMBM-Gibbs', 'LMBM', 'Gibbs', struct('num_samples', 1000), '';
+    'LMBM-Murty', 'LMBM', 'Murty', struct('num_assignments', 25), '';
+    % Multi-sensor LMB filters (LBP only - Gibbs/Murty not implemented for multi-sensor LMB)
     'AA-LMB-LBP', 'AA-LMB', 'LBP', struct('max_iterations', 100, 'tolerance', 1e-6), 'AA';
     'GA-LMB-LBP', 'GA-LMB', 'LBP', struct('max_iterations', 100, 'tolerance', 1e-6), 'GA';
     'PU-LMB-LBP', 'PU-LMB', 'LBP', struct('max_iterations', 100, 'tolerance', 1e-6), 'PU';
-    'IC-LMB-LBP', 'IC-LMB', 'LBP', struct('max_iterations', 100, 'tolerance', 1e-6), ''
+    'IC-LMB-LBP', 'IC-LMB', 'LBP', struct('max_iterations', 100, 'tolerance', 1e-6), '';
+    % Multi-sensor LMBM filter (Gibbs only)
+    'MS-LMBM-Gibbs', 'MS-LMBM', 'Gibbs', struct('num_samples', 1000), ''
 };
 
 % Common thresholds (stored in fixture)
@@ -107,11 +122,12 @@ for sIdx = 1:numel(scenarios)
         updateMode = filterConfigs{fIdx, 5};
 
         % Skip incompatible filter/scenario combinations
-        isMultiFilter = ~strcmp(filterType, 'LMB') && ~strcmp(filterType, 'LMBM');
-        if isSingleSensor && isMultiFilter
+        isSingleSensorFilter = strcmp(filterType, 'LMB') || strcmp(filterType, 'LMBM');
+        isMultiSensorFilter = ~isSingleSensorFilter;
+        if isSingleSensor && isMultiSensorFilter
             continue;
         end
-        if ~isSingleSensor && (strcmp(filterType, 'LMB') || strcmp(filterType, 'LMBM'))
+        if ~isSingleSensor && isSingleSensorFilter
             continue;
         end
 
@@ -129,9 +145,14 @@ for sIdx = 1:numel(scenarios)
             rng = SimpleRng(seed);
             if strcmp(filterType, 'LMB')
                 [~, stateEstimates] = runLmbFilter(rng, model, measurements);
+            elseif strcmp(filterType, 'LMBM')
+                [~, stateEstimates] = runLmbmFilter(rng, model, measurements);
             elseif strcmp(filterType, 'IC-LMB')
                 stateEstimates = runIcLmbFilter(model, measurements);
+            elseif strcmp(filterType, 'MS-LMBM')
+                [~, stateEstimates] = runMultisensorLmbmFilter(rng, model, measurements);
             else
+                % AA-LMB, GA-LMB, PU-LMB
                 stateEstimates = runParallelUpdateLmbFilter(model, measurements);
             end
 
@@ -294,6 +315,38 @@ function model = buildMatlabModel(scenario, numSteps, thresholds)
     object.timestamps = zeros(1, 0);
     model.object = repmat(object, 0, 1);
     model.simulationLength = numSteps;
+
+    %% LMBM-specific structures
+    % Hypothesis struct (empty initially)
+    hypotheses.birthLocation = zeros(0, 1);
+    hypotheses.birthTime = zeros(0, 1);
+    hypotheses.w = 1;  % Hypothesis weight
+    hypotheses.r = zeros(0, 1);
+    hypotheses.mu = repmat({}, 0, 1);
+    hypotheses.Sigma = repmat({}, 0, 1);
+    model.hypotheses = hypotheses;
+
+    % Trajectory struct template
+    trajectory.birthLocation = 0;
+    trajectory.birthTime = 0;
+    trajectory.trajectoryLength = 0;
+    trajectory.trajectory = repmat(80 * ones(model.xDimension, 1), 1, 100);
+    trajectory.timestamps = zeros(1, 100);
+    model.trajectory = repmat(trajectory, 1, 0);
+
+    % Birth trajectory (for LMBM new track initialization)
+    birthTrajectory = repmat(trajectory, model.numberOfBirthLocations, 1);
+    for i = 1:model.numberOfBirthLocations
+        birthTrajectory(i).birthLocation = model.birthLocationLabels(i);
+        birthTrajectory(i).trajectoryLength = 0;
+        birthTrajectory(i).trajectory = repmat(80 * ones(model.xDimension, 1), 1, 100);
+        birthTrajectory(i).timestamps = zeros(1, 100);
+    end
+    model.birthTrajectory = birthTrajectory;
+
+    % LMBM-specific thresholds
+    model.maximumNumberOfPosteriorHypotheses = 25;
+    model.posteriorHypothesisWeightThreshold = 1e-3;
 end
 
 function measurements = extractMeasurements(scenario, numSensors, numSteps)
