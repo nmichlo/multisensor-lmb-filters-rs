@@ -16,7 +16,7 @@
 | GA-LMB | Full (6 steps) | Comprehensive (7 tests) | Comprehensive (6 tests) | **COMPLETE** |
 | PU-LMB | Full (6 steps) | Comprehensive (7 tests) | Comprehensive (6 tests) | **COMPLETE** |
 | IC-LMB | Full (6 steps) | Comprehensive (7 tests) | Comprehensive (6 tests) | **COMPLETE** |
-| MS-LMBM | Full (6 steps) | Partial (missing w,mu,Sigma) | Partial | **OPTIONAL** |
+| MS-LMBM | Full (6 steps) | Comprehensive | Comprehensive | **COMPLETE** |
 
 **ALL TESTS USE TOLERANCE=1e-10 FOR NUMERICAL COMPARISONS**
 
@@ -239,16 +239,16 @@ Run all tests and verify:
 | stepFinal.map_indices | values | values | **COMPLETE** |
 | **step5_fusion (AA/GA/PU)** | - | - | **NEEDS FIXTURE** |
 
-### MULTISENSOR LMBM FIXTURE (multisensor_lmbm_step_by_step_seed42.json) - PARTIAL
+### MULTISENSOR LMBM FIXTURE (multisensor_lmbm_step_by_step_seed42.json) - COMPLETE
 
 | Field | Python | Rust | Status |
 |-------|--------|------|--------|
+| step1.predicted_hypothesis.w | values | values | **COMPLETE** |
 | step1.predicted_hypothesis.r | values | values | **COMPLETE** |
+| step1.predicted_hypothesis.mu | values | values | **COMPLETE** |
+| step1.predicted_hypothesis.Sigma | values | values | **COMPLETE** |
 | step1.predicted_hypothesis.birthTime | values | values | **COMPLETE** |
 | step1.predicted_hypothesis.birthLocation | values | values | **COMPLETE** |
-| **step1.predicted_hypothesis.w** | - | - | **NEEDS FIXTURE** |
-| **step1.predicted_hypothesis.mu** | - | - | **NEEDS FIXTURE** |
-| **step1.predicted_hypothesis.Sigma** | - | - | **NEEDS FIXTURE** |
 | step2.L | structure | values | **COMPLETE** |
 | step2.posteriorParameters | structure | values | **COMPLETE** |
 | step3_gibbs.A (sample count) | values | values | **COMPLETE** |
@@ -356,7 +356,7 @@ These locations have guards that MATLAB doesn't have - may need review if numeri
 | Murty V-matrix | `test_equivalence.py:TestLmbmStepByStepEquivalence.test_murtys_v_matrix_equivalence` | `lmbm_matlab_equivalence.rs:test_lmbm_murtys_v_matrix_equivalence` | ✓ | ✓ | No | Keep |
 | Step4 hypothesis | `test_equivalence.py:TestLmbmStepByStepEquivalence.test_step4_hypothesis_generation` | `lmbm_matlab_equivalence.rs:test_lmbm_hypothesis_generation_equivalence` | ✓ | ✓ | No | Keep |
 | Step5 normalization | `test_equivalence.py:TestLmbmStepByStepEquivalence.test_step5_normalization` | `lmbm_matlab_equivalence.rs:test_lmbm_normalization_equivalence` | ✓ | ✓ | No | Keep |
-| Cardinality | `test_equivalence.py:TestLmbmStepByStepEquivalence.test_cardinality_equivalence` | ❌ | ✓ | ✓ | No | **Add to Rust** |
+| Cardinality | `test_equivalence.py:TestLmbmFixtureEquivalence.test_lmbm_cardinality_equivalence` | `lmbm_matlab_equivalence.rs:test_lmbm_cardinality_equivalence` | ✓ | ✓ | No | ✅ Done |
 | Extraction | ❌ | `lmbm_matlab_equivalence.rs:test_lmbm_extraction_equivalence` | ~ | ✓ | ~ Cardinality | Keep |
 | Runs on fixture | `test_equivalence.py:TestLmbmStepByStepEquivalence.test_lmbm_filter_step_runs_on_fixture` | ❌ | ~ | ✗ | Smoke | Py-only OK |
 
@@ -473,15 +473,15 @@ Added:
 These test the ONLY code paths that differ between variants.
 ```
 
-### RECOMMENDED: Add to Rust (1 test) - Future
+### RECOMMENDED: Add to Rust (1 test) ✅ DONE
 
 ```
 File: tests/lmb/lmbm_matlab_equivalence.rs
 
-Add:
+Added:
 - test_lmbm_cardinality_equivalence()
 
-Python has this, Rust doesn't. Minor gap.
+Validates cardinality estimation and extraction indices against MATLAB step6.
 ```
 
 ### CLEANUP: Remove from Python (Future)

@@ -19,8 +19,9 @@ use multisensor_lmb_filters_rs::common::association::gibbs::{
 };
 use multisensor_lmb_filters_rs::common::rng::SimpleRng;
 use multisensor_lmb_filters_rs::lmb::{
-    AssociationConfig, BirthLocation, BirthModel, Filter, GaussianComponent, GibbsAssociator,
-    LmbmConfig, LmbmFilter, MotionModel, SensorModel, Track, TrackLabel,
+    common_ops::compute_hypothesis_cardinality, AssociationConfig, BirthLocation, BirthModel,
+    Filter, GaussianComponent, GibbsAssociator, LmbmConfig, LmbmFilter, MotionModel, SensorModel,
+    Track, TrackLabel,
 };
 
 // Import deserialization helpers from fixtures module
@@ -761,6 +762,62 @@ fn test_lmbm_extraction_equivalence() {
     // Note: Full extraction test requires running the filter
     // This test documents the expected output
     println!("  ✓ LMBM extraction structure verified (see Python tests for full validation)");
+}
+
+/// Test LMBM cardinality estimation matches MATLAB exactly
+///
+/// This test validates the cardinality estimation and extraction indices
+/// using the normalized hypotheses from step5 and extraction config from step6.
+#[test]
+fn test_lmbm_cardinality_equivalence() {
+    let fixture = load_lmbm_fixture();
+
+    println!("Testing LMBM cardinality estimation (step6) against MATLAB...");
+
+    // Convert normalized hypotheses to LmbmHypothesis objects
+    // We use step6 input hypotheses (which are the normalized hypotheses from step5)
+    let hypotheses: Vec<_> = fixture
+        .step6_extraction
+        .input
+        .hypotheses
+        .iter()
+        .map(hypothesis_data_to_lmbm_hypothesis)
+        .collect();
+
+    // MATLAB use_map=true means MAP, use_map=false means EAP
+    // In Rust, use_eap=true means EAP, use_eap=false means MAP
+    let use_eap = !fixture.step6_extraction.input.use_map;
+
+    // Compute cardinality
+    let result = compute_hypothesis_cardinality(&hypotheses, use_eap);
+
+    let expected = &fixture.step6_extraction.output;
+
+    // Verify cardinality estimate
+    assert_eq!(
+        result.n_estimated, expected.cardinality_estimate,
+        "LMBM cardinality: expected {}, got {}",
+        expected.cardinality_estimate, result.n_estimated
+    );
+
+    // Verify extraction indices (convert MATLAB 1-indexed to 0-indexed)
+    let expected_indices_0indexed: Vec<usize> =
+        expected.extraction_indices.iter().map(|&i| i - 1).collect();
+    let mut actual_indices: Vec<usize> = result.map_indices.clone();
+    let mut expected_sorted = expected_indices_0indexed.clone();
+    actual_indices.sort();
+    expected_sorted.sort();
+
+    assert_eq!(
+        actual_indices, expected_sorted,
+        "LMBM extraction_indices: expected {:?} (0-indexed), got {:?}",
+        expected_sorted, actual_indices
+    );
+
+    println!(
+        "  ✓ LMBM cardinality: n={}, indices={:?}",
+        result.n_estimated, actual_indices
+    );
 }
 
 //=============================================================================

@@ -1388,8 +1388,31 @@ class TestMultisensorLmbmFixtureEquivalence:
 
         actual = output.predicted_hypotheses[0]
 
+        # Compare w (hypothesis weight - MATLAB stores linear, Python .weight returns linear)
+        assert (
+            abs(actual.weight - expected["w"]) < TOLERANCE
+        ), f"ms_lmbm_step1.w: expected {expected['w']}, got {actual.weight}"
+
         # Compare r (existence probabilities)
         compare_array("ms_lmbm_step1.r", expected["r"], np.array(actual.r), TOLERANCE)
+
+        # Compare mu (track means)
+        for i, (actual_mu, expected_mu) in enumerate(zip(actual.mu, expected["mu"])):
+            compare_array(
+                f"ms_lmbm_step1.mu[{i}]",
+                expected_mu,
+                np.array(actual_mu),
+                TOLERANCE,
+            )
+
+        # Compare Sigma (track covariances)
+        for i, (actual_sigma, expected_sigma) in enumerate(zip(actual.sigma, expected["Sigma"])):
+            compare_array(
+                f"ms_lmbm_step1.Sigma[{i}]",
+                np.array(expected_sigma),
+                np.array(actual_sigma),
+                TOLERANCE,
+            )
 
         # Compare birthTime
         assert (
@@ -1673,11 +1696,27 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
             ), f"{variant.upper()}-LMB sensor{sensor_idx}: matrices missing"
 
             prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
-            compare_array(f"{prefix}.C", expected_assoc["C"], actual.association_matrices.cost, TOLERANCE)
-            compare_array(f"{prefix}.L", expected_assoc["L"], actual.association_matrices.likelihood, TOLERANCE)
-            compare_array(f"{prefix}.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE)
-            compare_array(f"{prefix}.P", expected_assoc["P"], actual.association_matrices.sampling_prob, TOLERANCE)
-            compare_array(f"{prefix}.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE)
+            compare_array(
+                f"{prefix}.C", expected_assoc["C"], actual.association_matrices.cost, TOLERANCE
+            )
+            compare_array(
+                f"{prefix}.L",
+                expected_assoc["L"],
+                actual.association_matrices.likelihood,
+                TOLERANCE,
+            )
+            compare_array(
+                f"{prefix}.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE
+            )
+            compare_array(
+                f"{prefix}.P",
+                expected_assoc["P"],
+                actual.association_matrices.sampling_prob,
+                TOLERANCE,
+            )
+            compare_array(
+                f"{prefix}.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE
+            )
 
     def test_per_sensor_posterior_parameters_equivalence(self, ms_lmb_variant_fixture):
         """Verify per-sensor posteriorParameters (w, mu, Sigma) match MATLAB for all variants."""
@@ -1728,7 +1767,12 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
             ), f"{variant.upper()}-LMB sensor{sensor_idx}: result missing"
 
             prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
-            compare_array(f"{prefix}.r", expected_da["r"], actual.association_result.posterior_existence, TOLERANCE)
+            compare_array(
+                f"{prefix}.r",
+                expected_da["r"],
+                actual.association_result.posterior_existence,
+                TOLERANCE,
+            )
 
             # Compare marginal weights W (skip first column which is miss)
             expected_w = expected_da["W"]
@@ -1756,7 +1800,9 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
 
             actual = output.sensor_updates[sensor_idx]
             prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
-            compare_fused_tracks(f"{prefix}.updated_tracks", expected_tracks, actual.updated_tracks, TOLERANCE)
+            compare_fused_tracks(
+                f"{prefix}.updated_tracks", expected_tracks, actual.updated_tracks, TOLERANCE
+            )
 
     def test_fusion_equivalence(self, ms_lmb_variant_fixture):
         """Verify fusion step matches MATLAB for parallel variants (AA/GA/PU).
