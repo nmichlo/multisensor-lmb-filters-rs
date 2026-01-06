@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Requires bash 4+ for associative arrays. On macOS, use: brew install bash
 #
 # Unified benchmark runner for LMB filter performance comparison.
 # Centralized orchestration with minimal per-language runners.
+#
+# On macOS: brew install coreutils (for gtimeout)
 #
 # Usage:
 #   ./benchmarks/run_benchmarks.sh                    # Full suite
@@ -13,6 +14,9 @@
 #
 
 set -e
+
+# Force C locale for consistent decimal point handling
+export LC_ALL=C
 
 # =============================================================================
 # Configuration
@@ -44,13 +48,13 @@ declare -a FILTER_CONFIGS=(
     # Single-sensor LMBM
     "LMBM-Gibbs|false|true"
     "LMBM-Murty|false|true"
-    # Multi-sensor LMB variants (no Octave support)
-    "AA-LMB-LBP|true|false"
-    "IC-LMB-LBP|true|false"
-    "PU-LMB-LBP|true|false"
-    "GA-LMB-LBP|true|false"
+    # Multi-sensor LMB variants
+    "AA-LMB-LBP|true|true"
+    "IC-LMB-LBP|true|true"
+    "PU-LMB-LBP|true|true"
+    "GA-LMB-LBP|true|true"
     # Multi-sensor LMBM
-    "MS-LMBM-Gibbs|true|false"
+    "MS-LMBM-Gibbs|true|true"
 )
 
 # =============================================================================
@@ -120,6 +124,16 @@ done
 
 cd "$PROJECT_ROOT"
 mkdir -p "$RESULTS_DIR"
+
+# Find timeout command (gtimeout on macOS with coreutils)
+if command -v gtimeout &> /dev/null; then
+    TIMEOUT_CMD="gtimeout"
+elif command -v timeout &> /dev/null; then
+    TIMEOUT_CMD="timeout"
+else
+    echo "Error: timeout command not found. On macOS, run: brew install coreutils"
+    exit 1
+fi
 
 echo "======================================="
 echo "LMB Filter Benchmark Suite"
@@ -211,17 +225,20 @@ run_benchmark() {
 
     case "$lang" in
         octave)
-            # Run Octave with timeout, capture only the last numeric line
-            result=$(timeout "${TIMEOUT}s" octave --no-gui --path "$RUNNERS_DIR" \
-                --eval "run_octave('$scenario_path', '$filter_name')" 2>/dev/null | \
-                grep -oE '^[0-9]+\.[0-9]+$' | tail -1) || exit_code=$?
+            # Run Octave with timeout, LMB_SILENT suppresses progress output
+            # Capture both stdout and exit code separately
+            local octave_output
+            octave_output=$(LMB_SILENT=1 $TIMEOUT_CMD "${TIMEOUT}s" octave --no-gui --path "$RUNNERS_DIR" \
+                --eval "run_octave('$scenario_path', '$filter_name')" 2>&1) || exit_code=$?
+            # Extract the timing number from output (last line matching a number)
+            result=$(echo "$octave_output" | grep -oE '^[0-9]+\.?[0-9]*$' | tail -1)
             ;;
         rust)
-            result=$(timeout "${TIMEOUT}s" "$PROJECT_ROOT/target/release/benchmark_single" \
+            result=$($TIMEOUT_CMD "${TIMEOUT}s" "$PROJECT_ROOT/target/release/benchmark_single" \
                 --scenario "$scenario_path" --filter "$filter_name" 2>/dev/null) || exit_code=$?
             ;;
         python)
-            result=$(timeout "${TIMEOUT}s" uv run python \
+            result=$($TIMEOUT_CMD "${TIMEOUT}s" uv run python \
                 "$RUNNERS_DIR/run_python.py" \
                 --scenario "$scenario_path" --filter "$filter_name" 2>/dev/null) || exit_code=$?
             ;;
@@ -285,11 +302,14 @@ fi
 # Main Benchmark Loop
 # =============================================================================
 
-RESULTS_FILE="$RESULTS_DIR/benchmarks_$(date +%Y%m%d_%H%M%S).txt"
+RESULTS_FILE="$RESULTS_DIR/benchmarks_$(date +%Y%m%d_%H%M%S).csv"
 
-# Print header
-printf "%-22s | %-18s | %-8s | %9s\n" "Scenario" "Filter" "Lang" "Time(ms)" | tee "$RESULTS_FILE"
-printf "%s\n" "$(printf '%.0s-' {1..65})" | tee -a "$RESULTS_FILE"
+# Print CSV header (easier to parse for README generation)
+echo "objects,sensors,filter,lang,time_ms" > "$RESULTS_FILE"
+
+# Also print human-readable header to console
+printf "%-8s | %-8s | %-18s | %-8s | %9s\n" "Objects" "Sensors" "Filter" "Lang" "Time(ms)"
+printf "%s\n" "$(printf '%.0s-' {1..60})"
 
 IFS=',' read -ra LANG_ARRAY <<< "$LANGUAGES"
 
@@ -297,6 +317,9 @@ IFS=',' read -ra LANG_ARRAY <<< "$LANGUAGES"
 for scenario_path in $(get_sorted_scenarios); do
     scenario_name=$(basename "$scenario_path" .json)
     num_sensors=$(get_num_sensors "$scenario_path")
+
+    # Extract n and s from scenario name
+    num_objects=$(echo "$scenario_name" | grep -oE 'n[0-9]+' | grep -oE '[0-9]+')
 
     # Iterate through filters
     for filter_config in "${FILTER_CONFIGS[@]}"; do
@@ -316,25 +339,29 @@ for scenario_path in $(get_sorted_scenarios); do
 
             # Check skip
             if should_skip "$filter_name" "$lang"; then
-                printf "%-22s | %-18s | %-8s | %9s\n" \
-                    "$scenario_name" "$filter_name" "$lang" "SKIP" | tee -a "$RESULTS_FILE"
+                echo "$num_objects,$num_sensors,$filter_name,$lang,SKIP" >> "$RESULTS_FILE"
+                printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
+                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "SKIP"
                 continue
             fi
 
             # Run benchmark
-            [[ $VERBOSE -eq 1 ]] && echo "Running: $scenario_name / $filter_name / $lang" >&2
+            [[ $VERBOSE -eq 1 ]] && echo "Running: n=$num_objects s=$num_sensors / $filter_name / $lang" >&2
             result=$(run_benchmark "$scenario_path" "$filter_name" "$lang")
 
             if [[ "$result" == "TIMEOUT" ]]; then
                 mark_timed_out "$filter_name" "$lang"
-                printf "%-22s | %-18s | %-8s | %9s\n" \
-                    "$scenario_name" "$filter_name" "$lang" "TIMEOUT" | tee -a "$RESULTS_FILE"
+                echo "$num_objects,$num_sensors,$filter_name,$lang,TIMEOUT" >> "$RESULTS_FILE"
+                printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
+                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "TIMEOUT"
             elif [[ "$result" == "ERROR" ]]; then
-                printf "%-22s | %-18s | %-8s | %9s\n" \
-                    "$scenario_name" "$filter_name" "$lang" "ERROR" | tee -a "$RESULTS_FILE"
+                echo "$num_objects,$num_sensors,$filter_name,$lang,ERROR" >> "$RESULTS_FILE"
+                printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
+                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "ERROR"
             else
-                printf "%-22s | %-18s | %-8s | %9.1f\n" \
-                    "$scenario_name" "$filter_name" "$lang" "$result" | tee -a "$RESULTS_FILE"
+                echo "$num_objects,$num_sensors,$filter_name,$lang,$result" >> "$RESULTS_FILE"
+                printf "%-8s | %-8s | %-18s | %-8s | %9.1f\n" \
+                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "$result"
             fi
         done
     done
@@ -349,16 +376,133 @@ echo "Results saved to: $RESULTS_FILE"
 echo ""
 
 # Count results
-total=$(grep -c '|' "$RESULTS_FILE" 2>/dev/null || echo 0)
+total=$(tail -n +2 "$RESULTS_FILE" | wc -l | tr -d ' ')
 timeouts=$(grep -c 'TIMEOUT' "$RESULTS_FILE" 2>/dev/null || echo 0)
 errors=$(grep -c 'ERROR' "$RESULTS_FILE" 2>/dev/null || echo 0)
 skips=$(grep -c 'SKIP' "$RESULTS_FILE" 2>/dev/null || echo 0)
-successful=$((total - timeouts - errors - skips - 1))  # -1 for header
+successful=$((total - timeouts - errors - skips))
 
 echo "Summary:"
 echo "  Successful: $successful"
 echo "  Timeouts:   $timeouts"
 echo "  Errors:     $errors"
 echo "  Skipped:    $skips"
+echo ""
+
+# =============================================================================
+# Generate README_BENCHMARKS.md
+# =============================================================================
+
+README_FILE="$PROJECT_ROOT/README_BENCHMARKS.md"
+
+generate_readme() {
+    cat << 'HEADER'
+# LMB Filter Benchmark Results
+
+HEADER
+    echo "*Generated: $(date '+%Y-%m-%d %H:%M:%S')*"
+    echo ""
+    cat << 'OVERVIEW'
+## Overview
+
+This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) filter:
+
+| Implementation | Description |
+|----------------|-------------|
+| **Octave/MATLAB** | Original reference implementation (interpreted) |
+| **Rust** | Native Rust binary compiled with `--release` |
+| **Python** | Python calling Rust via PyO3/maturin bindings |
+
+## Methodology
+
+OVERVIEW
+    echo "- **Timeout**: ${TIMEOUT} seconds per scenario"
+    cat << 'METHOD'
+- **Thresholds**: existence=1e-3, gm_weight=1e-4, max_components=100, gm_merge=∞
+- **Association**: LBP (100 iterations, tol 1e-6), Gibbs (1000 samples), Murty (25 assignments)
+- **RNG Seed**: 42 (deterministic across all implementations)
+
+## Results
+
+METHOD
+
+    # Format a result value
+    format_result() {
+        local val="$1"
+        if [[ -z "$val" ]]; then
+            echo "-"
+        elif [[ "$val" == "TIMEOUT" || "$val" == "ERROR" || "$val" == "SKIP" ]]; then
+            echo "$val"
+        else
+            printf "%.1f" "$val"
+        fi
+    }
+
+    # Get all unique (n,s) combinations from scenarios directory
+    all_scenarios=""
+    for path in "$SCENARIOS_DIR"/bouncing_*.json; do
+        [[ -f "$path" ]] || continue
+        name=$(basename "$path" .json)
+        n=$(echo "$name" | grep -oE 'n[0-9]+' | grep -oE '[0-9]+')
+        s=$(echo "$name" | grep -oE 's[0-9]+' | grep -oE '[0-9]+')
+        all_scenarios="$all_scenarios$n,$s\n"
+    done
+    sorted_scenarios=$(echo -e "$all_scenarios" | sort -t',' -k1,1n -k2,2n -u | grep -v '^$')
+
+    # Iterate through all filters from config
+    for filter_config in "${FILTER_CONFIGS[@]}"; do
+        IFS='|' read -r filter_name is_multi octave_support <<< "$filter_config"
+
+        echo "### $filter_name"
+        echo ""
+        echo "| Objects | Sensors | Octave (ms) | Rust (ms) | Python (ms) |"
+        echo "|---------|---------|-------------|-----------|-------------|"
+
+        # Iterate through all scenarios
+        echo "$sorted_scenarios" | while IFS=',' read -r n s; do
+            [[ -z "$n" ]] && continue
+
+            # Check if this filter applies to this scenario
+            # Multi-sensor filters need s > 1, single-sensor filters work on any
+            applicable="yes"
+            if [[ "$is_multi" == "true" && "$s" -eq 1 ]]; then
+                applicable="no"
+            fi
+
+            if [[ "$applicable" == "no" ]]; then
+                # Filter not applicable to this scenario
+                echo "| $n | $s | - | - | - |"
+            else
+                # Look up results from CSV
+                octave_result=$(grep "^$n,$s,$filter_name,octave," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
+                rust_result=$(grep "^$n,$s,$filter_name,rust," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
+                python_result=$(grep "^$n,$s,$filter_name,python," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
+
+                oct_fmt=$(format_result "$octave_result")
+                rust_fmt=$(format_result "$rust_result")
+                py_fmt=$(format_result "$python_result")
+
+                echo "| $n | $s | $oct_fmt | $rust_fmt | $py_fmt |"
+            fi
+        done
+        echo ""
+    done
+
+    cat << 'NOTES'
+## Notes
+
+- **Octave/MATLAB** is interpreted and significantly slower by design
+- **Rust** and **Python** run the same compiled Rust code; small differences are PyO3 overhead
+- **TIMEOUT** means the benchmark exceeded the time limit
+- **ERROR** indicates a runtime error (check logs for details)
+- **SKIP** means a previous scenario timed out, so harder scenarios were skipped
+- **-** means not applicable (e.g., multi-sensor filter on single-sensor scenario) or not run
+
+NOTES
+}
+
+echo "Generating README_BENCHMARKS.md..."
+generate_readme > "$README_FILE"
+echo "README saved to: $README_FILE"
 echo ""
 echo "Done!"

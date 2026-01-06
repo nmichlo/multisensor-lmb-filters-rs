@@ -9,8 +9,8 @@ function run_octave(scenario_path, filter_name)
 %   Exit 0 on success, non-zero on error.
 %
 % Supported filters:
-%   - LMB-LBP, LMB-Gibbs, LMB-Murty (single-sensor LMB)
-%   - LMBM-Gibbs, LMBM-Murty (single-sensor LMBM)
+%   Single-sensor: LMB-LBP, LMB-Gibbs, LMB-Murty, LMBM-Gibbs, LMBM-Murty
+%   Multi-sensor: AA-LMB-LBP, IC-LMB-LBP, PU-LMB-LBP, GA-LMB-LBP
 
 % =============================================================================
 % Setup paths
@@ -27,10 +27,32 @@ addpath(genpath(matlabDir));
 scenario = jsondecode(fileread(scenario_path));
 
 % =============================================================================
+% Parse filter name
+% =============================================================================
+
+% Parse filter name to get filter type and associator
+% Examples: LMB-LBP, LMBM-Gibbs, AA-LMB-LBP, IC-LMB-LBP
+filterParts = strsplit(filter_name, '-');
+
+% Determine if multi-sensor
+isMultiSensor = any(strcmp(filterParts{1}, {'AA', 'IC', 'PU', 'GA', 'MS'}));
+
+if isMultiSensor
+    fusionType = filterParts{1};     % AA, IC, PU, GA
+    filterType = filterParts{2};     % LMB
+    assocType = filterParts{3};      % LBP, Gibbs, Murty
+else
+    fusionType = '';
+    filterType = filterParts{1};     % LMB or LMBM
+    assocType = filterParts{end};    % LBP, Gibbs, Murty
+end
+
+% =============================================================================
 % Build model
 % =============================================================================
 
 thresholds = struct('existence', 1e-3, 'gm_weight', 1e-4, 'max_components', 100, 'gm_merge', inf);
+numSensors = scenario.num_sensors;
 
 m = scenario.model;
 model.xDimension = 4;
@@ -51,12 +73,26 @@ model.R = q * [(1/3)*m.dt^3*eye(2), 0.5*m.dt^2*eye(2); 0.5*m.dt^2*eye(2), m.dt*e
 model.observationSpaceLimits = [scenario.bounds(1), scenario.bounds(2); scenario.bounds(3), scenario.bounds(4)];
 model.observationSpaceVolume = prod(model.observationSpaceLimits(:,2) - model.observationSpaceLimits(:,1));
 
-% Sensor model
-model.C = [eye(2), zeros(2)];
-model.Q = m.measurement_noise_std^2 * eye(2);
-model.detectionProbability = m.detection_probability;
-model.clutterRate = m.clutter_rate;
-model.clutterPerUnitVolume = m.clutter_rate / model.observationSpaceVolume;
+% Sensor model - handle single vs multi-sensor
+if isMultiSensor
+    model.numberOfSensors = numSensors;
+    % Per-sensor parameters (cell arrays for multi-sensor)
+    model.C = repmat({[eye(2), zeros(2)]}, 1, numSensors);
+    model.Q = repmat({m.measurement_noise_std^2 * eye(2)}, 1, numSensors);
+    model.detectionProbability = m.detection_probability * ones(1, numSensors);
+    model.clutterRate = m.clutter_rate * ones(1, numSensors);
+    model.clutterPerUnitVolume = model.clutterRate / model.observationSpaceVolume;
+    model.lmbParallelUpdateMode = fusionType;
+    % AA and GA fusion need sensor weights (uniform by default)
+    model.aaSensorWeights = ones(1, numSensors) / numSensors;
+    model.gaSensorWeights = ones(1, numSensors) / numSensors;
+else
+    model.C = [eye(2), zeros(2)];
+    model.Q = m.measurement_noise_std^2 * eye(2);
+    model.detectionProbability = m.detection_probability;
+    model.clutterRate = m.clutter_rate;
+    model.clutterPerUnitVolume = m.clutter_rate / model.observationSpaceVolume;
+end
 
 % Birth model
 birthLocs = m.birth_locations;
@@ -86,6 +122,7 @@ end
 model.birthParameters = birthParameters;
 
 % Association parameters
+model.dataAssociationMethod = assocType;
 model.lbpConvergenceTolerance = 1e-6;
 model.maximumNumberOfLbpIterations = 100;
 model.numberOfSamples = 1000;
@@ -100,34 +137,78 @@ model.minimumTrajectoryLength = 3;
 model.object = repmat(object, 0, 1);
 model.simulationLength = scenario.num_steps;
 
-% =============================================================================
-% Extract measurements (single-sensor: use first sensor)
-% =============================================================================
+% LMBM-specific model fields (hypotheses, trajectory, birthTrajectory)
+% These are required by runLmbmFilter and runMultisensorLmbmFilter
+if strcmp(filterType, 'LMBM')
+    % LMBM uses a separate birth existence probability
+    model.rBLmbm = 0.001 * ones(model.numberOfBirthLocations, 1);
 
-numSteps = scenario.num_steps;
-measurements = cell(1, numSteps);
-for t = 1:numSteps
-    sr = scenario.steps(t).sensor_readings;
-    if isempty(sr) || (isnumeric(sr) && numel(sr) == 0)
-        measurements{t} = {};
-    elseif iscell(sr)
-        % Multi-sensor: use first sensor for single-sensor LMB
-        measurements{t} = convertToMeasCell(sr{1});
-    else
-        measurements{t} = convertToMeasCell(sr);
+    % Hypothesis struct (empty initial hypothesis)
+    hypotheses.birthLocation = zeros(0, 1);
+    hypotheses.birthTime = zeros(0, 1);
+    hypotheses.w = 1;  % Hypothesis weight
+    hypotheses.r = zeros(0, 1);
+    hypotheses.mu = repmat({}, 0, 1);
+    hypotheses.Sigma = repmat({}, 0, 1);
+    model.hypotheses = hypotheses;
+
+    % Trajectory template struct
+    trajectory.birthLocation = 0;
+    trajectory.birthTime = 0;
+    trajectory.trajectory = [];
+    trajectory.trajectoryLength = 0;
+    trajectory.timestamps = zeros(1, 0);
+    model.trajectory = repmat(trajectory, 1, 0);
+
+    % Birth trajectory (one per birth location)
+    birthTrajectory = repmat(trajectory, 1, model.numberOfBirthLocations);
+    for i = 1:model.numberOfBirthLocations
+        birthTrajectory(i).birthLocation = model.birthLocationLabels(i);
+        birthTrajectory(i).trajectoryLength = 0;
+        birthTrajectory(i).trajectory = repmat(80 * ones(model.xDimension, 1), 1, 100);
+        birthTrajectory(i).timestamps = zeros(1, 100);
     end
+    model.birthTrajectory = birthTrajectory;
+
+    % LMBM hypothesis pruning parameters
+    model.maximumNumberOfPosteriorHypotheses = 25;
+    model.posteriorHypothesisWeightThreshold = 1e-3;
 end
 
 % =============================================================================
-% Configure association method
+% Extract measurements
 % =============================================================================
 
-% Parse filter name to get filter type and associator
-filterParts = strsplit(filter_name, '-');
-filterType = filterParts{1};  % LMB or LMBM
-assocType = filterParts{end}; % LBP, Gibbs, or Murty
+numSteps = scenario.num_steps;
 
-model.dataAssociationMethod = assocType;
+if isMultiSensor
+    % Multi-sensor: measurements{sensor, timestep}
+    measurements = cell(numSensors, numSteps);
+    for t = 1:numSteps
+        sr = scenario.steps(t).sensor_readings;
+        for s = 1:numSensors
+            if iscell(sr) && numel(sr) >= s
+                measurements{s, t} = convertToMeasCell(sr{s});
+            else
+                measurements{s, t} = {};
+            end
+        end
+    end
+else
+    % Single-sensor: measurements{timestep}
+    measurements = cell(1, numSteps);
+    for t = 1:numSteps
+        sr = scenario.steps(t).sensor_readings;
+        if isempty(sr) || (isnumeric(sr) && numel(sr) == 0)
+            measurements{t} = {};
+        elseif iscell(sr)
+            % Multi-sensor data but single-sensor filter: use first sensor
+            measurements{t} = convertToMeasCell(sr{1});
+        else
+            measurements{t} = convertToMeasCell(sr);
+        end
+    end
+end
 
 % =============================================================================
 % Run benchmark
@@ -136,13 +217,27 @@ model.dataAssociationMethod = assocType;
 rng_obj = SimpleRng(42);
 tic;
 
-switch filterType
-    case 'LMB'
-        [~, ~] = runLmbFilter(rng_obj, model, measurements);
-    case 'LMBM'
-        [~, ~] = runLmbmFilter(rng_obj, model, measurements);
-    otherwise
-        error('Unknown filter type: %s', filterType);
+if isMultiSensor
+    switch fusionType
+        case 'IC'
+            stateEstimates = runIcLmbFilter(model, measurements);
+        case {'AA', 'GA', 'PU'}
+            stateEstimates = runParallelUpdateLmbFilter(model, measurements);
+        case 'MS'
+            % Multi-sensor LMBM (only Gibbs sampling supported)
+            [~, stateEstimates] = runMultisensorLmbmFilter(rng_obj, model, measurements);
+        otherwise
+            error('Unknown fusion type: %s', fusionType);
+    end
+else
+    switch filterType
+        case 'LMB'
+            [~, ~] = runLmbFilter(rng_obj, model, measurements);
+        case 'LMBM'
+            [~, ~] = runLmbmFilter(rng_obj, model, measurements);
+        otherwise
+            error('Unknown filter type: %s', filterType);
+    end
 end
 
 elapsed_ms = toc * 1000;
@@ -165,18 +260,14 @@ function z = convertToMeasCell(meas)
         z = meas;
         return;
     end
-    % Handle N-D arrays from JSON - squeeze to 2D first
-    if ndims(meas) > 2
-        meas = squeeze(meas);
-    end
+    % Handle N-D arrays from JSON - reshape to 2D
+    meas = squeeze(meas);
     if isempty(meas)
         z = {};
         return;
     end
-    % Ensure 2D Nx2 format (measurements x dimensions)
-    if size(meas, 2) ~= 2 && size(meas, 1) == 2
-        meas = permute(meas, [2 1]);  % Use permute instead of ' for compatibility
-    end
+    % Force into Nx2 matrix (N measurements, 2 dimensions each)
+    meas = reshape(meas, [], 2);
     z = cell(1, size(meas, 1));
     for k = 1:size(meas, 1)
         z{k} = meas(k, :)(:);  % Column vector

@@ -64,6 +64,14 @@ struct StepJson {
 }
 
 // =============================================================================
+// Thresholds (match Python: existence=1e-3, gm_weight=1e-4, max_components=100, gm_merge=inf)
+// =============================================================================
+
+const GM_WEIGHT_THRESHOLD: f64 = 1e-4;
+const MAX_GM_COMPONENTS: usize = 100;
+const GM_MERGE_THRESHOLD: f64 = f64::INFINITY;
+
+// =============================================================================
 // Preprocessing
 // =============================================================================
 
@@ -170,14 +178,6 @@ fn preprocess(scenario: &ScenarioJson) -> PreprocessedScenario {
 }
 
 // =============================================================================
-// Thresholds (must match Python)
-// =============================================================================
-
-const GM_WEIGHT_THRESHOLD: f64 = 1e-4;
-const MAX_GM_COMPONENTS: usize = 100;
-const GM_MERGE_THRESHOLD: f64 = f64::INFINITY;
-
-// =============================================================================
 // Filter Runners
 // =============================================================================
 
@@ -227,16 +227,16 @@ fn run_lmbm_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig)
 }
 
 fn run_aa_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
-    let merger = ArithmeticAverageMerger::uniform(prep.num_sensors, 100);
-    let associator = DynamicAssociator::from_config(&assoc_config);
-    let mut filter = AaLmbFilter::with_associator_type(
+    let merger = ArithmeticAverageMerger::uniform(prep.num_sensors, MAX_GM_COMPONENTS);
+    let mut filter = MultisensorLmbFilter::new(
         prep.motion.clone(),
         prep.sensors_config.clone(),
         prep.birth.clone(),
         assoc_config,
         merger,
-        associator,
-    );
+    )
+    .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+    .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
 
     let mut rng = StdRng::seed_from_u64(42);
     let start = Instant::now();
@@ -250,15 +250,15 @@ fn run_aa_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfi
 
 fn run_ic_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
     let merger = IteratedCorrectorMerger::new();
-    let associator = DynamicAssociator::from_config(&assoc_config);
-    let mut filter = IcLmbFilter::with_associator_type(
+    let mut filter = MultisensorLmbFilter::new(
         prep.motion.clone(),
         prep.sensors_config.clone(),
         prep.birth.clone(),
         assoc_config,
         merger,
-        associator,
-    );
+    )
+    .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+    .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
 
     let mut rng = StdRng::seed_from_u64(42);
     let start = Instant::now();
@@ -272,15 +272,16 @@ fn run_ic_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfi
 
 fn run_pu_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
     let merger = ParallelUpdateMerger::new(Vec::new());
-    let associator = DynamicAssociator::from_config(&assoc_config);
-    let mut filter = PuLmbFilter::with_associator_type(
+    // Use MultisensorLmbFilter::new() with pruning to match Python bindings
+    let mut filter = MultisensorLmbFilter::new(
         prep.motion.clone(),
         prep.sensors_config.clone(),
         prep.birth.clone(),
         assoc_config,
         merger,
-        associator,
-    );
+    )
+    .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+    .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
 
     let mut rng = StdRng::seed_from_u64(42);
     let start = Instant::now();
@@ -294,15 +295,15 @@ fn run_pu_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfi
 
 fn run_ga_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
     let merger = GeometricAverageMerger::uniform(prep.num_sensors);
-    let associator = DynamicAssociator::from_config(&assoc_config);
-    let mut filter = GaLmbFilter::with_associator_type(
+    let mut filter = MultisensorLmbFilter::new(
         prep.motion.clone(),
         prep.sensors_config.clone(),
         prep.birth.clone(),
         assoc_config,
         merger,
-        associator,
-    );
+    )
+    .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+    .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
 
     let mut rng = StdRng::seed_from_u64(42);
     let start = Instant::now();
