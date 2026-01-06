@@ -47,3 +47,6 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# benchmarks
+/src/bin/benchmark_runner.rs

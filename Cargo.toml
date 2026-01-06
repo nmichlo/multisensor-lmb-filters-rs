@@ -46,21 +46,12 @@ numpy = { version = "0.23", optional = true }
 [dev-dependencies]
 # Testing
 approx = "0.5"      # Floating point comparisons
-criterion = "0.5"   # Benchmarking
 
 [features]
 default = []
 python = ["dep:pyo3", "dep:numpy"]
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
-
-[[bench]]
-name = "lmb_performance"
-harness = false
-
-[[bench]]
-name = "scenario_benchmark"
-harness = false
 
 [profile.release]
 lto = true
