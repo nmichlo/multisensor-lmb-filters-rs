@@ -38,10 +38,19 @@ THRESHOLDS = FilterThresholds(
     existence=1e-3, gm_weight=1e-4, max_components=100, gm_merge=float("inf")
 )
 
+
 # Associator configs (explicit values matching Rust)
-LBP = lambda: AssociatorConfig.lbp(100, 1e-6)
-GIBBS = lambda: AssociatorConfig.gibbs(1000)
-MURTY = lambda: AssociatorConfig.murty(25)
+def LBP():
+    return AssociatorConfig.lbp(100, 1e-6)
+
+
+def GIBBS():
+    return AssociatorConfig.gibbs(1000)
+
+
+def MURTY():
+    return AssociatorConfig.murty(25)
+
 
 # All Filter × Associator configurations
 # Format: (name, filter_class, associator_factory, is_multi_sensor)
@@ -150,8 +159,10 @@ def preprocess(scenario):
     sensor = SensorModel.position_2d(
         m["measurement_noise_std"], m["detection_probability"], m["clutter_rate"], obs_vol
     )
+    # Birth covariance: [2500, 2500, 100, 100] for [x, y, vx, vy]
+    # Matches fixture and MATLAB benchmark settings - create separate matrix for each location
     birth_locs = [
-        BirthLocation(i, np.array(loc), np.eye(4) * 2500.0)  # std=50 to cover gaps
+        BirthLocation(i, np.array(loc), np.diag([2500.0, 2500.0, 100.0, 100.0]))
         for i, loc in enumerate(m["birth_locations"])
     ]
     birth = BirthModel(birth_locs, lmb_existence=0.01, lmbm_existence=0.001)
@@ -230,6 +241,18 @@ def main():
             print(f"No scenarios matching '{args.scenario}'")
             return
 
+    # Sort scenarios by complexity (n5 < n10 < n20 < n50, then s1 < s2 < s4 < s8)
+    def complexity_key(path):
+        import re
+
+        match = re.search(r"n(\d+)_s(\d+)", path.stem)
+        if match:
+            n_objects, n_sensors = int(match.group(1)), int(match.group(2))
+            return (n_objects, n_sensors)
+        return (999, 999)  # Unknown format goes last
+
+    scenarios = sorted(scenarios, key=complexity_key)
+
     # Filter configs
     configs = CONFIGS
     if args.filter:
@@ -250,6 +273,9 @@ def main():
     print(f"{'Scenario':<22} | {'Filter':<18} | {'Time(ms)':>9} | {'OSPA':>7} | {'Progress':>8}")
     print("-" * 75)
 
+    # Track which filters have timed out - once a filter times out, skip remaining scenarios
+    timed_out_filters = set()
+
     for path in scenarios:
         scenario = json.load(open(path))
         name = path.stem
@@ -258,6 +284,10 @@ def main():
         motion, sensor, multi_sensor, birth, steps = preprocess(scenario)
 
         for filter_name, filter_cls, assoc_fn, is_multi in configs:
+            # Skip if this filter already timed out on an easier scenario
+            if filter_name in timed_out_filters:
+                print(f"{name:<22} | {filter_name:<18} | {'SKIP':>9} | {'-':>7} | {'-':>8}")
+                continue
             try:
                 if use_timeout:
                     signal.alarm(args.timeout)
@@ -275,7 +305,8 @@ def main():
 
                 progress = f"{steps_done}/{len(steps)}"
                 print(
-                    f"{name:<22} | {filter_name:<18} | {elapsed_ms:>9.1f} | {ospa:>7.2f} | {progress:>8}"
+                    f"{name:<22} | {filter_name:<18} | {elapsed_ms:>9.1f} | "
+                    f"{ospa:>7.2f} | {progress:>8}"
                 )
 
             except TimeoutError:
@@ -283,6 +314,8 @@ def main():
                     signal.alarm(0)
                 progress = f"{_current_progress['steps_done']}/{_current_progress['total_steps']}"
                 print(f"{name:<22} | {filter_name:<18} | {'TIMEOUT':>9} | {'-':>7} | {progress:>8}")
+                # Mark this filter as timed out - skip remaining scenarios
+                timed_out_filters.add(filter_name)
 
             except Exception:
                 if use_timeout:
