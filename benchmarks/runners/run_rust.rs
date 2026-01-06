@@ -12,7 +12,6 @@ use std::time::Instant;
 
 use clap::Parser;
 use nalgebra::{DMatrix, DVector};
-use rand::prelude::*;
 use serde::Deserialize;
 
 use multisensor_lmb_filters_rs::lmb::*;
@@ -193,7 +192,7 @@ fn run_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) 
     .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
     .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
 
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = SimpleRng::new(42);
     let start = Instant::now();
 
     for (t, single_meas) in prep.steps.iter() {
@@ -205,7 +204,12 @@ fn run_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) 
 
 fn run_lmbm_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
     // LMBM uses hypothesis pruning (not GM pruning) via LmbmConfig
-    let lmbm_config = LmbmConfig::default();
+    // Match Octave: max_hypotheses=25, threshold=1e-3
+    let lmbm_config = LmbmConfig {
+        max_hypotheses: 25,
+        hypothesis_weight_threshold: 1e-3,
+        use_eap: false,
+    };
     let associator = DynamicAssociator::from_config(&assoc_config);
     let mut filter = LmbmFilter::with_associator_type(
         prep.motion.clone(),
@@ -216,7 +220,7 @@ fn run_lmbm_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig)
         associator,
     );
 
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = SimpleRng::new(42);
     let start = Instant::now();
 
     for (t, single_meas) in prep.steps.iter() {
@@ -238,7 +242,7 @@ fn run_aa_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfi
     .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
     .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
 
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = SimpleRng::new(42);
     let start = Instant::now();
 
     for (t, meas) in prep.multi_steps.iter().enumerate() {
@@ -260,7 +264,7 @@ fn run_ic_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfi
     .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
     .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
 
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = SimpleRng::new(42);
     let start = Instant::now();
 
     for (t, meas) in prep.multi_steps.iter().enumerate() {
@@ -283,7 +287,7 @@ fn run_pu_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfi
     .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
     .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
 
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = SimpleRng::new(42);
     let start = Instant::now();
 
     for (t, meas) in prep.multi_steps.iter().enumerate() {
@@ -305,7 +309,7 @@ fn run_ga_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfi
     .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
     .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
 
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = SimpleRng::new(42);
     let start = Instant::now();
 
     for (t, meas) in prep.multi_steps.iter().enumerate() {
@@ -317,7 +321,12 @@ fn run_ga_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfi
 
 fn run_ms_lmbm_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
     // MS-LMBM uses hypothesis pruning via LmbmConfig
-    let lmbm_config = LmbmConfig::default();
+    // Match Octave: max_hypotheses=25, threshold=1e-3
+    let lmbm_config = LmbmConfig {
+        max_hypotheses: 25,
+        hypothesis_weight_threshold: 1e-3,
+        use_eap: false,
+    };
     let associator = MultisensorGibbsAssociator;
     let mut filter = MultisensorLmbmFilter::with_associator_type(
         prep.motion.clone(),
@@ -328,7 +337,7 @@ fn run_ms_lmbm_filter(prep: &PreprocessedScenario, assoc_config: AssociationConf
         associator,
     );
 
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = SimpleRng::new(42);
     let start = Instant::now();
 
     for (t, meas) in prep.multi_steps.iter().enumerate() {

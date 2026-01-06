@@ -34,6 +34,11 @@ TIMEOUT=30
 LANGUAGES="octave,rust,python"
 FILTER_PATTERN="all"
 VERBOSE=0
+USE_CACHE=1
+CONTINUE_MODE=0
+
+# Cache file for persistent results
+CACHE_FILE="$RESULTS_DIR/cache.csv"
 
 # =============================================================================
 # Filter Configuration Matrix
@@ -69,6 +74,8 @@ show_help() {
     echo "  --timeout N       Set timeout per benchmark in seconds (default: 30)"
     echo "  --lang LANGS      Comma-separated list: octave,rust,python (default: all)"
     echo "  --filter PATTERN  Filter name pattern to run (default: all)"
+    echo "  --no-cache        Ignore cached results, run everything fresh"
+    echo "  --continue        Continue from first timeout per filter/lang (for longer runs)"
     echo "  --verbose         Show verbose output"
     echo "  --help, -h        Show this help"
     echo ""
@@ -106,6 +113,14 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=1
             shift
             ;;
+        --no-cache)
+            USE_CACHE=0
+            shift
+            ;;
+        --continue)
+            CONTINUE_MODE=1
+            shift
+            ;;
         --help|-h)
             show_help
             exit 0
@@ -141,10 +156,95 @@ echo "======================================="
 echo "Timeout: ${TIMEOUT}s"
 echo "Languages: $LANGUAGES"
 echo "Filter: $FILTER_PATTERN"
+[[ $USE_CACHE -eq 1 ]] && echo "Cache: enabled" || echo "Cache: disabled"
+[[ $CONTINUE_MODE -eq 1 ]] && echo "Mode: continue from timeouts"
 echo ""
 
 # =============================================================================
-# Skip Tracking (per filter+language)
+# Cache Functions
+# =============================================================================
+
+init_cache() {
+    if [[ ! -f "$CACHE_FILE" ]]; then
+        echo "objects,sensors,filter,lang,timeout,time_ms,status,timestamp" > "$CACHE_FILE"
+    fi
+}
+
+# Check cache for a result. Returns:
+#   "OK:time_ms" if we have a valid cached result to use
+#   "CACHED_TIMEOUT" if already timed out at same or higher timeout
+#   "RUN" if we need to run this benchmark
+check_cache() {
+    local objects="$1"
+    local sensors="$2"
+    local filter="$3"
+    local lang="$4"
+    local current_timeout="$5"
+
+    if [[ $USE_CACHE -eq 0 ]]; then
+        echo "RUN"
+        return
+    fi
+
+    # Look for cached entry
+    local cached_line
+    cached_line=$(grep "^${objects},${sensors},${filter},${lang}," "$CACHE_FILE" 2>/dev/null | tail -1)
+
+    if [[ -z "$cached_line" ]]; then
+        echo "RUN"
+        return
+    fi
+
+    # Parse cached entry: objects,sensors,filter,lang,timeout,time_ms,status,timestamp
+    local cached_timeout cached_time_ms cached_status
+    cached_timeout=$(echo "$cached_line" | cut -d',' -f5)
+    cached_time_ms=$(echo "$cached_line" | cut -d',' -f6)
+    cached_status=$(echo "$cached_line" | cut -d',' -f7)
+
+    if [[ "$cached_status" == "OK" ]]; then
+        # Have a successful result - use it
+        echo "OK:$cached_time_ms"
+    elif [[ "$cached_status" == "TIMEOUT" ]]; then
+        if [[ "$current_timeout" -gt "$cached_timeout" ]]; then
+            # Current timeout is higher, might succeed now
+            echo "RUN"
+        else
+            # Already timed out at same or higher timeout
+            echo "CACHED_TIMEOUT"
+        fi
+    else
+        # ERROR or unknown status - re-run
+        echo "RUN"
+    fi
+}
+
+# Update cache with a new result
+update_cache() {
+    local objects="$1"
+    local sensors="$2"
+    local filter="$3"
+    local lang="$4"
+    local timeout="$5"
+    local time_ms="$6"
+    local status="$7"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%dT%H:%M:%S')
+
+    # Remove old entries for this combination
+    local temp_file
+    temp_file=$(mktemp)
+    grep -v "^${objects},${sensors},${filter},${lang}," "$CACHE_FILE" > "$temp_file" 2>/dev/null || true
+    mv "$temp_file" "$CACHE_FILE"
+
+    # Add new entry
+    echo "${objects},${sensors},${filter},${lang},${timeout},${time_ms},${status},${timestamp}" >> "$CACHE_FILE"
+}
+
+# Initialize cache file
+init_cache
+
+# =============================================================================
+# Skip Tracking (per filter+language within current run)
 # Uses a simple file-based approach for bash 3.x compatibility
 # =============================================================================
 
@@ -195,6 +295,10 @@ is_filter_applicable() {
             # Check multi-sensor compatibility
             if [[ "$is_multi" == "true" && "$num_sensors" -eq 1 ]]; then
                 return 1  # Multi-sensor filter on single-sensor scenario
+            fi
+            # Check single-sensor LMB limitation (LMB filters only support 1 sensor)
+            if [[ "$name" =~ ^LMB- && "$num_sensors" -gt 1 ]]; then
+                return 1
             fi
             # Check Octave support
             if [[ "$lang" == "octave" && "$octave_support" == "false" ]]; then
@@ -337,11 +441,30 @@ for scenario_path in $(get_sorted_scenarios); do
                 continue
             fi
 
-            # Check skip
+            # Check skip (from current run's timeouts)
             if should_skip "$filter_name" "$lang"; then
                 echo "$num_objects,$num_sensors,$filter_name,$lang,SKIP" >> "$RESULTS_FILE"
                 printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
                     "$num_objects" "$num_sensors" "$filter_name" "$lang" "SKIP"
+                continue
+            fi
+
+            # Check cache
+            cache_result=$(check_cache "$num_objects" "$num_sensors" "$filter_name" "$lang" "$TIMEOUT")
+
+            if [[ "$cache_result" == OK:* ]]; then
+                # Use cached result
+                cached_time=${cache_result#OK:}
+                echo "$num_objects,$num_sensors,$filter_name,$lang,$cached_time" >> "$RESULTS_FILE"
+                printf "%-8s | %-8s | %-18s | %-8s | %8.1f*\n" \
+                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "$cached_time"
+                continue
+            elif [[ "$cache_result" == "CACHED_TIMEOUT" ]]; then
+                # Already timed out at this timeout level
+                mark_timed_out "$filter_name" "$lang"
+                echo "$num_objects,$num_sensors,$filter_name,$lang,TIMEOUT" >> "$RESULTS_FILE"
+                printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
+                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "TIMEOUT*"
                 continue
             fi
 
@@ -351,14 +474,17 @@ for scenario_path in $(get_sorted_scenarios); do
 
             if [[ "$result" == "TIMEOUT" ]]; then
                 mark_timed_out "$filter_name" "$lang"
+                update_cache "$num_objects" "$num_sensors" "$filter_name" "$lang" "$TIMEOUT" "" "TIMEOUT"
                 echo "$num_objects,$num_sensors,$filter_name,$lang,TIMEOUT" >> "$RESULTS_FILE"
                 printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
                     "$num_objects" "$num_sensors" "$filter_name" "$lang" "TIMEOUT"
             elif [[ "$result" == "ERROR" ]]; then
+                update_cache "$num_objects" "$num_sensors" "$filter_name" "$lang" "$TIMEOUT" "" "ERROR"
                 echo "$num_objects,$num_sensors,$filter_name,$lang,ERROR" >> "$RESULTS_FILE"
                 printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
                     "$num_objects" "$num_sensors" "$filter_name" "$lang" "ERROR"
             else
+                update_cache "$num_objects" "$num_sensors" "$filter_name" "$lang" "$TIMEOUT" "$result" "OK"
                 echo "$num_objects,$num_sensors,$filter_name,$lang,$result" >> "$RESULTS_FILE"
                 printf "%-8s | %-8s | %-18s | %-8s | %9.1f\n" \
                     "$num_objects" "$num_sensors" "$filter_name" "$lang" "$result"
@@ -375,11 +501,15 @@ echo ""
 echo "Results saved to: $RESULTS_FILE"
 echo ""
 
-# Count results
-total=$(tail -n +2 "$RESULTS_FILE" | wc -l | tr -d ' ')
-timeouts=$(grep -c 'TIMEOUT' "$RESULTS_FILE" 2>/dev/null || echo 0)
-errors=$(grep -c 'ERROR' "$RESULTS_FILE" 2>/dev/null || echo 0)
-skips=$(grep -c 'SKIP' "$RESULTS_FILE" 2>/dev/null || echo 0)
+# Count results (ensure clean integers)
+total=$(tail -n +2 "$RESULTS_FILE" | wc -l | tr -d ' \n')
+timeouts=$(grep -c 'TIMEOUT' "$RESULTS_FILE" 2>/dev/null | tr -d ' \n' || echo 0)
+errors=$(grep -c 'ERROR' "$RESULTS_FILE" 2>/dev/null | tr -d ' \n' || echo 0)
+skips=$(grep -c 'SKIP' "$RESULTS_FILE" 2>/dev/null | tr -d ' \n' || echo 0)
+# Default to 0 if empty
+[[ -z "$timeouts" ]] && timeouts=0
+[[ -z "$errors" ]] && errors=0
+[[ -z "$skips" ]] && skips=0
 successful=$((total - timeouts - errors - skips))
 
 echo "Summary:"
@@ -387,6 +517,24 @@ echo "  Successful: $successful"
 echo "  Timeouts:   $timeouts"
 echo "  Errors:     $errors"
 echo "  Skipped:    $skips"
+echo ""
+
+# =============================================================================
+# Generate Plots
+# =============================================================================
+
+PLOTS_DIR="$PROJECT_ROOT/docs/benchmarks"
+
+echo "Generating benchmark plots..."
+if uv run "$SCRIPT_DIR/generate_plots.py" \
+    --cache-file "$CACHE_FILE" \
+    --output-dir "$PLOTS_DIR" 2>&1; then
+    PLOTS_GENERATED=1
+    echo "Plots saved to: $PLOTS_DIR"
+else
+    PLOTS_GENERATED=0
+    echo "Warning: Plot generation failed (matplotlib may not be installed)"
+fi
 echo ""
 
 # =============================================================================
@@ -412,6 +560,18 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 | **Octave/MATLAB** | Original reference implementation (interpreted) |
 | **Rust** | Native Rust binary compiled with `--release` |
 | **Python** | Python calling Rust via PyO3/maturin bindings |
+
+## Performance Summary
+
+### Rust vs Octave Speedup
+
+![Rust vs Octave Speedup](docs/benchmarks/speedup/rust_vs_octave.png)
+
+### Performance by Language
+
+| Octave | Rust | Python |
+|--------|------|--------|
+| ![Octave](docs/benchmarks/by_language/octave.png) | ![Rust](docs/benchmarks/by_language/rust.png) | ![Python](docs/benchmarks/by_language/python.png) |
 
 ## Methodology
 
@@ -455,8 +615,10 @@ METHOD
 
         echo "### $filter_name"
         echo ""
-        echo "| Objects | Sensors | Octave (ms) | Rust (ms) | Python (ms) |"
-        echo "|---------|---------|-------------|-----------|-------------|"
+        echo "![${filter_name} Performance](docs/benchmarks/by_filter/${filter_name}.png)"
+        echo ""
+        echo "| Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |"
+        echo "|---------|---------|-------------|-------------|-----------|"
 
         # Iterate through all scenarios
         echo "$sorted_scenarios" | while IFS=',' read -r n s; do
@@ -468,10 +630,14 @@ METHOD
             if [[ "$is_multi" == "true" && "$s" -eq 1 ]]; then
                 applicable="no"
             fi
+            # Check single-sensor LMB limitation (LMB filters only support 1 sensor)
+            if [[ "$filter_name" =~ ^LMB- && "$s" -gt 1 ]]; then
+                applicable="no"
+            fi
 
             if [[ "$applicable" == "no" ]]; then
                 # Filter not applicable to this scenario
-                echo "| $n | $s | - | - | - |"
+                echo "| $n | $s | *N/A* | *N/A* | *N/A* |"
             else
                 # Look up results from CSV
                 octave_result=$(grep "^$n,$s,$filter_name,octave," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
@@ -482,7 +648,7 @@ METHOD
                 rust_fmt=$(format_result "$rust_result")
                 py_fmt=$(format_result "$python_result")
 
-                echo "| $n | $s | $oct_fmt | $rust_fmt | $py_fmt |"
+                echo "| $n | $s | $oct_fmt | $py_fmt | $rust_fmt |"
             fi
         done
         echo ""
@@ -496,7 +662,7 @@ METHOD
 - **TIMEOUT** means the benchmark exceeded the time limit
 - **ERROR** indicates a runtime error (check logs for details)
 - **SKIP** means a previous scenario timed out, so harder scenarios were skipped
-- **-** means not applicable (e.g., multi-sensor filter on single-sensor scenario) or not run
+- **-** means not applicable (e.g., single-sensor LMB on multi-sensor scenario) or not run
 
 NOTES
 }
