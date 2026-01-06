@@ -53,6 +53,10 @@ python = ["dep:pyo3", "dep:numpy"]
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 
+[[bin]]
+name = "benchmark_single"
+path = "benchmarks/runners/run_rust.rs"
+
 [profile.release]
 lto = true
 codegen-units = 1
