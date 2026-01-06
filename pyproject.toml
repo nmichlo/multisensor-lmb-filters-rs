@@ -56,7 +56,7 @@ strip = true
 # ===== PYTEST ===== #
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["python/tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
@@ -72,7 +72,7 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 # Test files can have unused imports (for skipped tests) and style issues
-"tests/*.py" = ["F821", "E721", "B007", "E711", "B905", "E501", "UP038"]
+"python/tests/*.py" = ["F821", "E721", "B007", "E711", "B905", "E501", "UP038"]
 # Type stubs have long signatures
 "*.pyi" = ["E501"]
 

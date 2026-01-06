@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-FIXTURE_DIR = Path(__file__).parent / "data"
+FIXTURE_DIR = Path(__file__).parent.parent.parent / "tests" / "data"
 TOLERANCE = 1e-10
 
 
