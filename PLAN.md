@@ -237,7 +237,8 @@ Run all tests and verify:
 | sensorUpdates[1].updated_objects | values | values | **COMPLETE** |
 | stepFinal.n_estimated | values | values | **COMPLETE** |
 | stepFinal.map_indices | values | values | **COMPLETE** |
-| **step5_fusion (AA/GA/PU)** | - | - | **NEEDS FIXTURE** |
+
+**Note**: Fusion steps for AA/GA/PU are tested via the variant fixtures (see Section 4).
 
 ### MULTISENSOR LMBM FIXTURE (multisensor_lmbm_step_by_step_seed42.json) - COMPLETE
 
