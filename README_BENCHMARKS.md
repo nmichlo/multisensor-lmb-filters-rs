@@ -1,6 +1,6 @@
 # LMB Filter Benchmark Results
 
-*Generated: 2026-01-07 13:14:36*
+*Generated: 2026-01-07 13:29:55*
 
 ## Overview
 
@@ -16,13 +16,19 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### Rust vs Octave Speedup
 
-![Rust vs Octave Speedup](docs/benchmarks/speedup/rust_vs_octave.png)
+<img alt="Rust vs Octave Speedup" src="docs/benchmarks/speedup/rust_vs_octave.png" width=640 />
 
 ### Performance by Language
 
-| Octave | Rust | Python |
-|--------|------|--------|
-| ![Octave](docs/benchmarks/by_language/octave.png) | ![Rust](docs/benchmarks/by_language/rust.png) | ![Python](docs/benchmarks/by_language/python.png) |
+<img alt="" src="docs/benchmarks/by_language/octave.png" width=640 />
+</br>
+<img alt="" src="docs/benchmarks/by_language/rust.png" width=640 />
+
+### Performance by Sensor Count
+
+| Single | Dual | Quad |
+|--------|------|------|
+| ![Single Sensor](docs/benchmarks/by_sensors/single_sensor.png) | ![Dual Sensor](docs/benchmarks/by_sensors/dual_sensor.png) | ![Quad Sensor](docs/benchmarks/by_sensors/quad_sensor.png) |
 
 ## Methodology
 
@@ -35,7 +41,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### LMB-LBP
 
-![LMB-LBP Performance](docs/benchmarks/by_filter/LMB-LBP.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
@@ -45,7 +50,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### LMB-Gibbs
 
-![LMB-Gibbs Performance](docs/benchmarks/by_filter/LMB-Gibbs.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
@@ -55,7 +59,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### LMB-Murty
 
-![LMB-Murty Performance](docs/benchmarks/by_filter/LMB-Murty.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
@@ -65,7 +68,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### LMBM-Gibbs
 
-![LMBM-Gibbs Performance](docs/benchmarks/by_filter/LMBM-Gibbs.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
@@ -82,7 +84,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### LMBM-Murty
 
-![LMBM-Murty Performance](docs/benchmarks/by_filter/LMBM-Murty.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
@@ -99,7 +100,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### AA-LMB-LBP
 
-![AA-LMB-LBP Performance](docs/benchmarks/by_filter/AA-LMB-LBP.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
@@ -113,7 +113,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### IC-LMB-LBP
 
-![IC-LMB-LBP Performance](docs/benchmarks/by_filter/IC-LMB-LBP.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
@@ -127,7 +126,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### PU-LMB-LBP
 
-![PU-LMB-LBP Performance](docs/benchmarks/by_filter/PU-LMB-LBP.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
@@ -141,7 +139,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### GA-LMB-LBP
 
-![GA-LMB-LBP Performance](docs/benchmarks/by_filter/GA-LMB-LBP.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
@@ -155,7 +152,6 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### MS-LMBM-Gibbs
 
-![MS-LMBM-Gibbs Performance](docs/benchmarks/by_filter/MS-LMBM-Gibbs.png)
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|

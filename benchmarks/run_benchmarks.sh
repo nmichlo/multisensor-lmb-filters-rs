@@ -661,20 +661,19 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 ### Rust vs Octave Speedup
 
-![Rust vs Octave Speedup](docs/benchmarks/speedup/rust_vs_octave.png)
+<img alt="Rust vs Octave Speedup" src="docs/benchmarks/speedup/rust_vs_octave.png" width=640 />
 
 ### Performance by Language
 
-| Octave | Rust | Python |
-|--------|------|--------|
-| ![Octave](docs/benchmarks/by_language/octave.png) | ![Rust](docs/benchmarks/by_language/rust.png) | ![Python](docs/benchmarks/by_language/python.png) |
+<img alt="" src="docs/benchmarks/by_language/octave.png" width=640 />
+</br>
+<img alt="" src="docs/benchmarks/by_language/rust.png" width=640 />
 
 ### Performance by Sensor Count
 
-![Single Sensor](docs/benchmarks/by_sensors/single_sensor.png)
-![Dual Sensor](docs/benchmarks/by_sensors/dual_sensor.png)
-![Quad Sensor](docs/benchmarks/by_sensors/quad_sensor.png)
-![Octa Sensor](docs/benchmarks/by_sensors/octa_sensor.png)
+| Single | Dual | Quad |
+|--------|------|------|
+| ![Single Sensor](docs/benchmarks/by_sensors/single_sensor.png) | ![Dual Sensor](docs/benchmarks/by_sensors/dual_sensor.png) | ![Quad Sensor](docs/benchmarks/by_sensors/quad_sensor.png) |
 
 ## Methodology
 
