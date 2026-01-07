@@ -177,7 +177,9 @@ def main():
     # Run benchmark unless --skip-run
     if not args.skip_run:
         elapsed_ms = run_filter(filt, steps, is_multi)
-        print(f"{elapsed_ms:.3f}")
+        # Calculate average time per step
+        avg_time_ms = elapsed_ms / len(scenario["steps"])
+        print(f"{avg_time_ms:.4f}")
 
     return 0
 

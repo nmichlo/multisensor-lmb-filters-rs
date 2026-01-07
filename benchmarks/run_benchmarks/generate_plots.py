@@ -52,8 +52,8 @@ EXPECTED_OBJECTS = [5, 10, 20, 50]
 EXPECTED_SENSORS = [1, 2, 4, 8]
 
 # Y-axis limits for consistent scaling across plots (in ms)
-Y_AXIS_MIN = 5
-Y_AXIS_MAX = 1_000_000
+Y_AXIS_MIN = 1
+Y_AXIS_MAX = 2500
 # - Color = Base filter architecture
 # - Marker = Association method (LBP, Gibbs, Murty)
 # - Linestyle = Language (defined in LANG_STYLES)
@@ -267,7 +267,7 @@ def plot_filter(df: pd.DataFrame, filter_name: str, is_multi: bool, output_dir: 
     handles, labels = plot_filter_data(ax, data, "objects")
 
     ax.set_xlabel("Number of Objects")
-    ax.set_ylabel("Time")
+    ax.set_ylabel("Time (per step)")
     ax.set_yscale("log")
     ax.yaxis.set_major_formatter(FuncFormatter(format_time_label))
     ax.set_title(f"{filter_name} Performance", fontsize=12, fontweight="bold")
@@ -342,7 +342,7 @@ def plot_by_language(df: pd.DataFrame, lang: str, output_dir: Path):
             )
 
     ax.set_xlabel("Number of Objects")
-    ax.set_ylabel("Time")
+    ax.set_ylabel("Time (per step)")
     ax.set_yscale("log")
     ax.yaxis.set_major_formatter(FuncFormatter(format_time_label))
     ax.set_title(f"{lang.capitalize()} - Single Sensor Filters")
@@ -389,7 +389,7 @@ def plot_by_language(df: pd.DataFrame, lang: str, output_dir: Path):
             )
 
     ax.set_xlabel("Number of Objects")
-    ax.set_ylabel("Time")
+    ax.set_ylabel("Time (per step)")
     ax.set_yscale("log")
     ax.yaxis.set_major_formatter(FuncFormatter(format_time_label))
     ax.set_title(f"{lang.capitalize()} - Multi-Sensor Filters (2 sensors)")
@@ -547,7 +547,7 @@ def plot_by_sensors(df: pd.DataFrame, sensors: int, output_dir: Path):
                 )
 
     ax.set_xlabel("Number of Objects")
-    ax.set_ylabel("Time")
+    ax.set_ylabel("Time (per step)")
     ax.set_yscale("log")
     ax.yaxis.set_major_formatter(FuncFormatter(format_time_label))
     ax.set_title(title, fontsize=12, fontweight="bold")

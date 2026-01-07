@@ -383,10 +383,13 @@ else
     end
 end
 
-elapsed_ms = toc * 1000;
+elapsed = toc; % Time in seconds
+elapsed_ms = elapsed * 1000;
 
 % Output only the timing
-fprintf('%.3f\n', elapsed_ms);
+    % Calculate average time per step
+    avg_time_ms = (elapsed * 1000) / length(scenario.steps);
+    fprintf('%.4f\n', avg_time_ms);
 
 end
 

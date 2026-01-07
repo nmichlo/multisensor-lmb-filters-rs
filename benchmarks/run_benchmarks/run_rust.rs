@@ -448,7 +448,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Run benchmark unless --skip-run
     if !args.skip_run {
         let elapsed_ms = filter.run(&prep);
-        println!("{:.3}", elapsed_ms);
+        // Calculate average time per step
+        let total_steps = scenario.steps.len() as f64;
+        let avg_ms = elapsed_ms / total_steps; // Corrected: elapsed_ms is already in milliseconds
+        println!("{:.4}", avg_ms);
     }
 
     Ok(())

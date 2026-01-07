@@ -508,7 +508,7 @@ RESULTS_FILE="$RESULTS_DIR/benchmarks_$(date +%Y%m%d_%H%M%S).csv"
 echo "objects,sensors,filter,lang,time_ms" > "$RESULTS_FILE"
 
 # Also print human-readable header to console
-printf "%-8s | %-8s | %-18s | %-8s | %9s\n" "Objects" "Sensors" "Filter" "Lang" "Time(ms)"
+printf "%-8s | %-8s | %-18s | %-8s | %13s\n" "Objects" "Sensors" "Filter" "Lang" "Time(ms/step)"
 printf "%s\n" "$(printf '%.0s-' {1..60})"
 
 IFS=',' read -ra LANG_ARRAY <<< "$LANGUAGES"
@@ -678,7 +678,10 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 ## Methodology
 
 OVERVIEW
-    echo "- **Timeout**: ${TIMEOUT} seconds per scenario"
+    echo "Methodology Details:"
+    echo "- **Simulation**: Bouncing objects in 2D space [-100, 100]^2"
+    echo "- **Steps**: 100 simulation steps per scenario"
+    echo "- **Model**: Constant velocity (std=3.0), P_d=0.98, P_s=0.99, Clutter(lambda=1.0)"
     cat << 'METHOD'
 - **Thresholds**: existence=1e-3, gm_weight=1e-4, max_components=100, gm_merge=∞
 - **Association**: LBP (100 iterations, tol 1e-6), Gibbs (1000 samples), Murty (25 assignments)
@@ -696,7 +699,7 @@ METHOD
         elif [[ "$val" == "TIMEOUT" || "$val" == "ERROR" || "$val" == "SKIP" ]]; then
             echo "$val"
         else
-            printf "%.1f" "$val"
+            printf "%.2f" "$val"
         fi
     }
 
@@ -711,12 +714,12 @@ METHOD
             echo "$val"
         elif [[ -z "$baseline" || "$baseline" == "TIMEOUT" || "$baseline" == "ERROR" || "$baseline" == "SKIP" ]]; then
             # No baseline, just show value
-            printf "%.1f (N/A)" "$val"
+            printf "%.2f (N/A)" "$val"
         else
             # Calculate speedup
             local speedup
             speedup=$(awk "BEGIN {printf \"%.1f\", $baseline / $val}")
-            printf "%.1f (×%.1f)" "$val" "$speedup"
+            printf "%.2f (×%.1f)" "$val" "$speedup"
         fi
     }
 
@@ -738,8 +741,8 @@ METHOD
         echo "### $filter_name"
         echo ""
         echo ""
-        echo "| Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |"
-        echo "|---------|---------|-------------|-------------|-----------|"
+        echo "| Objects | Sensors | Octave (ms/step) | Python (ms/step) | Rust (ms/step) |"
+        echo "|---------|---------|------------------|------------------|----------------|"
 
         # Iterate through all scenarios
         echo "$sorted_scenarios" | while IFS=',' read -r n s; do
