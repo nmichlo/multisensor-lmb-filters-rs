@@ -358,38 +358,37 @@ end
 % =============================================================================
 
 rng_obj = SimpleRng(42);
-tic;
 
+% Run filter and capture per-step execution times
 if isMultiSensor
     switch fusionType
         case 'IC'
-            stateEstimates = runIcLmbFilter(model, measurements);
+            [stateEstimates, executionTimes] = runIcLmbFilter(model, measurements);
         case {'AA', 'GA', 'PU'}
-            stateEstimates = runParallelUpdateLmbFilter(model, measurements);
+            [stateEstimates, executionTimes] = runParallelUpdateLmbFilter(model, measurements);
         case 'MS'
             % Multi-sensor LMBM (only Gibbs sampling supported)
-            [~, stateEstimates] = runMultisensorLmbmFilter(rng_obj, model, measurements);
+            [~, stateEstimates, executionTimes] = runMultisensorLmbmFilter(rng_obj, model, measurements);
         otherwise
             error('Unknown fusion type: %s', fusionType);
     end
 else
     switch filterType
         case 'LMB'
-            [~, ~] = runLmbFilter(rng_obj, model, measurements);
+            [~, ~, executionTimes] = runLmbFilter(rng_obj, model, measurements);
         case 'LMBM'
-            [~, ~] = runLmbmFilter(rng_obj, model, measurements);
+            [~, ~, executionTimes] = runLmbmFilter(rng_obj, model, measurements);
         otherwise
             error('Unknown filter type: %s', filterType);
     end
 end
 
-elapsed = toc; % Time in seconds
-elapsed_ms = elapsed * 1000;
-
-% Output only the timing
-    % Calculate average time per step
-    avg_time_ms = (elapsed * 1000) / length(scenario.steps);
-    fprintf('%.4f\n', avg_time_ms);
+% Output the timing (avg,std format)
+% executionTimes is in seconds, convert to ms
+executionTimes_ms = executionTimes * 1000;
+avg_time_ms = mean(executionTimes_ms);
+std_time_ms = std(executionTimes_ms);
+fprintf('%.4f,%.4f\n', avg_time_ms, std_time_ms);
 
 end
 

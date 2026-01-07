@@ -109,12 +109,19 @@ def preprocess(scenario: dict):
     return motion, sensor, multi_sensor, birth, steps
 
 
-def run_filter(filt, steps, is_multi: bool) -> float:
-    """Run filter and return elapsed time in milliseconds."""
-    start = time.perf_counter()
+def run_filter(filt, steps, is_multi: bool) -> tuple[float, float]:
+    """Run filter and return (mean_ms_per_step, std_ms_per_step)."""
+    step_times = []
     for t, single_meas, multi_meas in steps:
+        start = time.perf_counter()
         _ = filt.step(multi_meas if is_multi else single_meas, t)
-    return (time.perf_counter() - start) * 1000
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        step_times.append(elapsed_ms)
+
+    mean = sum(step_times) / len(step_times)
+    variance = sum((x - mean) ** 2 for x in step_times) / len(step_times)
+    std = variance**0.5
+    return mean, std
 
 
 def create_filter(filter_name: str, motion, sensor, multi_sensor, birth):
@@ -176,10 +183,8 @@ def main():
 
     # Run benchmark unless --skip-run
     if not args.skip_run:
-        elapsed_ms = run_filter(filt, steps, is_multi)
-        # Calculate average time per step
-        avg_time_ms = elapsed_ms / len(scenario["steps"])
-        print(f"{avg_time_ms:.4f}")
+        avg_ms, std_ms = run_filter(filt, steps, is_multi)
+        print(f"{avg_ms:.4f},{std_ms:.4f}")
 
     return 0
 

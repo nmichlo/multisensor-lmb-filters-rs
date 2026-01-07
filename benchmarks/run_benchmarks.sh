@@ -182,7 +182,7 @@ echo ""
 
 init_cache() {
     if [[ ! -f "$CACHE_FILE" ]]; then
-        echo "objects,sensors,filter,lang,timeout,time_ms,status,timestamp" > "$CACHE_FILE"
+        echo "objects,sensors,filter,lang,timeout,avg_ms,std_ms,status,timestamp" > "$CACHE_FILE"
     fi
 }
 
@@ -211,15 +211,16 @@ check_cache() {
         return
     fi
 
-    # Parse cached entry: objects,sensors,filter,lang,timeout,time_ms,status,timestamp
-    local cached_timeout cached_time_ms cached_status
+    # Parse cached entry: objects,sensors,filter,lang,timeout,avg_ms,std_ms,status,timestamp
+    local cached_timeout cached_avg_ms cached_std_ms cached_status
     cached_timeout=$(echo "$cached_line" | cut -d',' -f5)
-    cached_time_ms=$(echo "$cached_line" | cut -d',' -f6)
-    cached_status=$(echo "$cached_line" | cut -d',' -f7)
+    cached_avg_ms=$(echo "$cached_line" | cut -d',' -f6)
+    cached_std_ms=$(echo "$cached_line" | cut -d',' -f7)
+    cached_status=$(echo "$cached_line" | cut -d',' -f8)
 
     if [[ "$cached_status" == "OK" ]]; then
-        # Have a successful result - use it
-        echo "OK:$cached_time_ms"
+        # Have a successful result - return avg,std format
+        echo "OK:${cached_avg_ms},${cached_std_ms}"
     elif [[ "$cached_status" == "TIMEOUT" ]]; then
         if [[ "$current_timeout" -gt "$cached_timeout" ]]; then
             # Current timeout is higher, might succeed now
@@ -241,10 +242,18 @@ update_cache() {
     local filter="$3"
     local lang="$4"
     local timeout="$5"
-    local time_ms="$6"
+    local time_ms="$6"  # Format: avg,std or empty for TIMEOUT/ERROR
     local status="$7"
     local timestamp
     timestamp=$(date '+%Y-%m-%dT%H:%M:%S')
+
+    # Split avg,std if present
+    local avg_ms=""
+    local std_ms=""
+    if [[ -n "$time_ms" && "$time_ms" =~ ^[0-9]+\.?[0-9]*,[0-9]+\.?[0-9]*$ ]]; then
+        avg_ms=$(echo "$time_ms" | cut -d',' -f1)
+        std_ms=$(echo "$time_ms" | cut -d',' -f2)
+    fi
 
     # Remove old entries for this combination
     local temp_file
@@ -252,8 +261,8 @@ update_cache() {
     grep -v "^${objects},${sensors},${filter},${lang}," "$CACHE_FILE" > "$temp_file" 2>/dev/null || true
     mv "$temp_file" "$CACHE_FILE"
 
-    # Add new entry
-    echo "${objects},${sensors},${filter},${lang},${timeout},${time_ms},${status},${timestamp}" >> "$CACHE_FILE"
+    # Add new entry with separate avg_ms and std_ms columns
+    echo "${objects},${sensors},${filter},${lang},${timeout},${avg_ms},${std_ms},${status},${timestamp}" >> "$CACHE_FILE"
 }
 
 # Initialize cache file
@@ -371,8 +380,8 @@ run_benchmark() {
             local octave_output
             octave_output=$(LMB_SILENT=1 $TIMEOUT_CMD "${TIMEOUT}s" octave --no-gui --path "$RUNNERS_DIR" \
                 --eval "run_octave('$scenario_path', '$filter_name')" 2>&1) || exit_code=$?
-            # Extract the timing number from output (last line matching a number)
-            result=$(echo "$octave_output" | grep -oE '^[0-9]+\.?[0-9]*$' | tail -1)
+            # Extract the timing from output (last line matching avg,std pattern)
+            result=$(echo "$octave_output" | grep -oE '^[0-9]+\.?[0-9]*,[0-9]+\.?[0-9]*$' | tail -1)
             ;;
         rust)
             result=$($TIMEOUT_CMD "${TIMEOUT}s" "$PROJECT_ROOT/target/release/benchmark_single" \
@@ -391,8 +400,8 @@ run_benchmark() {
         return
     fi
 
-    # Validate result is a number
-    if [[ "$result" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    # Validate result format: avg,std or special status
+    if [[ "$result" =~ ^[0-9]+\.?[0-9]*,[0-9]+\.?[0-9]*$ ]]; then
         echo "$result"
     else
         echo "ERROR"
@@ -505,7 +514,7 @@ fi
 RESULTS_FILE="$RESULTS_DIR/benchmarks_$(date +%Y%m%d_%H%M%S).csv"
 
 # Print CSV header (easier to parse for README generation)
-echo "objects,sensors,filter,lang,time_ms" > "$RESULTS_FILE"
+echo "objects,sensors,filter,lang,avg_ms,std_ms" > "$RESULTS_FILE"
 
 # Also print human-readable header to console
 printf "%-8s | %-8s | %-18s | %-8s | %13s\n" "Objects" "Sensors" "Filter" "Lang" "Time(ms/step)"
@@ -539,7 +548,7 @@ for scenario_path in $(get_sorted_scenarios); do
 
             # Check skip (from current run's timeouts)
             if should_skip "$filter_name" "$lang"; then
-                echo "$num_objects,$num_sensors,$filter_name,$lang,SKIP" >> "$RESULTS_FILE"
+                echo "$num_objects,$num_sensors,$filter_name,$lang,SKIP," >> "$RESULTS_FILE"
                 printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
                     "$num_objects" "$num_sensors" "$filter_name" "$lang" "SKIP"
                 continue
@@ -549,16 +558,18 @@ for scenario_path in $(get_sorted_scenarios); do
             cache_result=$(check_cache "$num_objects" "$num_sensors" "$filter_name" "$lang" "$TIMEOUT")
 
             if [[ "$cache_result" == OK:* ]]; then
-                # Use cached result
+                # Use cached result (format: avg,std)
                 cached_time=${cache_result#OK:}
+                avg=$(echo "$cached_time" | cut -d',' -f1)
+                std=$(echo "$cached_time" | cut -d',' -f2)
                 echo "$num_objects,$num_sensors,$filter_name,$lang,$cached_time" >> "$RESULTS_FILE"
-                printf "%-8s | %-8s | %-18s | %-8s | %8.1f*\n" \
-                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "$cached_time"
+                printf "%-8s | %-8s | %-18s | %-8s | %8.2f \u00b1 %-5.2f*\n" \
+                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "$avg" "$std"
                 continue
             elif [[ "$cache_result" == "CACHED_TIMEOUT" ]]; then
                 # Already timed out at this timeout level
                 mark_timed_out "$filter_name" "$lang"
-                echo "$num_objects,$num_sensors,$filter_name,$lang,TIMEOUT" >> "$RESULTS_FILE"
+                echo "$num_objects,$num_sensors,$filter_name,$lang,TIMEOUT," >> "$RESULTS_FILE"
                 printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
                     "$num_objects" "$num_sensors" "$filter_name" "$lang" "TIMEOUT*"
                 continue
@@ -571,19 +582,22 @@ for scenario_path in $(get_sorted_scenarios); do
             if [[ "$result" == "TIMEOUT" ]]; then
                 mark_timed_out "$filter_name" "$lang"
                 update_cache "$num_objects" "$num_sensors" "$filter_name" "$lang" "$TIMEOUT" "" "TIMEOUT"
-                echo "$num_objects,$num_sensors,$filter_name,$lang,TIMEOUT" >> "$RESULTS_FILE"
+                echo "$num_objects,$num_sensors,$filter_name,$lang,TIMEOUT," >> "$RESULTS_FILE"
                 printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
                     "$num_objects" "$num_sensors" "$filter_name" "$lang" "TIMEOUT"
             elif [[ "$result" == "ERROR" ]]; then
                 update_cache "$num_objects" "$num_sensors" "$filter_name" "$lang" "$TIMEOUT" "" "ERROR"
-                echo "$num_objects,$num_sensors,$filter_name,$lang,ERROR" >> "$RESULTS_FILE"
+                echo "$num_objects,$num_sensors,$filter_name,$lang,ERROR," >> "$RESULTS_FILE"
                 printf "%-8s | %-8s | %-18s | %-8s | %9s\n" \
                     "$num_objects" "$num_sensors" "$filter_name" "$lang" "ERROR"
             else
+                # Parse avg,std from result
+                avg=$(echo "$result" | cut -d',' -f1)
+                std=$(echo "$result" | cut -d',' -f2)
                 update_cache "$num_objects" "$num_sensors" "$filter_name" "$lang" "$TIMEOUT" "$result" "OK"
                 echo "$num_objects,$num_sensors,$filter_name,$lang,$result" >> "$RESULTS_FILE"
-                printf "%-8s | %-8s | %-18s | %-8s | %9.1f\n" \
-                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "$result"
+                printf "%-8s | %-8s | %-18s | %-8s | %8.2f \u00b1 %-5.2f\n" \
+                    "$num_objects" "$num_sensors" "$filter_name" "$lang" "$avg" "$std"
             fi
         done
     done
@@ -691,14 +705,20 @@ OVERVIEW
 
 METHOD
 
-    # Format a result value
+    # Format a result value (expects avg,std or status)
     format_result() {
         local val="$1"
         if [[ -z "$val" ]]; then
             echo "-"
         elif [[ "$val" == "TIMEOUT" || "$val" == "ERROR" || "$val" == "SKIP" ]]; then
             echo "$val"
+        elif [[ "$val" =~ ^[0-9]+\.?[0-9]*,[0-9]+\.?[0-9]*$ ]]; then
+            # Parse avg,std
+            local avg=$(echo "$val" | cut -d',' -f1)
+            local std=$(echo "$val" | cut -d',' -f2)
+            printf "%.2f \u00b1 %.2f" "$avg" "$std"
         else
+            # Fallback for old format
             printf "%.2f" "$val"
         fi
     }
@@ -712,14 +732,26 @@ METHOD
             echo "-"
         elif [[ "$val" == "TIMEOUT" || "$val" == "ERROR" || "$val" == "SKIP" ]]; then
             echo "$val"
-        elif [[ -z "$baseline" || "$baseline" == "TIMEOUT" || "$baseline" == "ERROR" || "$baseline" == "SKIP" ]]; then
-            # No baseline, just show value
-            printf "%.2f (N/A)" "$val"
+        elif [[ "$val" =~ ^[0-9]+\.?[0-9]*,[0-9]+\.?[0-9]*$ ]]; then
+            # Parse avg,std from val and baseline
+            local avg=$(echo "$val" | cut -d',' -f1)
+            local std=$(echo "$val" | cut -d',' -f2)
+            
+            if [[ -z "$baseline" || "$baseline" == "TIMEOUT" || "$baseline" == "ERROR" || "$baseline" == "SKIP" ]]; then
+                # No baseline, just show value
+                printf "%.2f \u00b1 %.2f (N/A)" "$avg" "$std"
+            elif [[ "$baseline" =~ ^[0-9]+\.?[0-9]*,[0-9]+\.?[0-9]*$ ]]; then
+                # Calculate speedup using avg values
+                local baseline_avg=$(echo "$baseline" | cut -d',' -f1)
+                local speedup
+                speedup=$(awk "BEGIN {printf \"%.1f\", $baseline_avg / $avg}")
+                printf "%.2f \u00b1 %.2f (\u00d7%.1f)" "$avg" "$std" "$speedup"
+            else
+                printf "%.2f \u00b1 %.2f" "$avg" "$std"
+            fi
         else
-            # Calculate speedup
-            local speedup
-            speedup=$(awk "BEGIN {printf \"%.1f\", $baseline / $val}")
-            printf "%.2f (×%.1f)" "$val" "$speedup"
+            # Fallback for old format
+            printf "%.2f (N/A)" "$val"
         fi
     }
 
@@ -764,10 +796,42 @@ METHOD
                 # echo "| $n | $s | - | - | - |"
                 true
             else
-                # Look up results from CSV
-                octave_result=$(grep "^$n,$s,$filter_name,octave," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
-                rust_result=$(grep "^$n,$s,$filter_name,rust," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
-                python_result=$(grep "^$n,$s,$filter_name,python," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
+                # Look up results from CSV (format: n,s,filter,lang,avg_ms,std_ms)
+                octave_avg=$(grep "^$n,$s,$filter_name,octave," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
+                octave_std=$(grep "^$n,$s,$filter_name,octave," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f6 | head -1)
+                rust_avg=$(grep "^$n,$s,$filter_name,rust," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
+                rust_std=$(grep "^$n,$s,$filter_name,rust," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f6 | head -1)
+                python_avg=$(grep "^$n,$s,$filter_name,python," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
+                python_std=$(grep "^$n,$s,$filter_name,python," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f6 | head -1)
+
+                # Reconstruct avg,std format for format functions
+                # Handle TIMEOUT/ERROR/SKIP (they have empty std column)
+                octave_result=""
+                if [[ -n "$octave_avg" ]]; then
+                    if [[ "$octave_avg" == "TIMEOUT" || "$octave_avg" == "ERROR" || "$octave_avg" == "SKIP" ]]; then
+                        octave_result="$octave_avg"
+                    else
+                        octave_result="$octave_avg,$octave_std"
+                    fi
+                fi
+                
+                rust_result=""
+                if [[ -n "$rust_avg" ]]; then
+                    if [[ "$rust_avg" == "TIMEOUT" || "$rust_avg" == "ERROR" || "$rust_avg" == "SKIP" ]]; then
+                        rust_result="$rust_avg"
+                    else
+                        rust_result="$rust_avg,$rust_std"
+                    fi
+                fi
+                
+                python_result=""
+                if [[ -n "$python_avg" ]]; then
+                    if [[ "$python_avg" == "TIMEOUT" || "$python_avg" == "ERROR" || "$python_avg" == "SKIP" ]]; then
+                        python_result="$python_avg"
+                    else
+                        python_result="$python_avg,$python_std"
+                    fi
+                fi
 
                 oct_fmt=$(format_result "$octave_result")
                 rust_fmt=$(format_result_with_speedup "$rust_result" "$octave_result")

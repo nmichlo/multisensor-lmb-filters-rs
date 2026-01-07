@@ -52,8 +52,8 @@ EXPECTED_OBJECTS = [5, 10, 20, 50]
 EXPECTED_SENSORS = [1, 2, 4, 8]
 
 # Y-axis limits for consistent scaling across plots (in ms)
-Y_AXIS_MIN = 1
-Y_AXIS_MAX = 2500
+Y_AXIS_MIN = 0.1
+Y_AXIS_MAX = 2000
 # - Color = Base filter architecture
 # - Marker = Association method (LBP, Gibbs, Murty)
 # - Linestyle = Language (defined in LANG_STYLES)
@@ -125,8 +125,8 @@ def load_cache(cache_file: Path) -> pd.DataFrame:
     """Load cache.csv with all results (not just OK)."""
     df = pd.read_csv(cache_file)
 
-    # Convert time_ms to numeric (non-numeric becomes NaN)
-    df["time_ms"] = pd.to_numeric(df["time_ms"], errors="coerce")
+    # Convert avg_ms to numeric (non-numeric becomes NaN)
+    df["avg_ms"] = pd.to_numeric(df["avg_ms"], errors="coerce")
     # Ensure objects and sensors are numeric for linear plotting
     df["objects"] = pd.to_numeric(df["objects"], errors="coerce")
     df["sensors"] = pd.to_numeric(df["sensors"], errors="coerce")
@@ -140,7 +140,7 @@ def prepare_plot_data(df: pd.DataFrame) -> pd.DataFrame:
     result = df.pivot_table(
         index=["objects", "sensors", "filter"],
         columns="lang",
-        values=["time_ms", "status"],
+        values=["avg_ms", "status"],
         aggfunc="first",
     ).reset_index()
 
@@ -194,7 +194,7 @@ def plot_filter_data(ax, data, x_col, languages=None):
     labels = []
 
     for lang in languages:
-        time_col = f"time_ms_{lang}"
+        time_col = f"avg_ms_{lang}"
         status_col = f"status_{lang}"
         style = LANG_STYLES[lang]
 
@@ -294,7 +294,7 @@ def plot_by_language(df: pd.DataFrame, lang: str, output_dir: Path):
     """Generate plot showing all filters for one language."""
     from matplotlib.ticker import FuncFormatter
 
-    time_col = f"time_ms_{lang}"
+    time_col = f"avg_ms_{lang}"
     status_col = f"status_{lang}"
 
     # Always generate plot even if no successful data (to show TIMEOUT in legend)
@@ -509,7 +509,7 @@ def plot_by_sensors(df: pd.DataFrame, sensors: int, output_dir: Path):
         fconfig = FILTER_CONFIG[filter_name]
 
         for lang in ["octave", "rust", "python"]:
-            time_col = f"time_ms_{lang}"
+            time_col = f"avg_ms_{lang}"
             status_col = f"status_{lang}"
             lang_style = LANG_STYLES[lang]
 
@@ -646,8 +646,8 @@ def plot_by_sensors(df: pd.DataFrame, sensors: int, output_dir: Path):
 
 def plot_speedup(df: pd.DataFrame, baseline: str, compare: str, output_dir: Path):
     """Generate speedup plot (baseline / compare)."""
-    baseline_time = f"time_ms_{baseline}"
-    compare_time = f"time_ms_{compare}"
+    baseline_time = f"avg_ms_{baseline}"
+    compare_time = f"avg_ms_{compare}"
     baseline_status = f"status_{baseline}"
     compare_status = f"status_{compare}"
 

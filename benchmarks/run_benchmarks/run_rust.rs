@@ -213,50 +213,70 @@ impl AnyFilter {
         }
     }
 
-    /// Run benchmark and return elapsed time in milliseconds
-    fn run(&mut self, prep: &PreprocessedScenario) -> f64 {
+    /// Run benchmark and return (mean_ms_per_step, std_ms_per_step)
+    fn run(&mut self, prep: &PreprocessedScenario) -> (f64, f64) {
         let mut rng = SimpleRng::new(42);
-        let start = Instant::now();
+        let mut step_times: Vec<f64> = Vec::new();
 
         match self {
             AnyFilter::Lmb(f) => {
                 for (t, meas) in prep.steps.iter() {
+                    let start = Instant::now();
                     let _ = f.step(&mut rng, meas, *t);
+                    step_times.push(start.elapsed().as_micros() as f64 / 1000.0);
                 }
             }
             AnyFilter::Lmbm(f) => {
                 for (t, meas) in prep.steps.iter() {
+                    let start = Instant::now();
                     let _ = f.step(&mut rng, meas, *t);
+                    step_times.push(start.elapsed().as_micros() as f64 / 1000.0);
                 }
             }
             AnyFilter::AaLmb(f) => {
                 for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let start = Instant::now();
                     let _ = f.step(&mut rng, meas, t);
+                    step_times.push(start.elapsed().as_micros() as f64 / 1000.0);
                 }
             }
             AnyFilter::IcLmb(f) => {
                 for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let start = Instant::now();
                     let _ = f.step(&mut rng, meas, t);
+                    step_times.push(start.elapsed().as_micros() as f64 / 1000.0);
                 }
             }
             AnyFilter::PuLmb(f) => {
                 for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let start = Instant::now();
                     let _ = f.step(&mut rng, meas, t);
+                    step_times.push(start.elapsed().as_micros() as f64 / 1000.0);
                 }
             }
             AnyFilter::GaLmb(f) => {
                 for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let start = Instant::now();
                     let _ = f.step(&mut rng, meas, t);
+                    step_times.push(start.elapsed().as_micros() as f64 / 1000.0);
                 }
             }
             AnyFilter::MsLmbm(f) => {
                 for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let start = Instant::now();
                     let _ = f.step(&mut rng, meas, t);
+                    step_times.push(start.elapsed().as_micros() as f64 / 1000.0);
                 }
             }
         }
 
-        start.elapsed().as_micros() as f64 / 1000.0
+        // Compute mean and standard deviation
+        let n = step_times.len() as f64;
+        let mean = step_times.iter().sum::<f64>() / n;
+        let variance = step_times.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        let std = variance.sqrt();
+
+        (mean, std)
     }
 }
 
@@ -447,11 +467,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Run benchmark unless --skip-run
     if !args.skip_run {
-        let elapsed_ms = filter.run(&prep);
-        // Calculate average time per step
-        let total_steps = scenario.steps.len() as f64;
-        let avg_ms = elapsed_ms / total_steps; // Corrected: elapsed_ms is already in milliseconds
-        println!("{:.4}", avg_ms);
+        let (avg_ms, std_ms) = filter.run(&prep);
+        println!("{:.4},{:.4}", avg_ms, std_ms);
     }
 
     Ok(())
