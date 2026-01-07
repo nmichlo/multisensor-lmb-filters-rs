@@ -52,10 +52,8 @@ EXPECTED_OBJECTS = [5, 10, 20, 50]
 EXPECTED_SENSORS = [1, 2, 4, 8]
 
 # Y-axis limits for consistent scaling across plots (in ms)
-Y_AXIS_MAX_SINGLE = 10000  # 10 seconds for single-sensor
-Y_AXIS_MAX_MULTI = 60000  # 60 seconds for multi-sensor
-
-# Semantic encoding for filters:
+Y_AXIS_MIN = 5
+Y_AXIS_MAX = 1_000_000
 # - Color = Base filter architecture
 # - Marker = Association method (LBP, Gibbs, Murty)
 # - Linestyle = Language (defined in LANG_STYLES)
@@ -129,6 +127,9 @@ def load_cache(cache_file: Path) -> pd.DataFrame:
 
     # Convert time_ms to numeric (non-numeric becomes NaN)
     df["time_ms"] = pd.to_numeric(df["time_ms"], errors="coerce")
+    # Ensure objects and sensors are numeric for linear plotting
+    df["objects"] = pd.to_numeric(df["objects"], errors="coerce")
+    df["sensors"] = pd.to_numeric(df["sensors"], errors="coerce")
 
     return df
 
@@ -169,6 +170,16 @@ def get_legend_label(lang, has_timeout=False, has_skip=False):
         label += f" ({', '.join(suffixes)})"
 
     return label
+
+
+def format_time_label(val, pos):
+    """Format Y-axis labels as standard time units."""
+    if val < 1:
+        return f"{val*1000:.0f}µs"
+    elif val < 1000:
+        return f"{val:.0f}ms"
+    else:
+        return f"{val/1000:.0f}s"
 
 
 def plot_filter_data(ax, data, x_col, languages=None):
@@ -242,12 +253,12 @@ def plot_filter_data(ax, data, x_col, languages=None):
 
 def plot_filter(df: pd.DataFrame, filter_name: str, is_multi: bool, output_dir: Path):
     """Generate plot for a filter - all data on one axis, colors distinguish languages."""
+    from matplotlib.ticker import FuncFormatter
+
     if is_multi:
         mask = (df["filter"] == filter_name) & (df["sensors"] > 1)
-        y_max = Y_AXIS_MAX_MULTI
     else:
         mask = (df["filter"] == filter_name) & (df["sensors"] == 1)
-        y_max = Y_AXIS_MAX_SINGLE
 
     data = df[mask].sort_values("objects")
 
@@ -256,11 +267,13 @@ def plot_filter(df: pd.DataFrame, filter_name: str, is_multi: bool, output_dir: 
     handles, labels = plot_filter_data(ax, data, "objects")
 
     ax.set_xlabel("Number of Objects")
-    ax.set_ylabel("Time (ms)")
+    ax.set_ylabel("Time")
+    ax.set_yscale("log")
+    ax.yaxis.set_major_formatter(FuncFormatter(format_time_label))
     ax.set_title(f"{filter_name} Performance", fontsize=12, fontweight="bold")
 
-    # Linear scale with consistent limits
-    ax.set_ylim(0, y_max)
+    # Log scale with consistent limits
+    ax.set_ylim(Y_AXIS_MIN, Y_AXIS_MAX)
 
     # Always show expected X values
     ax.set_xticks(EXPECTED_OBJECTS)
@@ -279,6 +292,7 @@ def plot_filter(df: pd.DataFrame, filter_name: str, is_multi: bool, output_dir: 
 
 def plot_by_language(df: pd.DataFrame, lang: str, output_dir: Path):
     """Generate plot showing all filters for one language."""
+    from matplotlib.ticker import FuncFormatter
 
     time_col = f"time_ms_{lang}"
     status_col = f"status_{lang}"
@@ -328,9 +342,11 @@ def plot_by_language(df: pd.DataFrame, lang: str, output_dir: Path):
             )
 
     ax.set_xlabel("Number of Objects")
-    ax.set_ylabel("Time (ms)")
+    ax.set_ylabel("Time")
+    ax.set_yscale("log")
+    ax.yaxis.set_major_formatter(FuncFormatter(format_time_label))
     ax.set_title(f"{lang.capitalize()} - Single Sensor Filters")
-    ax.set_ylim(0, Y_AXIS_MAX_SINGLE)
+    ax.set_ylim(Y_AXIS_MIN, Y_AXIS_MAX)
     ax.set_xticks(EXPECTED_OBJECTS)
     ax.set_xlim(min(EXPECTED_OBJECTS) - 2, max(EXPECTED_OBJECTS) + 5)
 
@@ -373,9 +389,11 @@ def plot_by_language(df: pd.DataFrame, lang: str, output_dir: Path):
             )
 
     ax.set_xlabel("Number of Objects")
-    ax.set_ylabel("Time (ms)")
+    ax.set_ylabel("Time")
+    ax.set_yscale("log")
+    ax.yaxis.set_major_formatter(FuncFormatter(format_time_label))
     ax.set_title(f"{lang.capitalize()} - Multi-Sensor Filters (2 sensors)")
-    ax.set_ylim(0, Y_AXIS_MAX_MULTI)
+    ax.set_ylim(Y_AXIS_MIN, Y_AXIS_MAX)
     ax.set_xticks(EXPECTED_OBJECTS)
     ax.set_xlim(min(EXPECTED_OBJECTS) - 2, max(EXPECTED_OBJECTS) + 5)
 
@@ -465,22 +483,21 @@ def _add_split_legends(ax, filters, filter_status, y_offset=0):
 def plot_by_sensors(df: pd.DataFrame, sensors: int, output_dir: Path):
     """Generate plot showing all applicable filters for one sensor count."""
     from matplotlib.lines import Line2D
+    from matplotlib.ticker import FuncFormatter
 
     mask = df["sensors"] == sensors
     data = df[mask]
 
-    # Determine applicable filters and Y limit
+    # Determine applicable filters
     if sensors == 1:
         filters = SINGLE_SENSOR_FILTERS
         title = "Single Sensor Filters"
         filename = "single_sensor.png"
-        y_max = Y_AXIS_MAX_SINGLE
     else:
         filters = MULTI_SENSOR_FILTERS
         title = f"{sensors}-Sensor Filters"
         sensor_names = {2: "dual", 4: "quad", 8: "octa"}
         filename = f"{sensor_names.get(sensors, str(sensors))}_sensor.png"
-        y_max = Y_AXIS_MAX_MULTI
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -530,9 +547,11 @@ def plot_by_sensors(df: pd.DataFrame, sensors: int, output_dir: Path):
                 )
 
     ax.set_xlabel("Number of Objects")
-    ax.set_ylabel("Time (ms)")
+    ax.set_ylabel("Time")
+    ax.set_yscale("log")
+    ax.yaxis.set_major_formatter(FuncFormatter(format_time_label))
     ax.set_title(title, fontsize=12, fontweight="bold")
-    ax.set_ylim(0, y_max)
+    ax.set_ylim(Y_AXIS_MIN, Y_AXIS_MAX)
     ax.set_xticks(EXPECTED_OBJECTS)
     ax.set_xlim(min(EXPECTED_OBJECTS) - 2, max(EXPECTED_OBJECTS) + 5)
 
@@ -759,7 +778,7 @@ def main():
 
     # Resolve paths relative to script location if not absolute
     script_dir = Path(__file__).parent
-    project_root = script_dir.parent
+    project_root = script_dir.parent.parent
 
     cache_file = args.cache_file
     if not cache_file.is_absolute():
@@ -792,8 +811,9 @@ def main():
 
     # Generate per-filter plots
     print("Generating per-filter plots...")
-    for filter_name, config in FILTER_CONFIG.items():
-        plot_filter(pivoted, filter_name, config["multi"], output_dir)
+    for filter_name, _config in FILTER_CONFIG.items():
+        print(f"- Skipped: {filter_name}")
+        # plot_filter(pivoted, filter_name, config["multi"], output_dir)  # DO NOT UNCOMMENT
     print()
 
     # Generate per-language plots

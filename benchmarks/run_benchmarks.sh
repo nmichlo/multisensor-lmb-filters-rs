@@ -669,6 +669,13 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 |--------|------|--------|
 | ![Octave](docs/benchmarks/by_language/octave.png) | ![Rust](docs/benchmarks/by_language/rust.png) | ![Python](docs/benchmarks/by_language/python.png) |
 
+### Performance by Sensor Count
+
+![Single Sensor](docs/benchmarks/by_sensors/single_sensor.png)
+![Dual Sensor](docs/benchmarks/by_sensors/dual_sensor.png)
+![Quad Sensor](docs/benchmarks/by_sensors/quad_sensor.png)
+![Octa Sensor](docs/benchmarks/by_sensors/octa_sensor.png)
+
 ## Methodology
 
 OVERVIEW
@@ -694,6 +701,26 @@ METHOD
         fi
     }
 
+    # Format result with speedup (baseline / compare)
+    format_result_with_speedup() {
+        local val="$1"
+        local baseline="$2"
+
+        if [[ -z "$val" ]]; then
+            echo "-"
+        elif [[ "$val" == "TIMEOUT" || "$val" == "ERROR" || "$val" == "SKIP" ]]; then
+            echo "$val"
+        elif [[ -z "$baseline" || "$baseline" == "TIMEOUT" || "$baseline" == "ERROR" || "$baseline" == "SKIP" ]]; then
+            # No baseline, just show value
+            printf "%.1f (N/A)" "$val"
+        else
+            # Calculate speedup
+            local speedup
+            speedup=$(awk "BEGIN {printf \"%.1f\", $baseline / $val}")
+            printf "%.1f (×%.1f)" "$val" "$speedup"
+        fi
+    }
+
     # Get all unique (n,s) combinations from scenarios directory
     all_scenarios=""
     for path in "$SCENARIOS_DIR"/scenario_*.json; do
@@ -711,7 +738,6 @@ METHOD
 
         echo "### $filter_name"
         echo ""
-        echo "![${filter_name} Performance](docs/benchmarks/by_filter/${filter_name}.png)"
         echo ""
         echo "| Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |"
         echo "|---------|---------|-------------|-------------|-----------|"
@@ -733,7 +759,8 @@ METHOD
 
             if [[ "$applicable" == "no" ]]; then
                 # Filter not applicable to this scenario
-                echo "| $n | $s | *N/A* | *N/A* | *N/A* |"
+                # echo "| $n | $s | - | - | - |"
+                true
             else
                 # Look up results from CSV
                 octave_result=$(grep "^$n,$s,$filter_name,octave," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
@@ -741,8 +768,8 @@ METHOD
                 python_result=$(grep "^$n,$s,$filter_name,python," "$RESULTS_FILE" 2>/dev/null | cut -d',' -f5 | head -1)
 
                 oct_fmt=$(format_result "$octave_result")
-                rust_fmt=$(format_result "$rust_result")
-                py_fmt=$(format_result "$python_result")
+                rust_fmt=$(format_result_with_speedup "$rust_result" "$octave_result")
+                py_fmt=$(format_result_with_speedup "$python_result" "$octave_result")
 
                 echo "| $n | $s | $oct_fmt | $py_fmt | $rust_fmt |"
             fi

@@ -92,6 +92,8 @@ The library is modular: choose a **Filter** and an **Association Method** indepe
 | `Gibbs` | No | Medium | Excellent | Dense scenes with many overlapping objects |
 | `Murty` | Yes | Slow | Exact | Small problems (<20 objects), must be reproducible |
 
+> **Performance Note:** In Rust, Gibbs (40ms) can be faster than LBP (88ms) due to simple sampling loops that compile well, while LBP uses complex iterative matrix operations. However, in Octave/MATLAB, Gibbs (~75s) is much slower than LBP (~4s) because interpreted loops have high overhead while BLAS-optimized matrix operations stay fast. Murty's algorithm (960ms Rust, timeout Octave) is intentionally slow—it's O(K×n⁴) for exact K-best assignments and only suitable for small problems (<20 objects) where determinism is critical.
+
 All filters work with all association methods:
 
 | | LBP | Gibbs | Murty |
