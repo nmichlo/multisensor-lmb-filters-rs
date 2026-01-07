@@ -51,6 +51,6 @@ htmlcov/
 # benchmarks
 /src/bin/benchmark_runner.rs
 /benchmarks/*.log
-/benchmarks/results/
-
+/benchmarks/results/*
+!/benchmarks/results/cache.csv
 

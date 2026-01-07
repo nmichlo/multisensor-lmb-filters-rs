@@ -1,6 +1,6 @@
 # LMB Filter Benchmark Results
 
-*Generated: 2026-01-07 13:29:55*
+*Generated: 2026-01-07 13:47:40*
 
 ## Overview
 
@@ -129,9 +129,9 @@ This benchmark compares implementations of the LMB (Labeled Multi-Bernoulli) fil
 
 | Objects | Sensors | Octave (ms) | Python (ms) | Rust (ms) |
 |---------|---------|-------------|-------------|-----------|
-| 5 | 2 | 4304.0 | 37.1 (×116.1) | 36.9 (×116.7) |
-| 10 | 2 | 6628.0 | 81.6 (×81.3) | 84.5 (×78.4) |
-| 10 | 4 | TIMEOUT | 1203.4 (N/A) | 1210.2 (N/A) |
+| 5 | 2 | 4304.0 | 50.5 (×85.2) | 56.9 (×75.7) |
+| 10 | 2 | 6628.0 | 77.2 (×85.9) | 80.5 (×82.3) |
+| 10 | 4 | TIMEOUT | 1126.2 (N/A) | 1152.9 (N/A) |
 | 20 | 2 | SKIP | 221.1 (N/A) | 231.0 (N/A) |
 | 20 | 4 | SKIP | 15718.4 (N/A) | 15786.4 (N/A) |
 | 20 | 8 | SKIP | TIMEOUT | TIMEOUT |
