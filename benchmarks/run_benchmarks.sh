@@ -28,8 +28,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESULTS_DIR="$PROJECT_ROOT/benchmarks/results"
 RUNNERS_DIR="$PROJECT_ROOT/benchmarks/run_benchmarks"
-SCENARIOS_DIR="$PROJECT_ROOT/benchmarks/scenarios"
-MATLAB_DIR="$PROJECT_ROOT/../multisensor-lmb-filters"
+SCENARIOS_DIR="$PROJECT_ROOT/tests/fixtures"
+MATLAB_DIR="$PROJECT_ROOT/vendor/multisensor-lmb-filters"
 
 # Defaults
 TIMEOUT=30
@@ -286,8 +286,8 @@ mark_timed_out() {
 # =============================================================================
 
 get_sorted_scenarios() {
-    # Find all bouncing_*.json files and sort by (n, s)
-    for path in "$SCENARIOS_DIR"/bouncing_*.json; do
+    # Find all scenario_*.json files and sort by (n, s)
+    for path in "$SCENARIOS_DIR"/scenario_*.json; do
         [[ -f "$path" ]] || continue
         name=$(basename "$path" .json)
         n=$(echo "$name" | grep -oE 'n[0-9]+' | grep -oE '[0-9]+')
@@ -696,7 +696,7 @@ METHOD
 
     # Get all unique (n,s) combinations from scenarios directory
     all_scenarios=""
-    for path in "$SCENARIOS_DIR"/bouncing_*.json; do
+    for path in "$SCENARIOS_DIR"/scenario_*.json; do
         [[ -f "$path" ]] || continue
         name=$(basename "$path" .json)
         n=$(echo "$name" | grep -oE 'n[0-9]+' | grep -oE '[0-9]+')

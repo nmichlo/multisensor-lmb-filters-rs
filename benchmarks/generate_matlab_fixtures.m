@@ -6,8 +6,8 @@ function generate_matlab_fixtures()
 % - Filter type and settings
 % - Per-step outputs (track counts, existences, means)
 %
-% Usage (from multisensor-lmb-filters directory):
-%   octave --eval "run('../multisensor-lmb-filters-rs/benchmarks/generate_matlab_fixtures.m')"
+% Usage (from this repository):
+%   octave --eval "run('benchmarks/generate_matlab_fixtures.m')"
 
 %% Setup
 clc;
@@ -15,16 +15,16 @@ pkg load statistics;
 
 % Add MATLAB library to path
 scriptDir = fileparts(mfilename('fullpath'));
-matlabDir = fullfile(scriptDir, '..', '..', 'multisensor-lmb-filters');
+matlabDir = fullfile(scriptDir, '..', 'vendor', 'multisensor-lmb-filters');
 addpath(genpath(matlabDir));
 
 %% Configuration
-scenariosDir = fullfile(scriptDir, 'scenarios');
-fixturesDir = fullfile(scriptDir, 'fixtures');
+scenariosDir = fullfile(scriptDir, '..', 'tests', 'fixtures');
+fixturesDir = fullfile(scriptDir, '..', 'tests', 'fixtures');
 
 % Scenarios to process - dynamically discover all scenario files
 % Filter by size to avoid timeouts (n50 is too slow)
-allScenarios = dir(fullfile(scenariosDir, 'bouncing_*.json'));
+allScenarios = dir(fullfile(scenariosDir, 'scenario_*.json'));
 scenarios = {};
 for i = 1:numel(allScenarios)
     name = allScenarios(i).name;

@@ -27,7 +27,7 @@ end
 % =============================================================================
 
 scriptDir = fileparts(mfilename('fullpath'));
-matlabDir = fullfile(scriptDir, '..', '..', '..', 'multisensor-lmb-filters');
+matlabDir = fullfile(scriptDir, '..', '..', 'vendor', 'multisensor-lmb-filters');
 addpath(genpath(matlabDir));
 
 % =============================================================================
