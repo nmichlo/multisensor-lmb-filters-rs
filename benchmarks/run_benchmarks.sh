@@ -11,6 +11,8 @@
 #   ./benchmarks/run_benchmarks.sh --timeout 30       # Custom timeout
 #   ./benchmarks/run_benchmarks.sh --lang rust        # Single language
 #   ./benchmarks/run_benchmarks.sh --filter LMB-LBP   # Single filter
+#   ./benchmarks/run_benchmarks.sh --get-config       # Compare configs across languages
+#   ./benchmarks/run_benchmarks.sh --get-config --skip-run  # Config only, no benchmarks
 #
 
 set -e
@@ -36,6 +38,8 @@ FILTER_PATTERN="all"
 VERBOSE=0
 USE_CACHE=1
 CONTINUE_MODE=0
+GET_CONFIG=0
+SKIP_RUN=0
 
 # Cache file for persistent results
 CACHE_FILE="$RESULTS_DIR/cache.csv"
@@ -76,6 +80,8 @@ show_help() {
     echo "  --filter PATTERN  Filter name pattern to run (default: all)"
     echo "  --no-cache        Ignore cached results, run everything fresh"
     echo "  --continue        Continue from first timeout per filter/lang (for longer runs)"
+    echo "  --get-config      Print filter configs for comparison (JSON)"
+    echo "  --skip-run        Skip running benchmarks (useful with --get-config)"
     echo "  --verbose         Show verbose output"
     echo "  --help, -h        Show this help"
     echo ""
@@ -121,6 +127,14 @@ while [[ $# -gt 0 ]]; do
             CONTINUE_MODE=1
             shift
             ;;
+        --get-config)
+            GET_CONFIG=1
+            shift
+            ;;
+        --skip-run)
+            SKIP_RUN=1
+            shift
+            ;;
         --help|-h)
             show_help
             exit 0
@@ -158,6 +172,8 @@ echo "Languages: $LANGUAGES"
 echo "Filter: $FILTER_PATTERN"
 [[ $USE_CACHE -eq 1 ]] && echo "Cache: enabled" || echo "Cache: disabled"
 [[ $CONTINUE_MODE -eq 1 ]] && echo "Mode: continue from timeouts"
+[[ $GET_CONFIG -eq 1 ]] && echo "Config: will print filter configs"
+[[ $SKIP_RUN -eq 1 ]] && echo "Skip run: benchmarks will be skipped"
 echo ""
 
 # =============================================================================
@@ -320,6 +336,27 @@ get_num_sensors() {
 # Runner Functions
 # =============================================================================
 
+get_filter_config() {
+    local scenario_path="$1"
+    local filter_name="$2"
+    local lang="$3"
+
+    case "$lang" in
+        octave)
+            LMB_SILENT=1 octave --no-gui --path "$RUNNERS_DIR" \
+                --eval "run_octave('$scenario_path', '$filter_name', true, true)" 2>/dev/null
+            ;;
+        rust)
+            "$PROJECT_ROOT/target/release/benchmark_single" \
+                --scenario "$scenario_path" --filter "$filter_name" --get-config --skip-run 2>/dev/null
+            ;;
+        python)
+            uv run python "$RUNNERS_DIR/run_python.py" \
+                --scenario "$scenario_path" --filter "$filter_name" --get-config --skip-run 2>/dev/null
+            ;;
+    esac
+}
+
 run_benchmark() {
     local scenario_path="$1"
     local filter_name="$2"
@@ -403,8 +440,67 @@ if [[ "$LANGUAGES" == *"octave"* ]]; then
 fi
 
 # =============================================================================
+# Config Comparison Mode (--get-config)
+# =============================================================================
+
+if [[ $GET_CONFIG -eq 1 ]]; then
+    echo "======================================="
+    echo "Filter Configuration Comparison"
+    echo "======================================="
+    echo ""
+
+    # Pick first scenario for config comparison
+    first_scenario=$(get_sorted_scenarios | head -1)
+    first_scenario_name=$(basename "$first_scenario" .json)
+    num_sensors=$(get_num_sensors "$first_scenario")
+    echo "Using scenario: $first_scenario_name (sensors=$num_sensors)"
+    echo ""
+
+    IFS=',' read -ra LANG_ARRAY <<< "$LANGUAGES"
+
+    for filter_config in "${FILTER_CONFIGS[@]}"; do
+        IFS='|' read -r filter_name is_multi octave_support <<< "$filter_config"
+
+        # Check if filter matches --filter arg
+        if [[ "$FILTER_PATTERN" != "all" && "$filter_name" != *"$FILTER_PATTERN"* ]]; then
+            continue
+        fi
+
+        # Check applicability to scenario
+        if ! is_filter_applicable "$filter_name" "$num_sensors" "rust"; then
+            continue
+        fi
+
+        echo "=== $filter_name ==="
+        echo ""
+
+        for lang in "${LANG_ARRAY[@]}"; do
+            if ! is_filter_applicable "$filter_name" "$num_sensors" "$lang"; then
+                echo "--- $lang: N/A ---"
+                continue
+            fi
+
+            echo "--- $lang ---"
+            config_output=$(get_filter_config "$first_scenario" "$filter_name" "$lang" 2>&1)
+            if [[ -n "$config_output" ]]; then
+                echo "$config_output"
+            else
+                echo "(no output or error)"
+            fi
+            echo ""
+        done
+        echo ""
+    done
+fi
+
+# =============================================================================
 # Main Benchmark Loop
 # =============================================================================
+
+if [[ $SKIP_RUN -eq 1 ]]; then
+    echo "Skipping benchmark run (--skip-run specified)"
+    exit 0
+fi
 
 RESULTS_FILE="$RESULTS_DIR/benchmarks_$(date +%Y%m%d_%H%M%S).csv"
 

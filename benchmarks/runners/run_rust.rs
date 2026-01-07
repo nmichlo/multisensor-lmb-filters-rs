@@ -31,6 +31,14 @@ struct Args {
     /// Filter name (e.g., LMB-LBP, LMBM-Gibbs, AA-LMB-LBP)
     #[arg(long)]
     filter: String,
+
+    /// Print filter configuration JSON (can combine with --skip-run)
+    #[arg(long)]
+    get_config: bool,
+
+    /// Skip running the benchmark (useful with --get-config)
+    #[arg(long)]
+    skip_run: bool,
 }
 
 // =============================================================================
@@ -177,174 +185,238 @@ fn preprocess(scenario: &ScenarioJson) -> PreprocessedScenario {
 }
 
 // =============================================================================
-// Filter Runners
+// Filter Factory - Single source of truth for filter creation
 // =============================================================================
 
-fn run_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
-    let associator = DynamicAssociator::from_config(&assoc_config);
-    let mut filter = LmbFilter::with_associator_type(
-        prep.motion.clone(),
-        prep.sensor.clone(),
-        prep.birth.clone(),
-        assoc_config,
-        associator,
-    )
-    .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-    .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
-
-    let mut rng = SimpleRng::new(42);
-    let start = Instant::now();
-
-    for (t, single_meas) in prep.steps.iter() {
-        let _ = filter.step(&mut rng, single_meas, *t);
-    }
-
-    start.elapsed().as_micros() as f64 / 1000.0
+/// Enum to hold any filter type for unified handling
+enum AnyFilter {
+    Lmb(LmbFilter<DynamicAssociator>),
+    Lmbm(LmbmFilter<DynamicAssociator>),
+    AaLmb(MultisensorLmbFilter<LbpAssociator, ArithmeticAverageMerger>),
+    IcLmb(MultisensorLmbFilter<LbpAssociator, IteratedCorrectorMerger>),
+    PuLmb(MultisensorLmbFilter<LbpAssociator, ParallelUpdateMerger>),
+    GaLmb(MultisensorLmbFilter<LbpAssociator, GeometricAverageMerger>),
+    MsLmbm(MultisensorLmbmFilter<MultisensorGibbsAssociator>),
 }
 
-fn run_lmbm_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
-    // LMBM uses hypothesis pruning (not GM pruning) via LmbmConfig
-    // Match Octave: max_hypotheses=25, threshold=1e-3
-    let lmbm_config = LmbmConfig {
-        max_hypotheses: 25,
-        hypothesis_weight_threshold: 1e-3,
-        use_eap: false,
-    };
-    let associator = DynamicAssociator::from_config(&assoc_config);
-    let mut filter = LmbmFilter::with_associator_type(
-        prep.motion.clone(),
-        prep.sensor.clone(),
-        prep.birth.clone(),
-        assoc_config,
-        lmbm_config,
-        associator,
-    );
-
-    let mut rng = SimpleRng::new(42);
-    let start = Instant::now();
-
-    for (t, single_meas) in prep.steps.iter() {
-        let _ = filter.step(&mut rng, single_meas, *t);
+impl AnyFilter {
+    /// Get config JSON from any filter type
+    fn get_config_json(&self) -> String {
+        match self {
+            AnyFilter::Lmb(f) => f.get_config().to_json_pretty(),
+            AnyFilter::Lmbm(f) => f.get_config().to_json_pretty(),
+            AnyFilter::AaLmb(f) => f.get_config().to_json_pretty(),
+            AnyFilter::IcLmb(f) => f.get_config().to_json_pretty(),
+            AnyFilter::PuLmb(f) => f.get_config().to_json_pretty(),
+            AnyFilter::GaLmb(f) => f.get_config().to_json_pretty(),
+            AnyFilter::MsLmbm(f) => f.get_config().to_json_pretty(),
+        }
     }
 
-    start.elapsed().as_micros() as f64 / 1000.0
+    /// Run benchmark and return elapsed time in milliseconds
+    fn run(&mut self, prep: &PreprocessedScenario) -> f64 {
+        let mut rng = SimpleRng::new(42);
+        let start = Instant::now();
+
+        match self {
+            AnyFilter::Lmb(f) => {
+                for (t, meas) in prep.steps.iter() {
+                    let _ = f.step(&mut rng, meas, *t);
+                }
+            }
+            AnyFilter::Lmbm(f) => {
+                for (t, meas) in prep.steps.iter() {
+                    let _ = f.step(&mut rng, meas, *t);
+                }
+            }
+            AnyFilter::AaLmb(f) => {
+                for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let _ = f.step(&mut rng, meas, t);
+                }
+            }
+            AnyFilter::IcLmb(f) => {
+                for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let _ = f.step(&mut rng, meas, t);
+                }
+            }
+            AnyFilter::PuLmb(f) => {
+                for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let _ = f.step(&mut rng, meas, t);
+                }
+            }
+            AnyFilter::GaLmb(f) => {
+                for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let _ = f.step(&mut rng, meas, t);
+                }
+            }
+            AnyFilter::MsLmbm(f) => {
+                for (t, meas) in prep.multi_steps.iter().enumerate() {
+                    let _ = f.step(&mut rng, meas, t);
+                }
+            }
+        }
+
+        start.elapsed().as_micros() as f64 / 1000.0
+    }
 }
 
-fn run_aa_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
-    let merger = ArithmeticAverageMerger::uniform(prep.num_sensors, MAX_GM_COMPONENTS);
-    let mut filter = MultisensorLmbFilter::new(
-        prep.motion.clone(),
-        prep.sensors_config.clone(),
-        prep.birth.clone(),
-        assoc_config,
-        merger,
-    )
-    .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-    .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
+/// LMBM config used by both single and multi-sensor LMBM filters
+const LMBM_CONFIG: LmbmConfig = LmbmConfig {
+    max_hypotheses: 25,
+    hypothesis_weight_threshold: 1e-3,
+    use_eap: false,
+};
 
-    let mut rng = SimpleRng::new(42);
-    let start = Instant::now();
+fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<AnyFilter, String> {
+    match filter_name {
+        // Single-sensor LMB
+        "LMB-LBP" => {
+            let assoc = AssociationConfig::lbp(100, 1e-6);
+            Ok(AnyFilter::Lmb(
+                LmbFilter::with_associator_type(
+                    prep.motion.clone(),
+                    prep.sensor.clone(),
+                    prep.birth.clone(),
+                    assoc.clone(),
+                    DynamicAssociator::from_config(&assoc),
+                )
+                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
+            ))
+        }
+        "LMB-Gibbs" => {
+            let assoc = AssociationConfig::gibbs(1000);
+            Ok(AnyFilter::Lmb(
+                LmbFilter::with_associator_type(
+                    prep.motion.clone(),
+                    prep.sensor.clone(),
+                    prep.birth.clone(),
+                    assoc.clone(),
+                    DynamicAssociator::from_config(&assoc),
+                )
+                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
+            ))
+        }
+        "LMB-Murty" => {
+            let assoc = AssociationConfig::murty(25);
+            Ok(AnyFilter::Lmb(
+                LmbFilter::with_associator_type(
+                    prep.motion.clone(),
+                    prep.sensor.clone(),
+                    prep.birth.clone(),
+                    assoc.clone(),
+                    DynamicAssociator::from_config(&assoc),
+                )
+                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
+            ))
+        }
 
-    for (t, meas) in prep.multi_steps.iter().enumerate() {
-        let _ = filter.step(&mut rng, meas, t);
+        // Single-sensor LMBM
+        "LMBM-Gibbs" => {
+            let assoc = AssociationConfig::gibbs(1000);
+            Ok(AnyFilter::Lmbm(LmbmFilter::with_associator_type(
+                prep.motion.clone(),
+                prep.sensor.clone(),
+                prep.birth.clone(),
+                assoc.clone(),
+                LMBM_CONFIG,
+                DynamicAssociator::from_config(&assoc),
+            )))
+        }
+        "LMBM-Murty" => {
+            let assoc = AssociationConfig::murty(25);
+            Ok(AnyFilter::Lmbm(LmbmFilter::with_associator_type(
+                prep.motion.clone(),
+                prep.sensor.clone(),
+                prep.birth.clone(),
+                assoc.clone(),
+                LMBM_CONFIG,
+                DynamicAssociator::from_config(&assoc),
+            )))
+        }
+
+        // Multi-sensor LMB variants
+        "AA-LMB-LBP" => {
+            let assoc = AssociationConfig::lbp(100, 1e-6);
+            Ok(AnyFilter::AaLmb(
+                MultisensorLmbFilter::new(
+                    prep.motion.clone(),
+                    prep.sensors_config.clone(),
+                    prep.birth.clone(),
+                    assoc,
+                    ArithmeticAverageMerger::uniform(prep.num_sensors, MAX_GM_COMPONENTS),
+                )
+                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
+            ))
+        }
+        "IC-LMB-LBP" => {
+            let assoc = AssociationConfig::lbp(100, 1e-6);
+            Ok(AnyFilter::IcLmb(
+                MultisensorLmbFilter::new(
+                    prep.motion.clone(),
+                    prep.sensors_config.clone(),
+                    prep.birth.clone(),
+                    assoc,
+                    IteratedCorrectorMerger::new(),
+                )
+                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
+            ))
+        }
+        "PU-LMB-LBP" => {
+            let assoc = AssociationConfig::lbp(100, 1e-6);
+            Ok(AnyFilter::PuLmb(
+                MultisensorLmbFilter::new(
+                    prep.motion.clone(),
+                    prep.sensors_config.clone(),
+                    prep.birth.clone(),
+                    assoc,
+                    ParallelUpdateMerger::new(Vec::new()),
+                )
+                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
+            ))
+        }
+        "GA-LMB-LBP" => {
+            let assoc = AssociationConfig::lbp(100, 1e-6);
+            Ok(AnyFilter::GaLmb(
+                MultisensorLmbFilter::new(
+                    prep.motion.clone(),
+                    prep.sensors_config.clone(),
+                    prep.birth.clone(),
+                    assoc,
+                    GeometricAverageMerger::uniform(prep.num_sensors),
+                )
+                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
+                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
+            ))
+        }
+
+        // Multi-sensor LMBM
+        "MS-LMBM-Gibbs" => {
+            let assoc = AssociationConfig::gibbs(1000);
+            Ok(AnyFilter::MsLmbm(
+                MultisensorLmbmFilter::with_associator_type(
+                    prep.motion.clone(),
+                    prep.sensors_config.clone(),
+                    prep.birth.clone(),
+                    assoc,
+                    LMBM_CONFIG,
+                    MultisensorGibbsAssociator,
+                ),
+            ))
+        }
+
+        _ => Err(format!(
+            "Unknown filter: {}. Available: LMB-LBP, LMB-Gibbs, LMB-Murty, \
+             LMBM-Gibbs, LMBM-Murty, AA-LMB-LBP, IC-LMB-LBP, PU-LMB-LBP, \
+             GA-LMB-LBP, MS-LMBM-Gibbs",
+            filter_name
+        )),
     }
-
-    start.elapsed().as_micros() as f64 / 1000.0
-}
-
-fn run_ic_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
-    let merger = IteratedCorrectorMerger::new();
-    let mut filter = MultisensorLmbFilter::new(
-        prep.motion.clone(),
-        prep.sensors_config.clone(),
-        prep.birth.clone(),
-        assoc_config,
-        merger,
-    )
-    .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-    .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
-
-    let mut rng = SimpleRng::new(42);
-    let start = Instant::now();
-
-    for (t, meas) in prep.multi_steps.iter().enumerate() {
-        let _ = filter.step(&mut rng, meas, t);
-    }
-
-    start.elapsed().as_micros() as f64 / 1000.0
-}
-
-fn run_pu_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
-    let merger = ParallelUpdateMerger::new(Vec::new());
-    // Use MultisensorLmbFilter::new() with pruning to match Python bindings
-    let mut filter = MultisensorLmbFilter::new(
-        prep.motion.clone(),
-        prep.sensors_config.clone(),
-        prep.birth.clone(),
-        assoc_config,
-        merger,
-    )
-    .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-    .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
-
-    let mut rng = SimpleRng::new(42);
-    let start = Instant::now();
-
-    for (t, meas) in prep.multi_steps.iter().enumerate() {
-        let _ = filter.step(&mut rng, meas, t);
-    }
-
-    start.elapsed().as_micros() as f64 / 1000.0
-}
-
-fn run_ga_lmb_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
-    let merger = GeometricAverageMerger::uniform(prep.num_sensors);
-    let mut filter = MultisensorLmbFilter::new(
-        prep.motion.clone(),
-        prep.sensors_config.clone(),
-        prep.birth.clone(),
-        assoc_config,
-        merger,
-    )
-    .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-    .with_gm_merge_threshold(GM_MERGE_THRESHOLD);
-
-    let mut rng = SimpleRng::new(42);
-    let start = Instant::now();
-
-    for (t, meas) in prep.multi_steps.iter().enumerate() {
-        let _ = filter.step(&mut rng, meas, t);
-    }
-
-    start.elapsed().as_micros() as f64 / 1000.0
-}
-
-fn run_ms_lmbm_filter(prep: &PreprocessedScenario, assoc_config: AssociationConfig) -> f64 {
-    // MS-LMBM uses hypothesis pruning via LmbmConfig
-    // Match Octave: max_hypotheses=25, threshold=1e-3
-    let lmbm_config = LmbmConfig {
-        max_hypotheses: 25,
-        hypothesis_weight_threshold: 1e-3,
-        use_eap: false,
-    };
-    let associator = MultisensorGibbsAssociator;
-    let mut filter = MultisensorLmbmFilter::with_associator_type(
-        prep.motion.clone(),
-        prep.sensors_config.clone(),
-        prep.birth.clone(),
-        assoc_config,
-        lmbm_config,
-        associator,
-    );
-
-    let mut rng = SimpleRng::new(42);
-    let start = Instant::now();
-
-    for (t, meas) in prep.multi_steps.iter().enumerate() {
-        let _ = filter.step(&mut rng, meas, t);
-    }
-
-    start.elapsed().as_micros() as f64 / 1000.0
 }
 
 // =============================================================================
@@ -359,37 +431,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scenario: ScenarioJson = serde_json::from_str(&content)?;
     let prep = preprocess(&scenario);
 
-    // Parse filter name to get associator config and run appropriate filter
-    let elapsed_ms = match args.filter.as_str() {
-        // Single-sensor LMB
-        "LMB-LBP" => run_lmb_filter(&prep, AssociationConfig::lbp(100, 1e-6)),
-        "LMB-Gibbs" => run_lmb_filter(&prep, AssociationConfig::gibbs(1000)),
-        "LMB-Murty" => run_lmb_filter(&prep, AssociationConfig::murty(25)),
-
-        // Single-sensor LMBM
-        "LMBM-Gibbs" => run_lmbm_filter(&prep, AssociationConfig::gibbs(1000)),
-        "LMBM-Murty" => run_lmbm_filter(&prep, AssociationConfig::murty(25)),
-
-        // Multi-sensor LMB variants
-        "AA-LMB-LBP" => run_aa_lmb_filter(&prep, AssociationConfig::lbp(100, 1e-6)),
-        "IC-LMB-LBP" => run_ic_lmb_filter(&prep, AssociationConfig::lbp(100, 1e-6)),
-        "PU-LMB-LBP" => run_pu_lmb_filter(&prep, AssociationConfig::lbp(100, 1e-6)),
-        "GA-LMB-LBP" => run_ga_lmb_filter(&prep, AssociationConfig::lbp(100, 1e-6)),
-
-        // Multi-sensor LMBM
-        "MS-LMBM-Gibbs" => run_ms_lmbm_filter(&prep, AssociationConfig::gibbs(1000)),
-
-        _ => {
-            eprintln!("Unknown filter: {}", args.filter);
-            eprintln!(
-                "Available: LMB-LBP, LMB-Gibbs, LMB-Murty, LMBM-Gibbs, LMBM-Murty, \
-                 AA-LMB-LBP, IC-LMB-LBP, PU-LMB-LBP, GA-LMB-LBP, MS-LMBM-Gibbs"
-            );
+    // Create filter (single source of truth)
+    let mut filter = match create_filter(&args.filter, &prep) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("{}", e);
             std::process::exit(1);
         }
     };
 
-    // Output only the timing
-    println!("{:.3}", elapsed_ms);
+    // Output config if requested
+    if args.get_config {
+        println!("{}", filter.get_config_json());
+    }
+
+    // Run benchmark unless --skip-run
+    if !args.skip_run {
+        let elapsed_ms = filter.run(&prep);
+        println!("{:.3}", elapsed_ms);
+    }
+
     Ok(())
 }

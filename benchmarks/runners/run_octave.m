@@ -1,8 +1,10 @@
-function run_octave(scenario_path, filter_name)
+function run_octave(scenario_path, filter_name, get_config, skip_run)
 % RUN_OCTAVE - Minimal benchmark runner for Octave/MATLAB
 %
 % Usage:
 %   octave --no-gui --eval "run_octave('path/to/scenario.json', 'LMB-LBP')"
+%   octave --no-gui --eval "run_octave('path/to/scenario.json', 'LMB-LBP', true)"  % get config
+%   octave --no-gui --eval "run_octave('path/to/scenario.json', 'LMB-LBP', true, true)"  % config only
 %
 % Output:
 %   Prints elapsed time in milliseconds as a single number.
@@ -11,6 +13,14 @@ function run_octave(scenario_path, filter_name)
 % Supported filters:
 %   Single-sensor: LMB-LBP, LMB-Gibbs, LMB-Murty, LMBM-Gibbs, LMBM-Murty
 %   Multi-sensor: AA-LMB-LBP, IC-LMB-LBP, PU-LMB-LBP, GA-LMB-LBP
+
+% Handle optional arguments
+if nargin < 3
+    get_config = false;
+end
+if nargin < 4
+    skip_run = false;
+end
 
 % =============================================================================
 % Setup paths
@@ -176,6 +186,139 @@ if strcmp(filterType, 'LMBM')
 end
 
 % =============================================================================
+% Handle --get-config
+% =============================================================================
+
+if get_config
+    % Output JSON config and exit
+    fprintf('{\n');
+    fprintf('  "filter_type": "%s",\n', getFilterType(filterType, fusionType, isMultiSensor));
+    fprintf('  "motion": {\n');
+    fprintf('    "x_dim": %d,\n', model.xDimension);
+    fprintf('    "survival_probability": %s,\n', formatFloat(model.survivalProbability));
+    fprintf('    "transition_matrix": ');
+    printJsonArray(model.A(:)');
+    fprintf(',\n');
+    fprintf('    "process_noise": ');
+    printJsonArray(model.R(:)');
+    fprintf('\n');
+    fprintf('  },\n');
+    fprintf('  "sensor": {\n');
+    fprintf('    "z_dim": %d,\n', model.zDimension);
+    fprintf('    "x_dim": %d,\n', model.xDimension);
+    if isMultiSensor
+        fprintf('    "detection_probability": %s,\n', formatFloat(model.detectionProbability(1)));
+        fprintf('    "clutter_rate": %s,\n', formatFloat(model.clutterRate(1)));
+    else
+        fprintf('    "detection_probability": %s,\n', formatFloat(model.detectionProbability));
+        fprintf('    "clutter_rate": %s,\n', formatFloat(model.clutterRate));
+    end
+    fprintf('    "observation_volume": %s,\n', formatFloat(model.observationSpaceVolume));
+    if isMultiSensor
+        fprintf('    "clutter_density": %s,\n', formatFloat(model.clutterPerUnitVolume(1)));
+        % Use first sensor's C and Q matrices
+        fprintf('    "observation_matrix": ');
+        printJsonArray(model.C{1}(:)');
+        fprintf(',\n');
+        fprintf('    "measurement_noise": ');
+        printJsonArray(model.Q{1}(:)');
+        fprintf('\n');
+    else
+        fprintf('    "clutter_density": %s,\n', formatFloat(model.clutterPerUnitVolume));
+        fprintf('    "observation_matrix": ');
+        printJsonArray(model.C(:)');
+        fprintf(',\n');
+        fprintf('    "measurement_noise": ');
+        printJsonArray(model.Q(:)');
+        fprintf('\n');
+    end
+    fprintf('  },\n');
+    fprintf('  "num_sensors": %d,\n', numSensors);
+    fprintf('  "birth": {\n');
+    fprintf('    "num_locations": %d,\n', model.numberOfBirthLocations);
+    fprintf('    "lmb_existence": %s,\n', formatFloat(model.rB(1)));
+    if isfield(model, 'rBLmbm')
+        fprintf('    "lmbm_existence": %s,\n', formatFloat(model.rBLmbm(1)));
+    else
+        fprintf('    "lmbm_existence": 0.001,\n');
+    end
+    fprintf('    "locations": [\n');
+    for i = 1:model.numberOfBirthLocations
+        fprintf('      {\n');
+        fprintf('        "label": %d,\n', model.birthLocationLabels(i) - 1);  % 0-indexed
+        fprintf('        "mean": ');
+        printJsonArray(model.muB{i}', 8);
+        fprintf(',\n');
+        fprintf('        "covariance_diag": ');
+        printJsonArray(diag(model.SigmaB{i})', 8);
+        fprintf('\n');
+        if i < model.numberOfBirthLocations
+            fprintf('      },\n');
+        else
+            fprintf('      }\n');
+        end
+    end
+    fprintf('    ]\n');
+    fprintf('  },\n');
+    fprintf('  "association": {\n');
+    fprintf('    "method": "%s",\n', assocType);
+    % Output 0 for non-applicable association parameters (matching Rust)
+    if strcmp(assocType, 'LBP')
+        fprintf('    "lbp_max_iterations": %d,\n', model.maximumNumberOfLbpIterations);
+        fprintf('    "lbp_tolerance": %s,\n', formatFloat(model.lbpConvergenceTolerance));
+        fprintf('    "gibbs_samples": 0,\n');
+        fprintf('    "murty_assignments": 0\n');
+    elseif strcmp(assocType, 'Gibbs')
+        fprintf('    "lbp_max_iterations": 0,\n');
+        fprintf('    "lbp_tolerance": 0.0,\n');
+        fprintf('    "gibbs_samples": %d,\n', model.numberOfSamples);
+        fprintf('    "murty_assignments": 0\n');
+    else  % Murty
+        fprintf('    "lbp_max_iterations": 0,\n');
+        fprintf('    "lbp_tolerance": 0.0,\n');
+        fprintf('    "gibbs_samples": 0,\n');
+        fprintf('    "murty_assignments": %d\n', model.numberOfAssignments);
+    end
+    fprintf('  },\n');
+    fprintf('  "thresholds": {\n');
+    fprintf('    "existence_threshold": %s,\n', formatFloat(model.existenceThreshold));
+    % LMBM doesn't use GM pruning - output 0.0/0 to match Rust/Python
+    if strcmp(filterType, 'LMBM')
+        fprintf('    "gm_weight_threshold": 0,\n');
+        fprintf('    "max_gm_components": 0,\n');
+    else
+        fprintf('    "gm_weight_threshold": %s,\n', formatFloat(model.gmWeightThreshold));
+        fprintf('    "max_gm_components": %d,\n', model.maximumNumberOfGmComponents);
+    end
+    fprintf('    "min_trajectory_length": %d,\n', model.minimumTrajectoryLength);
+    if isinf(model.mahalanobisDistanceThreshold) || strcmp(filterType, 'LMBM')
+        fprintf('    "gm_merge_threshold": null\n');
+    else
+        fprintf('    "gm_merge_threshold": %s\n', formatFloat(model.mahalanobisDistanceThreshold));
+    end
+    fprintf('  }');
+    if strcmp(filterType, 'LMBM')
+        fprintf(',\n');
+        fprintf('  "lmbm_config": {\n');
+        fprintf('    "max_hypotheses": %d,\n', model.maximumNumberOfPosteriorHypotheses);
+        fprintf('    "hypothesis_weight_threshold": %s,\n', formatFloat(model.posteriorHypothesisWeightThreshold));
+        fprintf('    "use_eap": false\n');
+        fprintf('  }\n');
+    else
+        fprintf('\n');
+    end
+    fprintf('}\n');
+end
+
+% =============================================================================
+% Skip run if requested
+% =============================================================================
+
+if skip_run
+    return;
+end
+
+% =============================================================================
 % Extract measurements
 % =============================================================================
 
@@ -271,5 +414,125 @@ function z = convertToMeasCell(meas)
     z = cell(1, size(meas, 1));
     for k = 1:size(meas, 1)
         z{k} = meas(k, :)(:);  % Column vector
+    end
+end
+
+function printJsonArray(arr, indent)
+    % Print array as pretty-printed JSON format (matching Rust serde_json output)
+    % Default: elements at 6 spaces, closing bracket at 4 spaces (matches level 2 nesting)
+    if nargin < 2
+        indent = 4;  % base indent for the array (property level)
+    end
+    elemIndent = repmat(' ', 1, indent + 2);
+    closeIndent = repmat(' ', 1, indent);
+    
+    fprintf('[\n');
+    for i = 1:length(arr)
+        fprintf('%s', elemIndent);
+        fprintf('%s', formatFloat(arr(i)));
+        if i < length(arr)
+            fprintf(',\n');
+        else
+            fprintf('\n');
+        end
+    end
+    fprintf('%s]', closeIndent);
+end
+
+function s = formatFloat(val)
+    % Format a float exactly like Rust serde_json:
+    % - Whole numbers get .0 suffix
+    % - Adaptive precision (15-17 digits) to find shortest round-trip representation
+    % - Decimal notation for 1e-5 <= |val| < 1e16 approx
+    % - Scientific notation otherwise
+    % - Exponent format: 1e-6 not 1e-06
+    
+    if val == 0
+        s = '0.0';
+        return;
+    end
+    
+    if ~isfinite(val)
+        s = 'null'; % Or whatever is appropriate, though config usually has finite numbers
+        return;
+    end
+    
+    absVal = abs(val);
+    
+    % 1. Determine shortest precision (15, 16, or 17) that round-trips
+    % Use exact equality check because we want the shortest string that
+    % parses back to the exact same double value (bitwise identical).
+    s = sprintf('%.15g', val);
+    if str2double(s) ~= val
+        s = sprintf('%.16g', val);
+        if str2double(s) ~= val
+            s = sprintf('%.17g', val);
+        end
+    end
+    
+    % 2. Enforce Notation Style matching Rust serde_json
+    % Rust tends to use decimal for >= 1e-5 (0.00001) and < 1e16??
+    % We know 2.5e-5 (0.000025) is decimal. 1e-6 is scientific.
+    
+    useDecimal = (absVal >= 1e-5 && absVal < 1e16);
+    
+    % If format chose scientific but we want decimal (e.g. 2.5e-5)
+    if useDecimal && (~isempty(strfind(s, 'e')) || ~isempty(strfind(s, 'E')))
+        % Force decimal. precision needed?
+        % We can use a large fixed precision and trim.
+        % Or use %.16f / %.17f depending on what we found above.
+        % Actually, just converting the current 's' to decimal is likely safest
+        % if s matches val sufficiently.
+        s = sprintf('%.20f', val); % Overshoot precision
+        % Remove trailing zeros, but keep at least one digit if it's .0?
+        % No, %.20f will not output scientific.
+        s = regexprep(s, '0+$', ''); % Trim trailing zeros
+        if s(end) == '.'
+            s = [s '0'];
+        end
+    % If format chose decimal but we want scientific (e.g. very small or very large)
+    elseif ~useDecimal && ~(~isempty(strfind(s, 'e')) || ~isempty(strfind(s, 'E')))
+         s = sprintf('%.17g', val); % Re-format with general to force scientific if needed? 
+    end
+
+    % 3. Cleanup
+    % Fix exponent format: e-06 -> e-6
+    if ~isempty(strfind(s, 'e')) || ~isempty(strfind(s, 'E'))
+        s = regexprep(s, 'e([+-])0+(\d)', 'e$1$2');
+    else
+        % Ensure decimal point for floats
+        if isempty(strfind(s, '.'))
+            s = [s '.0'];
+        end
+    end
+end
+
+
+function name = getFilterType(filterType, fusionType, isMultiSensor)
+    % Return filter type name for config output (match Rust naming)
+    if isMultiSensor
+        switch fusionType
+            case 'AA'
+                name = 'MultisensorLmbFilter<ArithmeticAverage>';
+            case 'IC'
+                name = 'MultisensorLmbFilter<IteratedCorrector>';
+            case 'PU'
+                name = 'MultisensorLmbFilter<ParallelUpdate>';
+            case 'GA'
+                name = 'MultisensorLmbFilter<GeometricAverage>';
+            case 'MS'
+                name = 'MultisensorLmbmFilter';
+            otherwise
+                name = ['MultisensorLmbFilter<' fusionType '>'];
+        end
+    else
+        switch filterType
+            case 'LMB'
+                name = 'LmbFilter';
+            case 'LMBM'
+                name = 'LmbmFilter';
+            otherwise
+                name = filterType;
+        end
     end
 end

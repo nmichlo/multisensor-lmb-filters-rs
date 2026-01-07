@@ -3,6 +3,8 @@
 
 Usage:
     run_python.py --scenario <path> --filter <name>
+    run_python.py --scenario <path> --filter <name> --get-config
+    run_python.py --scenario <path> --filter <name> --get-config --skip-run
 
 Output:
     Prints elapsed time in milliseconds as a single number.
@@ -24,6 +26,7 @@ from multisensor_lmb_filters_rs import (
     FilterIcLmb,
     FilterLmb,
     FilterLmbm,
+    FilterLmbmConfig,
     FilterMultisensorLmbm,
     FilterPuLmb,
     FilterThresholds,
@@ -49,6 +52,9 @@ FILTER_CLASSES = {
 THRESHOLDS = FilterThresholds(
     existence=1e-3, gm_weight=1e-4, max_components=100, gm_merge=float("inf")
 )
+
+# LMBM config - must match Rust benchmark settings!
+LMBM_CONFIG = FilterLmbmConfig(max_hypotheses=25, hypothesis_weight_threshold=1e-3)
 
 
 def get_associator(filter_name: str) -> AssociatorConfig:
@@ -111,10 +117,41 @@ def run_filter(filt, steps, is_multi: bool) -> float:
     return (time.perf_counter() - start) * 1000
 
 
+def create_filter(filter_name: str, motion, sensor, multi_sensor, birth):
+    """Create filter instance based on filter name."""
+    filter_cls, is_multi = FILTER_CLASSES[filter_name]
+    assoc = get_associator(filter_name)
+
+    # LMBM filters need lmbm_config to match Rust benchmark settings
+    if filter_cls in (FilterLmbm, FilterMultisensorLmbm):
+        return filter_cls(
+            motion,
+            multi_sensor if is_multi else sensor,
+            birth,
+            assoc,
+            THRESHOLDS,
+            lmbm_config=LMBM_CONFIG,
+        ), is_multi
+    else:
+        return filter_cls(
+            motion, multi_sensor if is_multi else sensor, birth, assoc, THRESHOLDS
+        ), is_multi
+
+
 def main():
     parser = argparse.ArgumentParser(description="Minimal Python benchmark runner")
     parser.add_argument("--scenario", required=True, help="Path to scenario JSON file")
     parser.add_argument("--filter", required=True, help="Filter name (e.g., LMB-LBP)")
+    parser.add_argument(
+        "--get-config",
+        action="store_true",
+        help="Print filter configuration JSON (can combine with --skip-run)",
+    )
+    parser.add_argument(
+        "--skip-run",
+        action="store_true",
+        help="Skip running the benchmark (useful with --get-config)",
+    )
     args = parser.parse_args()
 
     # Validate filter name
@@ -131,16 +168,17 @@ def main():
     motion, sensor, multi_sensor, birth, steps = preprocess(scenario)
 
     # Create filter
-    filter_cls, is_multi = FILTER_CLASSES[args.filter]
-    assoc = get_associator(args.filter)
+    filt, is_multi = create_filter(args.filter, motion, sensor, multi_sensor, birth)
 
-    filt = filter_cls(motion, multi_sensor if is_multi else sensor, birth, assoc, THRESHOLDS)
+    # Output config if requested
+    if args.get_config:
+        print(filt.get_config_json_pretty())
 
-    # Run benchmark
-    elapsed_ms = run_filter(filt, steps, is_multi)
+    # Run benchmark unless --skip-run
+    if not args.skip_run:
+        elapsed_ms = run_filter(filt, steps, is_multi)
+        print(f"{elapsed_ms:.3f}")
 
-    # Output only the timing
-    print(f"{elapsed_ms:.3f}")
     return 0
 
 
