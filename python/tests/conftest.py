@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-FIXTURE_DIR = Path(__file__).parent.parent.parent / "tests" / "data"
+FIXTURE_DIR = Path(__file__).parent.parent.parent / "tests" / "fixtures"
 TOLERANCE = 1e-10
 
 
@@ -33,49 +33,49 @@ def load_fixture(name: str) -> dict:
 @pytest.fixture
 def lmb_fixture():
     """Load single-sensor LMB step-by-step fixture."""
-    return load_fixture("step_by_step/lmb_step_by_step_seed42.json")
+    return load_fixture("step_ss_lmb_seed42.json")
 
 
 @pytest.fixture
 def lmbm_fixture():
     """Load single-sensor LMBM step-by-step fixture."""
-    return load_fixture("step_by_step/lmbm_step_by_step_seed42.json")
+    return load_fixture("step_ss_lmbm_seed42.json")
 
 
 @pytest.fixture
 def multisensor_lmb_fixture():
     """Load multi-sensor LMB step-by-step fixture (IC-LMB)."""
-    return load_fixture("step_by_step/multisensor_lmb_step_by_step_seed42.json")
+    return load_fixture("step_ms_lmb_seed42.json")
 
 
 @pytest.fixture
 def multisensor_lmbm_fixture():
     """Load multi-sensor LMBM step-by-step fixture."""
-    return load_fixture("step_by_step/multisensor_lmbm_step_by_step_seed42.json")
+    return load_fixture("step_ms_lmbm_seed42.json")
 
 
 @pytest.fixture
 def aa_lmb_fixture():
     """Load AA-LMB step-by-step fixture."""
-    return load_fixture("step_by_step/aa_lmb_step_by_step_seed42.json")
+    return load_fixture("step_ms_aa_lmb_seed42.json")
 
 
 @pytest.fixture
 def ga_lmb_fixture():
     """Load GA-LMB step-by-step fixture."""
-    return load_fixture("step_by_step/ga_lmb_step_by_step_seed42.json")
+    return load_fixture("step_ms_ga_lmb_seed42.json")
 
 
 @pytest.fixture
 def pu_lmb_fixture():
     """Load PU-LMB step-by-step fixture."""
-    return load_fixture("step_by_step/pu_lmb_step_by_step_seed42.json")
+    return load_fixture("step_ms_pu_lmb_seed42.json")
 
 
 @pytest.fixture
 def ic_lmb_fixture():
     """Load IC-LMB step-by-step fixture."""
-    return load_fixture("step_by_step/ic_lmb_step_by_step_seed42.json")
+    return load_fixture("step_ms_ic_lmb_seed42.json")
 
 
 @pytest.fixture(params=["aa", "ga", "pu", "ic"])
@@ -89,7 +89,7 @@ def ms_lmb_variant_fixture(request):
     - IC-LMB (Iterated Corrector)
     """
     variant = request.param
-    fixture = load_fixture(f"step_by_step/{variant}_lmb_step_by_step_seed42.json")
+    fixture = load_fixture(f"step_ms_{variant}_lmb_seed42.json")
     fixture["variant"] = variant  # Add variant name to fixture for test identification
     return fixture
 

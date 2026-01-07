@@ -187,7 +187,7 @@ impl PyTrackData {
 ///
 /// # MATLAB Fixture Format
 ///
-/// In fixtures at `tests/data/step_by_step/*.json`, each track has:
+/// In fixtures at `tests/fixtures/step_*.json`, each track has:
 /// - `posteriorParameters[i].w` → shape `(num_meas + 1, num_comp)`
 ///   Row 0 is miss hypothesis (equals prior weights), rows 1+ are measurements.
 ///   Each row sums to 1.0 (likelihood-normalized component weights).

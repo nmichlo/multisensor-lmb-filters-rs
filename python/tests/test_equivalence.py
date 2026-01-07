@@ -8,6 +8,8 @@ These tests use set_tracks() to initialize filter state from fixture prior
 objects, then step_detailed() to get all intermediate outputs for comparison.
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from conftest import (
@@ -1860,22 +1862,11 @@ class TestAllFixturesLoad:
 
     @pytest.mark.parametrize(
         "fixture_name",
-        [
-            "step_by_step/lmb_step_by_step_seed42.json",
-            "step_by_step/lmbm_step_by_step_seed42.json",
-            "step_by_step/multisensor_lmb_step_by_step_seed42.json",
-            "step_by_step/multisensor_lmbm_step_by_step_seed42.json",
-            "step_by_step/aa_lmb_step_by_step_seed42.json",
-            "step_by_step/ga_lmb_step_by_step_seed42.json",
-            "step_by_step/pu_lmb_step_by_step_seed42.json",
-            "step_by_step/ic_lmb_step_by_step_seed42.json",
-            "single_trial_42.json",
-            "single_trial_42_quick.json",
-            "single_detection_trial_42_quick.json",
-            "multisensor_trial_42.json",
-            "multisensor_clutter_trial_42_quick.json",
-            "multisensor_detection_trial_42_quick.json",
-        ],
+        sorted(
+            f.name
+            for f in (Path(__file__).parent.parent.parent / "tests" / "fixtures").glob("*.json")
+            if f.name.startswith("trial_") or f.name.startswith("step_")
+        ),
     )
     def test_fixture_loads(self, fixture_name):
         """All fixture files load without error."""

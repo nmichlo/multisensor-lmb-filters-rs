@@ -27,7 +27,7 @@ export LC_ALL=C
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESULTS_DIR="$PROJECT_ROOT/benchmarks/results"
-RUNNERS_DIR="$PROJECT_ROOT/benchmarks/runners"
+RUNNERS_DIR="$PROJECT_ROOT/benchmarks/run_benchmarks"
 SCENARIOS_DIR="$PROJECT_ROOT/benchmarks/scenarios"
 MATLAB_DIR="$PROJECT_ROOT/../multisensor-lmb-filters"
 
@@ -622,7 +622,7 @@ echo ""
 PLOTS_DIR="$PROJECT_ROOT/docs/benchmarks"
 
 echo "Generating benchmark plots..."
-if uv run "$SCRIPT_DIR/generate_plots.py" \
+if uv run "$RUNNERS_DIR/generate_plots.py" \
     --cache-file "$CACHE_FILE" \
     --output-dir "$PLOTS_DIR" 2>&1; then
     PLOTS_GENERATED=1

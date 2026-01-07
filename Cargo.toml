@@ -55,7 +55,7 @@ hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 
 [[bin]]
 name = "benchmark_single"
-path = "benchmarks/runners/run_rust.rs"
+path = "benchmarks/run_benchmarks/run_rust.rs"
 
 [profile.release]
 lto = true
