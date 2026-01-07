@@ -50,3 +50,7 @@ htmlcov/
 
 # benchmarks
 /src/bin/benchmark_runner.rs
+/benchmarks/*.log
+/benchmarks/results/
+
+
