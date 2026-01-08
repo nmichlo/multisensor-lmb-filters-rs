@@ -74,6 +74,9 @@ pub mod association;
 /// Low-level utilities (linear algebra, RNG, constants)
 pub mod common;
 
+/// Benchmark utilities (scenario loading, filter factory)
+pub mod bench_utils;
+
 // ============================================================================
 // Re-exports for convenience
 // ============================================================================

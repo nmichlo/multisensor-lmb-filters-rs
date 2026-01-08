@@ -40,6 +40,8 @@ USE_CACHE=1
 CONTINUE_MODE=0
 GET_CONFIG=0
 SKIP_RUN=0
+SKIP_PLOT=0
+SKIP_README=0
 
 # Cache file for persistent results
 CACHE_FILE="$RESULTS_DIR/cache.csv"
@@ -133,6 +135,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-run)
             SKIP_RUN=1
+            shift
+            ;;
+        --skip-plot)
+            SKIP_PLOT=1
+            shift
+            ;;
+        --skip-readme)
+            SKIP_README=1
             shift
             ;;
         --help|-h)
@@ -506,12 +516,12 @@ fi
 # Main Benchmark Loop
 # =============================================================================
 
-if [[ $SKIP_RUN -eq 1 ]]; then
-    echo "Skipping benchmark run (--skip-run specified)"
-    exit 0
-fi
 
 RESULTS_FILE="$RESULTS_DIR/benchmarks_$(date +%Y%m%d_%H%M%S).csv"
+
+if [[ $SKIP_RUN -eq 1 ]]; then
+    echo "Skipping benchmark run (--skip-run specified)"
+else
 
 # Print CSV header (easier to parse for README generation)
 echo "objects,sensors,filter,lang,avg_ms,std_ms" > "$RESULTS_FILE"
@@ -603,6 +613,8 @@ for scenario_path in $(get_sorted_scenarios); do
     done
 done
 
+fi # SKIP_RUN
+
 # =============================================================================
 # Generate Summary
 # =============================================================================
@@ -635,6 +647,10 @@ echo ""
 
 PLOTS_DIR="$PROJECT_ROOT/docs/benchmarks"
 
+if [[ $SKIP_PLOT -eq 1 ]]; then
+    echo "Skipping plotting (--skip-plot specified)"
+else
+
 echo "Generating benchmark plots..."
 if uv run "$RUNNERS_DIR/generate_plots.py" \
     --cache-file "$CACHE_FILE" \
@@ -646,6 +662,8 @@ else
     echo "Warning: Plot generation failed (matplotlib may not be installed)"
 fi
 echo ""
+
+fi # SKIP_PLOT
 
 # =============================================================================
 # Generate README_BENCHMARKS.md
@@ -856,8 +874,15 @@ METHOD
 NOTES
 }
 
+
+if [[ $SKIP_README -eq 1 ]]; then
+    echo "Skipping readme generation (--skip-readme specified)"
+else
+
 echo "Generating README_BENCHMARKS.md..."
 generate_readme > "$README_FILE"
 echo "README saved to: $README_FILE"
 echo ""
 echo "Done!"
+
+fi # SKIP_README

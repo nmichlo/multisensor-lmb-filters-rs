@@ -47,6 +47,13 @@ numpy = { version = "0.23", optional = true }
 # Testing
 approx = "0.5"      # Floating point comparisons
 
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "lmb_filters"
+harness = false
+
 [features]
 default = []
 python = ["dep:pyo3", "dep:numpy"]
