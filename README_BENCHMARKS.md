@@ -1,6 +1,6 @@
 # LMB Filter Benchmark Results
 
-*Generated: 2026-01-07 19:55:55*
+*Generated: 2026-01-08 12:43:40*
 
 ## Overview
 
@@ -137,8 +137,8 @@ Methodology Details:
 | 10 | 4 | 1443.57 \u00b1 1277.19 | 11.42 \u00b1 11.37 (\u00d7126.4) | 11.60 \u00b1 11.89 (\u00d7124.5) |
 | 20 | 2 | 150.26 \u00b1 71.14 | 2.12 \u00b1 0.73 (\u00d770.7) | 2.24 \u00b1 0.78 (\u00d767.1) |
 | 20 | 4 | TIMEOUT | 155.81 \u00b1 220.99 (N/A) | 158.31 \u00b1 228.78 (N/A) |
-| 20 | 8 | SKIP | ERROR | ERROR |
-| 50 | 8 | SKIP | ERROR | ERROR |
+| 20 | 8 | SKIP | TIMEOUT | TIMEOUT |
+| 50 | 8 | SKIP | SKIP | SKIP |
 
 ### GA-LMB-LBP
 

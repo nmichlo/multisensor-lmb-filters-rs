@@ -4,16 +4,6 @@
 # Centralized orchestration with minimal per-language runners.
 #
 # On macOS: brew install coreutils (for gtimeout)
-#
-# Usage:
-#   ./benchmarks/run_benchmarks.sh                    # Full suite
-#   ./benchmarks/run_benchmarks.sh --quick            # Python only, short timeout
-#   ./benchmarks/run_benchmarks.sh --timeout 30       # Custom timeout
-#   ./benchmarks/run_benchmarks.sh --lang rust        # Single language
-#   ./benchmarks/run_benchmarks.sh --filter LMB-LBP   # Single filter
-#   ./benchmarks/run_benchmarks.sh --get-config       # Compare configs across languages
-#   ./benchmarks/run_benchmarks.sh --get-config --skip-run  # Config only, no benchmarks
-#
 
 set -e
 
@@ -25,9 +15,9 @@ export LC_ALL=C
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-RESULTS_DIR="$PROJECT_ROOT/benchmarks/results"
-RUNNERS_DIR="$PROJECT_ROOT/benchmarks/run_benchmarks"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+RESULTS_DIR="/tmp/multisensor-lmb-filters-rs/benchmark_results"
+RUNNERS_DIR="$SCRIPT_DIR"
 SCENARIOS_DIR="$PROJECT_ROOT/tests/fixtures"
 MATLAB_DIR="$PROJECT_ROOT/vendor/multisensor-lmb-filters"
 
@@ -44,7 +34,7 @@ SKIP_PLOT=0
 SKIP_README=0
 
 # Cache file for persistent results
-CACHE_FILE="$RESULTS_DIR/cache.csv"
+CACHE_FILE="$RUNNERS_DIR/_cache.csv"
 
 # =============================================================================
 # Filter Configuration Matrix
@@ -363,14 +353,14 @@ get_filter_config() {
     case "$lang" in
         octave)
             LMB_SILENT=1 octave --no-gui --path "$RUNNERS_DIR" \
-                --eval "run_octave('$scenario_path', '$filter_name', true, true)" 2>/dev/null
+                --eval "_run_octave('$scenario_path', '$filter_name', true, true)" 2>/dev/null
             ;;
         rust)
             "$PROJECT_ROOT/target/release/benchmark_single" \
                 --scenario "$scenario_path" --filter "$filter_name" --get-config --skip-run 2>/dev/null
             ;;
         python)
-            uv run python "$RUNNERS_DIR/run_python.py" \
+            uv run python "$RUNNERS_DIR/_run_python.py" \
                 --scenario "$scenario_path" --filter "$filter_name" --get-config --skip-run 2>/dev/null
             ;;
     esac
@@ -389,7 +379,7 @@ run_benchmark() {
             # Capture both stdout and exit code separately
             local octave_output
             octave_output=$(LMB_SILENT=1 $TIMEOUT_CMD "${TIMEOUT}s" octave --no-gui --path "$RUNNERS_DIR" \
-                --eval "run_octave('$scenario_path', '$filter_name')" 2>&1) || exit_code=$?
+                --eval "_run_octave('$scenario_path', '$filter_name')" 2>&1) || exit_code=$?
             # Extract the timing from output (last line matching avg,std pattern)
             result=$(echo "$octave_output" | grep -oE '^[0-9]+\.?[0-9]*,[0-9]+\.?[0-9]*$' | tail -1)
             ;;
@@ -399,7 +389,7 @@ run_benchmark() {
             ;;
         python)
             result=$($TIMEOUT_CMD "${TIMEOUT}s" uv run python \
-                "$RUNNERS_DIR/run_python.py" \
+                "$RUNNERS_DIR/_run_python.py" \
                 --scenario "$scenario_path" --filter "$filter_name" 2>/dev/null) || exit_code=$?
             ;;
     esac
@@ -652,7 +642,7 @@ if [[ $SKIP_PLOT -eq 1 ]]; then
 else
 
 echo "Generating benchmark plots..."
-if uv run "$RUNNERS_DIR/generate_plots.py" \
+if uv run "$RUNNERS_DIR/_generate_plots.py" \
     --cache-file "$CACHE_FILE" \
     --output-dir "$PLOTS_DIR" 2>&1; then
     PLOTS_GENERATED=1
