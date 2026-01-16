@@ -234,24 +234,39 @@ impl MotionModelBehavior for LinearMotionModel { /* ... */ }
 
 ---
 
-## Phase 4: Update Strategy Pattern (No Boolean Flags)
+## Phase 4: Update Strategy Pattern (No Boolean Flags) ✅
 
 **Goal**: Invert control flow so strategies own the loop, not the filter core.
 
 ### 1. Implementation Tasks
-- [ ] Create `src/lmb/scheduler.rs` with `UpdateScheduler` trait
-- [ ] Implement `ParallelScheduler<M: Merger>` for AA/GA/PU fusion
-- [ ] Implement `SequentialScheduler` for IC fusion and single-sensor
-- [ ] Export from `src/lmb/mod.rs`
+- [x] Create `src/lmb/scheduler.rs` with `UpdateScheduler` trait
+- [x] Implement `ParallelScheduler<M: Merger>` for AA/GA/PU fusion
+- [x] Implement `SequentialScheduler` for IC fusion and single-sensor
+- [x] Implement `SingleSensorScheduler` for single-sensor filters
+- [x] Implement `DynamicScheduler` enum for Python bindings
+- [x] Add `MultisensorCapable` and `FusionCapable` marker traits
+- [x] Export from `src/lmb/mod.rs`
 
 ### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [ ] Verify all tests pass with `cargo test --release`
-- [ ] Confirm NO numeric outputs changed
+- [x] Add 12 unit tests for scheduler implementations
+- [x] Add 5 doc tests for scheduler types
+- [x] Verify all tests pass with `cargo test --release`
+- [x] Confirm NO numeric outputs changed
 
 ### 3. Update Plan & TODOs
-- [ ] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [ ] Document any deviations or learnings
-- [ ] Verify phase is complete before proceeding
+- [x] Mark completed tasks in `./REFACTOR_PLAN.md`
+- [x] Document any deviations or learnings
+- [x] Verify phase is complete before proceeding
+
+### Completion Notes
+- Created `UpdateScheduler` trait with `name()`, `is_sequential()`, and `expected_sensors()` methods
+- Implemented 4 scheduler types: `SequentialScheduler`, `SingleSensorScheduler`, `ParallelScheduler<M>`, `DynamicScheduler`
+- Added `MultisensorCapable` marker trait for schedulers supporting multi-sensor configs
+- Added `FusionCapable` marker trait for parallel schedulers with merger access
+- Type aliases: `LmbScheduler = SingleSensorScheduler`, `IcLmbScheduler = SequentialScheduler`
+- Simplified trait design: removed `execute_update()` method (deferred to Phase 8 filter unification)
+- Merger constructors use correct API: `uniform(num_sensors, max_components)` not `new()`
+- Integration with filters deferred to Phase 8-9 (standalone abstraction for now)
 
 ### Implementation Design
 

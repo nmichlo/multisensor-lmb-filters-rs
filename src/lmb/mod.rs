@@ -46,6 +46,7 @@ pub mod types;
 pub mod builder;
 pub mod common_ops;
 pub mod errors;
+pub mod scheduler;
 pub mod traits;
 
 // Filter implementations
@@ -93,6 +94,12 @@ pub use errors::{AssociationError, FilterError};
 pub use traits::{
     AssociationResult, Associator, DynamicAssociator, Filter, GibbsAssociator,
     HardAssignmentUpdater, LbpAssociator, MarginalUpdater, Merger, MurtyAssociator, Updater,
+};
+
+// Update schedulers (Phase 4 - Strategy Pattern)
+pub use scheduler::{
+    DynamicScheduler, FusionCapable, IcLmbScheduler, LmbScheduler, MultisensorCapable,
+    ParallelScheduler, SequentialScheduler, SingleSensorScheduler, UpdateScheduler,
 };
 
 // Builder traits
