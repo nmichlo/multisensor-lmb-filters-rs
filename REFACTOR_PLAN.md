@@ -170,25 +170,36 @@ pub struct LmbmConfig {
 
 ---
 
-## Phase 3: Extensible Traits for Models (Open for Extension)
+## Phase 3: Extensible Traits for Models (Open for Extension) ✅
 
 **Goal**: Enable downstream custom implementations WITHOUT modifying upstream.
 
 ### 1. Implementation Tasks
-- [ ] Create `MotionModelBehavior` trait
-- [ ] Create `SensorModelBehavior` trait
-- [ ] Implement traits for existing `MotionModel` and `SensorModel` structs
-- [ ] Keep existing struct constructors working (backward compat)
-- [ ] Add `Box<dyn MotionModelBehavior>` support for custom models
+- [x] Create `MotionModelBehavior` trait
+- [x] Create `SensorModelBehavior` trait
+- [x] Implement traits for existing `MotionModel` and `SensorModel` structs
+- [x] Keep existing struct constructors working (backward compat)
+- [x] Add `Box<dyn MotionModelBehavior>` support for custom models
 
 ### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [ ] Verify all tests pass with `cargo test --release`
-- [ ] Confirm NO numeric outputs changed
+- [x] Add 8 unit tests for trait behavior (predict_state, predict_covariance, accessors, etc.)
+- [x] Add 2 trait object tests verifying Box<dyn ...> support
+- [x] Verify all tests pass with `cargo test --release`
+- [x] Confirm NO numeric outputs changed
 
 ### 3. Update Plan & TODOs
-- [ ] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [ ] Document any deviations or learnings
-- [ ] Verify phase is complete before proceeding
+- [x] Mark completed tasks in `./REFACTOR_PLAN.md`
+- [x] Document any deviations or learnings
+- [x] Verify phase is complete before proceeding
+
+### Completion Notes
+- Created `MotionModelBehavior` trait with methods: `predict_state`, `predict_covariance`, `survival_probability`, `x_dim`, `transition_matrix` (optional), `process_noise` (optional)
+- Created `SensorModelBehavior` trait with methods: `predict_measurement`, `measurement_jacobian`, `measurement_noise`, `detection_probability`, `clutter_rate`, `observation_volume`, `clutter_density` (default impl), `z_dim`, `x_dim`, `observation_matrix` (optional)
+- Implemented traits for existing `MotionModel` and `SensorModel` structs
+- Optional methods return `Some(&DMatrix)` for linear models, `None` for nonlinear (future extension)
+- Both traits require `Send + Sync` for thread safety with trait objects
+- Excluded `as_serializable()` method from plan - can be added later if needed
+- All 21 config tests pass (including 10 new Phase 3 tests)
 
 ### Implementation Design
 

@@ -2,9 +2,202 @@
 //!
 //! This module provides decomposed configuration types that replace
 //! the monolithic Model struct with focused, purpose-specific configs.
+//!
+//! # Extensibility via Traits (Phase 3)
+//!
+//! The [`MotionModelBehavior`] and [`SensorModelBehavior`] traits enable downstream
+//! extension without modifying upstream code. Users can implement custom motion
+//! models (e.g., IMM, nonlinear) or custom sensor models by implementing these
+//! traits on their own types.
+//!
+//! ```ignore
+//! use multisensor_lmb_filters_rs::lmb::MotionModelBehavior;
+//!
+//! struct MyCustomMotionModel { /* ... */ }
+//!
+//! impl MotionModelBehavior for MyCustomMotionModel {
+//!     fn predict_state(&self, state: &DVector<f64>) -> DVector<f64> { /* ... */ }
+//!     fn predict_covariance(&self, cov: &DMatrix<f64>) -> DMatrix<f64> { /* ... */ }
+//!     // ...
+//! }
+//! ```
 
 use nalgebra::{DMatrix, DVector};
 use serde::Serialize;
+
+// ============================================================================
+// Model Behavior Traits (Phase 3 - Extensibility)
+// ============================================================================
+
+/// Trait for motion models - OPEN for downstream extension.
+///
+/// This trait abstracts the motion model behavior, allowing downstream users
+/// to implement custom motion models (e.g., IMM, nonlinear dynamics) without
+/// modifying the upstream filter implementations.
+///
+/// The existing [`MotionModel`] struct implements this trait, but users can
+/// create their own types implementing `MotionModelBehavior` for custom dynamics.
+///
+/// # Thread Safety
+///
+/// The `Send + Sync` bounds enable filters to be used across threads.
+/// For motion models with mutable state, consider using interior mutability
+/// patterns (e.g., `Mutex<T>`) if thread-safe mutation is needed.
+///
+/// # Example
+///
+/// ```ignore
+/// use multisensor_lmb_filters_rs::lmb::MotionModelBehavior;
+/// use nalgebra::{DMatrix, DVector};
+///
+/// struct NonlinearMotionModel {
+///     // Custom nonlinear dynamics parameters
+/// }
+///
+/// impl MotionModelBehavior for NonlinearMotionModel {
+///     fn predict_state(&self, state: &DVector<f64>) -> DVector<f64> {
+///         // Implement nonlinear state transition
+///     }
+///
+///     fn predict_covariance(&self, cov: &DMatrix<f64>) -> DMatrix<f64> {
+///         // Use unscented or extended Kalman filter covariance prediction
+///     }
+///
+///     fn survival_probability(&self) -> f64 { 0.99 }
+///     fn x_dim(&self) -> usize { 4 }
+/// }
+/// ```
+pub trait MotionModelBehavior: Send + Sync {
+    /// Predict the next state given the current state.
+    ///
+    /// For linear models: `A * state + u`
+    /// For nonlinear models: `f(state)`
+    fn predict_state(&self, state: &DVector<f64>) -> DVector<f64>;
+
+    /// Predict the next covariance given the current covariance.
+    ///
+    /// For linear models: `A * cov * A^T + Q`
+    /// For nonlinear models: use EKF/UKF/etc. covariance propagation
+    fn predict_covariance(&self, cov: &DMatrix<f64>) -> DMatrix<f64>;
+
+    /// Probability that a target survives to the next timestep.
+    ///
+    /// Should be in range [0, 1]. Tracks are weighted by this probability
+    /// during prediction; low survival probability accelerates track deletion.
+    fn survival_probability(&self) -> f64;
+
+    /// State dimension (number of state variables).
+    fn x_dim(&self) -> usize;
+
+    /// Returns the transition matrix if this is a linear model, None otherwise.
+    ///
+    /// This is provided for backward compatibility and optimization.
+    /// Linear models can return their transition matrix for efficient
+    /// batch operations. Nonlinear models should return None.
+    fn transition_matrix(&self) -> Option<&DMatrix<f64>> {
+        None
+    }
+
+    /// Returns the process noise covariance matrix if available.
+    ///
+    /// This is provided for backward compatibility. Some filters may
+    /// need direct access to the noise covariance for specific operations.
+    fn process_noise(&self) -> Option<&DMatrix<f64>> {
+        None
+    }
+}
+
+/// Trait for sensor/observation models - OPEN for downstream extension.
+///
+/// This trait abstracts the sensor model behavior, allowing downstream users
+/// to implement custom sensor models (e.g., nonlinear observations, bearing-only
+/// tracking) without modifying the upstream filter implementations.
+///
+/// The existing [`SensorModel`] struct implements this trait, but users can
+/// create their own types implementing `SensorModelBehavior` for custom sensors.
+///
+/// # Thread Safety
+///
+/// The `Send + Sync` bounds enable filters to be used across threads.
+///
+/// # Example
+///
+/// ```ignore
+/// use multisensor_lmb_filters_rs::lmb::SensorModelBehavior;
+/// use nalgebra::{DMatrix, DVector};
+///
+/// struct BearingOnlySensor {
+///     range_std: f64,
+///     bearing_std: f64,
+///     detection_prob: f64,
+///     clutter_rate: f64,
+///     obs_volume: f64,
+/// }
+///
+/// impl SensorModelBehavior for BearingOnlySensor {
+///     fn predict_measurement(&self, state: &DVector<f64>) -> DVector<f64> {
+///         // Convert state to bearing-range measurement
+///     }
+///
+///     fn measurement_jacobian(&self, state: &DVector<f64>) -> DMatrix<f64> {
+///         // Jacobian of bearing-range measurement function
+///     }
+///
+///     // ... other required methods
+/// }
+/// ```
+pub trait SensorModelBehavior: Send + Sync {
+    /// Predict the expected measurement given the state.
+    ///
+    /// For linear models: `H * state`
+    /// For nonlinear models: `h(state)`
+    fn predict_measurement(&self, state: &DVector<f64>) -> DVector<f64>;
+
+    /// Returns the measurement Jacobian at the given state.
+    ///
+    /// For linear models: This returns the observation matrix H
+    /// For nonlinear models: This returns the Jacobian ∂h/∂x evaluated at state
+    fn measurement_jacobian(&self, state: &DVector<f64>) -> DMatrix<f64>;
+
+    /// Measurement noise covariance matrix R.
+    fn measurement_noise(&self) -> &DMatrix<f64>;
+
+    /// Probability of detecting a target (p_D).
+    ///
+    /// Should be in range [0, 1]. This affects the likelihood of missed
+    /// detections versus true detections in the association problem.
+    fn detection_probability(&self) -> f64;
+
+    /// Expected number of false alarms (clutter) per timestep.
+    fn clutter_rate(&self) -> f64;
+
+    /// Volume of the observation/measurement space.
+    ///
+    /// Used to compute clutter density: `clutter_rate / observation_volume`
+    fn observation_volume(&self) -> f64;
+
+    /// Clutter density (false alarms per unit volume).
+    ///
+    /// Default implementation: `clutter_rate() / observation_volume()`
+    fn clutter_density(&self) -> f64 {
+        self.clutter_rate() / self.observation_volume()
+    }
+
+    /// Measurement dimension (number of measurement variables).
+    fn z_dim(&self) -> usize;
+
+    /// State dimension expected by this sensor.
+    fn x_dim(&self) -> usize;
+
+    /// Returns the observation matrix if this is a linear model, None otherwise.
+    ///
+    /// This is provided for backward compatibility and optimization.
+    /// Linear models can return their observation matrix for efficient
+    /// batch operations. Nonlinear models should return None.
+    fn observation_matrix(&self) -> Option<&DMatrix<f64>> {
+        None
+    }
+}
 
 /// Motion model parameters for prediction
 #[derive(Debug, Clone)]
@@ -73,6 +266,33 @@ impl MotionModel {
         let u = DVector::zeros(4);
 
         Self::new(a, r, u, survival_prob)
+    }
+}
+
+// Implement MotionModelBehavior for the existing MotionModel struct
+impl MotionModelBehavior for MotionModel {
+    fn predict_state(&self, state: &DVector<f64>) -> DVector<f64> {
+        &self.transition_matrix * state + &self.control_input
+    }
+
+    fn predict_covariance(&self, cov: &DMatrix<f64>) -> DMatrix<f64> {
+        &self.transition_matrix * cov * self.transition_matrix.transpose() + &self.process_noise
+    }
+
+    fn survival_probability(&self) -> f64 {
+        self.survival_probability
+    }
+
+    fn x_dim(&self) -> usize {
+        self.transition_matrix.nrows()
+    }
+
+    fn transition_matrix(&self) -> Option<&DMatrix<f64>> {
+        Some(&self.transition_matrix)
+    }
+
+    fn process_noise(&self) -> Option<&DMatrix<f64>> {
+        Some(&self.process_noise)
     }
 }
 
@@ -148,6 +368,47 @@ impl SensorModel {
         let q = DMatrix::from_diagonal(&DVector::from_vec(vec![q_var, q_var]));
 
         Self::new(c, q, detection_prob, clutter_rate, obs_volume)
+    }
+}
+
+// Implement SensorModelBehavior for the existing SensorModel struct
+impl SensorModelBehavior for SensorModel {
+    fn predict_measurement(&self, state: &DVector<f64>) -> DVector<f64> {
+        &self.observation_matrix * state
+    }
+
+    fn measurement_jacobian(&self, _state: &DVector<f64>) -> DMatrix<f64> {
+        // For linear models, the Jacobian is just the observation matrix
+        // (independent of state)
+        self.observation_matrix.clone()
+    }
+
+    fn measurement_noise(&self) -> &DMatrix<f64> {
+        &self.measurement_noise
+    }
+
+    fn detection_probability(&self) -> f64 {
+        self.detection_probability
+    }
+
+    fn clutter_rate(&self) -> f64 {
+        self.clutter_rate
+    }
+
+    fn observation_volume(&self) -> f64 {
+        self.observation_volume
+    }
+
+    fn z_dim(&self) -> usize {
+        self.observation_matrix.nrows()
+    }
+
+    fn x_dim(&self) -> usize {
+        self.observation_matrix.ncols()
+    }
+
+    fn observation_matrix(&self) -> Option<&DMatrix<f64>> {
+        Some(&self.observation_matrix)
     }
 }
 
@@ -1593,5 +1854,152 @@ mod tests {
         let _ = config.max_hypotheses; // This exists
         let _ = config.use_eap; // This exists
                                 // config.max_gm_components would NOT exist - that's the point!
+    }
+
+    // ============================================================================
+    // Model Behavior Trait Tests (Phase 3)
+    // ============================================================================
+
+    #[test]
+    fn test_motion_model_behavior_predict_state() {
+        let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
+        let state = DVector::from_vec(vec![10.0, 20.0, 1.0, 2.0]); // [x, y, vx, vy]
+
+        let predicted = motion.predict_state(&state);
+
+        // After dt=1.0: x' = x + vx = 10 + 1 = 11, y' = y + vy = 20 + 2 = 22
+        assert!((predicted[0] - 11.0).abs() < 1e-10);
+        assert!((predicted[1] - 22.0).abs() < 1e-10);
+        assert!((predicted[2] - 1.0).abs() < 1e-10); // vx unchanged
+        assert!((predicted[3] - 2.0).abs() < 1e-10); // vy unchanged
+    }
+
+    #[test]
+    fn test_motion_model_behavior_predict_covariance() {
+        let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
+        let cov = DMatrix::from_diagonal(&DVector::from_vec(vec![1.0, 1.0, 0.1, 0.1]));
+
+        let predicted_cov = motion.predict_covariance(&cov);
+
+        // Covariance should grow after prediction (process noise added)
+        // Diagonal should still be positive
+        assert!(predicted_cov[(0, 0)] > 0.0);
+        assert!(predicted_cov[(1, 1)] > 0.0);
+        assert!(predicted_cov[(2, 2)] > 0.0);
+        assert!(predicted_cov[(3, 3)] > 0.0);
+
+        // Covariance should be larger than original (process noise added)
+        assert!(predicted_cov[(0, 0)] > cov[(0, 0)]);
+    }
+
+    #[test]
+    fn test_motion_model_behavior_accessors() {
+        let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
+
+        // Test trait method accessors
+        assert_eq!(MotionModelBehavior::x_dim(&motion), 4);
+        assert!((MotionModelBehavior::survival_probability(&motion) - 0.99).abs() < 1e-10);
+
+        // Test that optional methods return Some for linear model
+        assert!(motion.transition_matrix().is_some());
+        assert!(motion.process_noise().is_some());
+
+        // Verify the returned matrices have correct dimensions
+        let a = motion.transition_matrix().unwrap();
+        assert_eq!(a.nrows(), 4);
+        assert_eq!(a.ncols(), 4);
+
+        let q = motion.process_noise().unwrap();
+        assert_eq!(q.nrows(), 4);
+        assert_eq!(q.ncols(), 4);
+    }
+
+    #[test]
+    fn test_sensor_model_behavior_predict_measurement() {
+        let sensor = SensorModel::position_sensor_2d(1.0, 0.9, 10.0, 100.0);
+        let state = DVector::from_vec(vec![10.0, 20.0, 1.0, 2.0]); // [x, y, vx, vy]
+
+        let measurement = sensor.predict_measurement(&state);
+
+        // Position sensor extracts [x, y]
+        assert_eq!(measurement.len(), 2);
+        assert!((measurement[0] - 10.0).abs() < 1e-10);
+        assert!((measurement[1] - 20.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sensor_model_behavior_measurement_jacobian() {
+        let sensor = SensorModel::position_sensor_2d(1.0, 0.9, 10.0, 100.0);
+        let state = DVector::from_vec(vec![10.0, 20.0, 1.0, 2.0]);
+
+        let jacobian = sensor.measurement_jacobian(&state);
+
+        // For linear sensor, Jacobian is the observation matrix (2x4)
+        assert_eq!(jacobian.nrows(), 2);
+        assert_eq!(jacobian.ncols(), 4);
+
+        // First row: [1, 0, 0, 0] - extracts x
+        assert!((jacobian[(0, 0)] - 1.0).abs() < 1e-10);
+        assert!((jacobian[(0, 1)] - 0.0).abs() < 1e-10);
+
+        // Second row: [0, 1, 0, 0] - extracts y
+        assert!((jacobian[(1, 0)] - 0.0).abs() < 1e-10);
+        assert!((jacobian[(1, 1)] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sensor_model_behavior_accessors() {
+        let sensor = SensorModel::position_sensor_2d(2.0, 0.9, 10.0, 100.0);
+
+        // Test trait method accessors
+        assert_eq!(SensorModelBehavior::z_dim(&sensor), 2);
+        assert_eq!(SensorModelBehavior::x_dim(&sensor), 4);
+        assert!((SensorModelBehavior::detection_probability(&sensor) - 0.9).abs() < 1e-10);
+        assert!((SensorModelBehavior::clutter_rate(&sensor) - 10.0).abs() < 1e-10);
+        assert!((SensorModelBehavior::observation_volume(&sensor) - 100.0).abs() < 1e-10);
+        assert!((SensorModelBehavior::clutter_density(&sensor) - 0.1).abs() < 1e-10);
+
+        // Test measurement noise
+        let r = sensor.measurement_noise();
+        assert_eq!(r.nrows(), 2);
+        assert_eq!(r.ncols(), 2);
+        // Variance = std^2 = 2.0^2 = 4.0
+        assert!((r[(0, 0)] - 4.0).abs() < 1e-10);
+        assert!((r[(1, 1)] - 4.0).abs() < 1e-10);
+
+        // Test that optional method returns Some for linear model
+        assert!(sensor.observation_matrix().is_some());
+    }
+
+    #[test]
+    fn test_trait_object_motion_model() {
+        // Verify MotionModelBehavior can be used as a trait object
+        let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
+        let boxed: Box<dyn MotionModelBehavior> = Box::new(motion);
+
+        // Use via trait object
+        assert_eq!(boxed.x_dim(), 4);
+        assert!((boxed.survival_probability() - 0.99).abs() < 1e-10);
+
+        let state = DVector::from_vec(vec![10.0, 20.0, 1.0, 2.0]);
+        let predicted = boxed.predict_state(&state);
+        assert!((predicted[0] - 11.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_trait_object_sensor_model() {
+        // Verify SensorModelBehavior can be used as a trait object
+        let sensor = SensorModel::position_sensor_2d(1.0, 0.9, 10.0, 100.0);
+        let boxed: Box<dyn SensorModelBehavior> = Box::new(sensor);
+
+        // Use via trait object
+        assert_eq!(boxed.z_dim(), 2);
+        assert_eq!(boxed.x_dim(), 4);
+        assert!((boxed.detection_probability() - 0.9).abs() < 1e-10);
+
+        let state = DVector::from_vec(vec![10.0, 20.0, 1.0, 2.0]);
+        let measurement = boxed.predict_measurement(&state);
+        assert!((measurement[0] - 10.0).abs() < 1e-10);
+        assert!((measurement[1] - 20.0).abs() < 1e-10);
     }
 }

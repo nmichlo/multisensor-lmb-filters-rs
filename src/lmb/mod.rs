@@ -68,6 +68,9 @@ pub use config::{
     SensorVariant,
 };
 
+// Model behavior traits (Phase 3 - Extensibility)
+pub use config::{MotionModelBehavior, SensorModelBehavior};
+
 // Type-safe filter configurations (Phase 2)
 pub use config::{
     CommonConfig, CommonConfigBuilder, LmbFilterConfig, LmbFilterConfigBuilder, LmbmFilterConfig,
