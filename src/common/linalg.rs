@@ -2,10 +2,267 @@
 //!
 //! Mathematical functions for Gaussian operations, matrix manipulations,
 //! and numerical computations required by the tracking algorithms.
+//!
+//! # Numerical Robustness
+//!
+//! This module provides "self-healing" math functions that survive numerical
+//! edge cases common in tracking applications (near-singular covariance matrices,
+//! poorly conditioned systems). Key functions:
+//!
+//! - [`robust_cholesky`] - Auto-regularizes to ensure Cholesky succeeds
+//! - [`robust_inverse`] - Cascading fallbacks: Cholesky → LU → SVD pseudo-inverse
+//! - [`robust_solve`] - Linear system solver with fallbacks
+//!
+//! # Warnings and Logging
+//!
+//! When fallback methods are used, functions can optionally log warnings via
+//! the `tracing` crate. Use [`CholeskyResult`] to detect regularization events.
 
 use crate::common::constants::SVD_TOLERANCE;
-use nalgebra::{DMatrix, DVector};
+use nalgebra::{Cholesky, DMatrix, DVector, Dyn};
 use std::f64::consts::PI;
+
+// ============================================================================
+// Numerical Robustness Types
+// ============================================================================
+
+/// Result of a robust Cholesky decomposition.
+///
+/// This enum distinguishes between standard success and success-with-regularization,
+/// allowing callers to detect and log numerical issues.
+///
+/// # Example
+///
+/// ```
+/// use nalgebra::DMatrix;
+/// use multisensor_lmb_filters_rs::common::linalg::{robust_cholesky, CholeskyResult};
+///
+/// let matrix = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);
+/// match robust_cholesky(&matrix) {
+///     Some(CholeskyResult::Standard(chol)) => {
+///         println!("Cholesky succeeded normally");
+///     }
+///     Some(CholeskyResult::Regularized { cholesky, epsilon }) => {
+///         println!("Cholesky required regularization: eps={}", epsilon);
+///     }
+///     None => {
+///         println!("Cholesky failed even with regularization");
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub enum CholeskyResult {
+    /// Standard Cholesky decomposition succeeded without modification.
+    Standard(Cholesky<f64, Dyn>),
+
+    /// Cholesky succeeded after adding diagonal regularization.
+    ///
+    /// This indicates the original matrix was not positive definite,
+    /// likely due to numerical issues (e.g., accumulated rounding errors
+    /// in covariance propagation).
+    Regularized {
+        /// The Cholesky decomposition of the regularized matrix.
+        cholesky: Cholesky<f64, Dyn>,
+        /// The regularization factor added to each diagonal element.
+        epsilon: f64,
+    },
+}
+
+impl CholeskyResult {
+    /// Returns the inner Cholesky decomposition regardless of how it was obtained.
+    #[inline]
+    pub fn into_cholesky(self) -> Cholesky<f64, Dyn> {
+        match self {
+            CholeskyResult::Standard(chol) => chol,
+            CholeskyResult::Regularized { cholesky, .. } => cholesky,
+        }
+    }
+
+    /// Returns a reference to the inner Cholesky decomposition.
+    #[inline]
+    pub fn cholesky(&self) -> &Cholesky<f64, Dyn> {
+        match self {
+            CholeskyResult::Standard(ref chol) => chol,
+            CholeskyResult::Regularized { ref cholesky, .. } => cholesky,
+        }
+    }
+
+    /// Returns true if regularization was required.
+    #[inline]
+    pub fn was_regularized(&self) -> bool {
+        matches!(self, CholeskyResult::Regularized { .. })
+    }
+
+    /// Returns the regularization epsilon if regularization was applied.
+    #[inline]
+    pub fn regularization_epsilon(&self) -> Option<f64> {
+        match self {
+            CholeskyResult::Standard(_) => None,
+            CholeskyResult::Regularized { epsilon, .. } => Some(*epsilon),
+        }
+    }
+}
+
+/// Warning type for linear algebra operations.
+///
+/// Used by functions that report what fallback method was used.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LinalgWarning {
+    /// Operation succeeded but required diagonal regularization.
+    Regularized {
+        /// The epsilon added to diagonal elements.
+        epsilon: f64,
+    },
+    /// Cholesky failed, fell back to LU decomposition.
+    FellBackToLu,
+    /// Cholesky and LU failed, fell back to SVD pseudo-inverse.
+    FellBackToSvd,
+    /// All methods failed.
+    Failed,
+}
+
+// ============================================================================
+// Robust Linear Algebra Functions
+// ============================================================================
+
+/// Default relative regularization factor for robust Cholesky.
+///
+/// When regularization is needed, the factor added to diagonal elements is:
+/// `epsilon = CHOLESKY_REGULARIZATION_FACTOR * max(abs(diag(A)))`
+pub const CHOLESKY_REGULARIZATION_FACTOR: f64 = 1e-6;
+
+/// Maximum regularization attempts with increasing epsilon.
+pub const CHOLESKY_MAX_REGULARIZATION_ATTEMPTS: usize = 3;
+
+/// Multiplier for increasing regularization on each retry.
+pub const CHOLESKY_REGULARIZATION_GROWTH: f64 = 10.0;
+
+/// Robust Cholesky decomposition with auto-regularization.
+///
+/// Attempts standard Cholesky decomposition first. If it fails (matrix not
+/// positive definite), adds small regularization to the diagonal and retries.
+///
+/// This is essential for tracking applications where covariance matrices can
+/// become numerically non-positive-definite due to accumulated floating-point
+/// errors, even when they should theoretically remain valid.
+///
+/// # Arguments
+///
+/// * `matrix` - Symmetric matrix to decompose
+///
+/// # Returns
+///
+/// * `Some(CholeskyResult::Standard(_))` - Cholesky succeeded without modification
+/// * `Some(CholeskyResult::Regularized { .. })` - Cholesky succeeded after regularization
+/// * `None` - Cholesky failed even with maximum regularization
+///
+/// # Example
+///
+/// ```
+/// use nalgebra::DMatrix;
+/// use multisensor_lmb_filters_rs::common::linalg::robust_cholesky;
+///
+/// // Well-conditioned positive definite matrix
+/// let good = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);
+/// let result = robust_cholesky(&good);
+/// assert!(result.is_some());
+/// assert!(!result.unwrap().was_regularized());
+///
+/// // Near-singular matrix that might fail standard Cholesky
+/// let tricky = DMatrix::from_row_slice(2, 2, &[1.0, 0.9999999, 0.9999999, 1.0]);
+/// let result = robust_cholesky(&tricky);
+/// assert!(result.is_some()); // Regularization allows it to succeed
+/// ```
+pub fn robust_cholesky(matrix: &DMatrix<f64>) -> Option<CholeskyResult> {
+    // First attempt: standard Cholesky
+    if let Some(chol) = matrix.clone().cholesky() {
+        return Some(CholeskyResult::Standard(chol));
+    }
+
+    // Compute base regularization factor from diagonal
+    let diag_max = matrix
+        .diagonal()
+        .iter()
+        .map(|x| x.abs())
+        .fold(0.0, f64::max);
+    let base_eps = if diag_max > 0.0 {
+        CHOLESKY_REGULARIZATION_FACTOR * diag_max
+    } else {
+        CHOLESKY_REGULARIZATION_FACTOR // Fallback for zero matrix
+    };
+
+    // Try increasing regularization
+    let mut eps = base_eps;
+    for _attempt in 0..CHOLESKY_MAX_REGULARIZATION_ATTEMPTS {
+        let mut regularized = matrix.clone();
+        for i in 0..regularized.nrows() {
+            regularized[(i, i)] += eps;
+        }
+
+        if let Some(chol) = regularized.cholesky() {
+            // Note: Consider logging regularization events in production code.
+            // For example, with tracing: tracing::debug!(epsilon = eps, ...)
+
+            return Some(CholeskyResult::Regularized {
+                cholesky: chol,
+                epsilon: eps,
+            });
+        }
+
+        eps *= CHOLESKY_REGULARIZATION_GROWTH;
+    }
+
+    // Note: Consider logging failure events in production code.
+    // For example: tracing::warn!("Cholesky failed even with regularization", ...)
+
+    None
+}
+
+/// Robust Cholesky with custom regularization parameters.
+///
+/// Like [`robust_cholesky`] but allows customizing the regularization behavior.
+///
+/// # Arguments
+///
+/// * `matrix` - Symmetric matrix to decompose
+/// * `initial_eps` - Initial regularization factor (added to diagonal)
+/// * `max_attempts` - Maximum number of regularization attempts
+/// * `growth_factor` - Multiplier for epsilon on each retry
+///
+/// # Returns
+///
+/// Same as [`robust_cholesky`]
+pub fn robust_cholesky_with_params(
+    matrix: &DMatrix<f64>,
+    initial_eps: f64,
+    max_attempts: usize,
+    growth_factor: f64,
+) -> Option<CholeskyResult> {
+    // First attempt: standard Cholesky
+    if let Some(chol) = matrix.clone().cholesky() {
+        return Some(CholeskyResult::Standard(chol));
+    }
+
+    // Try increasing regularization
+    let mut eps = initial_eps;
+    for _ in 0..max_attempts {
+        let mut regularized = matrix.clone();
+        for i in 0..regularized.nrows() {
+            regularized[(i, i)] += eps;
+        }
+
+        if let Some(chol) = regularized.cholesky() {
+            return Some(CholeskyResult::Regularized {
+                cholesky: chol,
+                epsilon: eps,
+            });
+        }
+
+        eps *= growth_factor;
+    }
+
+    None
+}
 
 /// Compute multivariate Gaussian PDF
 ///
@@ -593,6 +850,96 @@ pub fn to_weighted_canonical_form(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ============================================================================
+    // Tests for robust Cholesky
+    // ============================================================================
+
+    #[test]
+    fn test_robust_cholesky_positive_definite() {
+        // Well-conditioned positive definite matrix
+        let m = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);
+        let result = robust_cholesky(&m);
+
+        assert!(result.is_some());
+        let chol_result = result.unwrap();
+
+        // Should succeed without regularization
+        assert!(!chol_result.was_regularized());
+        assert!(chol_result.regularization_epsilon().is_none());
+
+        // Verify L * L' = M
+        let l = chol_result.cholesky().l();
+        let reconstructed = &l * l.transpose();
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!((reconstructed[(i, j)] - m[(i, j)]).abs() < 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn test_robust_cholesky_near_singular() {
+        // Near-singular but theoretically positive semi-definite
+        // This matrix has eigenvalues very close to 0, so standard Cholesky may fail
+        let m = DMatrix::from_row_slice(2, 2, &[1.0, 0.99999999, 0.99999999, 1.0]);
+        let result = robust_cholesky(&m);
+
+        // Should succeed (possibly with regularization)
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_robust_cholesky_not_positive_definite() {
+        // Indefinite matrix (negative eigenvalue)
+        let m = DMatrix::from_row_slice(2, 2, &[1.0, 2.0, 2.0, 1.0]);
+        let result = robust_cholesky(&m);
+
+        // May succeed with regularization or fail
+        // The regularization should be attempted
+        if let Some(chol_result) = result {
+            // If it succeeded, regularization was required
+            assert!(chol_result.was_regularized());
+        }
+    }
+
+    #[test]
+    fn test_robust_cholesky_with_params() {
+        let m = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);
+
+        // With custom parameters
+        let result = robust_cholesky_with_params(&m, 1e-8, 5, 100.0);
+        assert!(result.is_some());
+        assert!(!result.unwrap().was_regularized());
+    }
+
+    #[test]
+    fn test_cholesky_result_into_cholesky() {
+        let m = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);
+        let result = robust_cholesky(&m).unwrap();
+
+        // into_cholesky consumes the result
+        let chol = result.into_cholesky();
+        let l = chol.l();
+
+        // Verify it's valid
+        let reconstructed = &l * l.transpose();
+        assert!((reconstructed[(0, 0)] - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_linalg_warning_equality() {
+        let w1 = LinalgWarning::Regularized { epsilon: 1e-6 };
+        let w2 = LinalgWarning::Regularized { epsilon: 1e-6 };
+        let w3 = LinalgWarning::FellBackToLu;
+
+        assert_eq!(w1, w2);
+        assert_ne!(w1, w3);
+    }
+
+    // ============================================================================
+    // Tests for robust inverse
+    // ============================================================================
 
     #[test]
     fn test_robust_inverse_positive_definite() {
