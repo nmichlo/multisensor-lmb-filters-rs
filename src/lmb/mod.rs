@@ -68,6 +68,12 @@ pub use config::{
     SensorVariant,
 };
 
+// Type-safe filter configurations (Phase 2)
+pub use config::{
+    CommonConfig, CommonConfigBuilder, LmbFilterConfig, LmbFilterConfigBuilder, LmbmFilterConfig,
+    LmbmFilterConfigBuilder,
+};
+
 // Configuration snapshots (for debugging)
 pub use config::{
     AssociationConfigSnapshot, BirthLocationSnapshot, BirthModelSnapshot, FilterConfigSnapshot,

@@ -397,6 +397,455 @@ impl Default for LmbmConfig {
     }
 }
 
+// ============================================================================
+// Type-Safe Filter Configurations
+// ============================================================================
+//
+// These configuration types make illegal states unrepresentable:
+// - LmbFilterConfig: Used ONLY for LMB filters (has GM-specific fields)
+// - LmbmFilterConfig: Used ONLY for LMBM filters (has hypothesis-specific fields)
+//
+// You cannot accidentally set `max_hypotheses` on an LMB filter because the
+// field doesn't exist in LmbFilterConfig.
+
+/// Common configuration shared by all filter types.
+///
+/// These settings apply to both LMB and LMBM filters and control
+/// track lifecycle management.
+#[derive(Debug, Clone)]
+pub struct CommonConfig {
+    /// Existence probability threshold for track gating.
+    /// Tracks with existence below this threshold are pruned.
+    pub existence_threshold: f64,
+
+    /// Minimum trajectory length to keep when pruning.
+    /// Short-lived tracks are discarded without saving their trajectory.
+    pub min_trajectory_length: usize,
+
+    /// Maximum trajectory length for track history recording.
+    /// Older history entries are discarded when this limit is exceeded.
+    pub max_trajectory_length: usize,
+}
+
+impl CommonConfig {
+    /// Create a new common configuration.
+    pub fn new(
+        existence_threshold: f64,
+        min_trajectory_length: usize,
+        max_trajectory_length: usize,
+    ) -> Self {
+        Self {
+            existence_threshold,
+            min_trajectory_length,
+            max_trajectory_length,
+        }
+    }
+
+    /// Create with builder pattern.
+    pub fn builder() -> CommonConfigBuilder {
+        CommonConfigBuilder::default()
+    }
+}
+
+impl Default for CommonConfig {
+    fn default() -> Self {
+        Self {
+            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            max_trajectory_length: super::DEFAULT_MAX_TRAJECTORY_LENGTH,
+        }
+    }
+}
+
+/// Builder for CommonConfig.
+#[derive(Debug, Default)]
+pub struct CommonConfigBuilder {
+    existence_threshold: Option<f64>,
+    min_trajectory_length: Option<usize>,
+    max_trajectory_length: Option<usize>,
+}
+
+impl CommonConfigBuilder {
+    /// Set existence probability threshold.
+    pub fn existence_threshold(mut self, threshold: f64) -> Self {
+        self.existence_threshold = Some(threshold);
+        self
+    }
+
+    /// Set minimum trajectory length.
+    pub fn min_trajectory_length(mut self, length: usize) -> Self {
+        self.min_trajectory_length = Some(length);
+        self
+    }
+
+    /// Set maximum trajectory length.
+    pub fn max_trajectory_length(mut self, length: usize) -> Self {
+        self.max_trajectory_length = Some(length);
+        self
+    }
+
+    /// Build the configuration.
+    pub fn build(self) -> CommonConfig {
+        CommonConfig {
+            existence_threshold: self
+                .existence_threshold
+                .unwrap_or(super::DEFAULT_EXISTENCE_THRESHOLD),
+            min_trajectory_length: self
+                .min_trajectory_length
+                .unwrap_or(super::DEFAULT_MIN_TRAJECTORY_LENGTH),
+            max_trajectory_length: self
+                .max_trajectory_length
+                .unwrap_or(super::DEFAULT_MAX_TRAJECTORY_LENGTH),
+        }
+    }
+}
+
+/// LMB filter configuration (Gaussian mixture posteriors).
+///
+/// This configuration type is used exclusively by LMB-family filters
+/// (not LMBM). It contains settings for Gaussian mixture component
+/// management that don't apply to LMBM filters.
+///
+/// # Example
+///
+/// ```ignore
+/// use multisensor_lmb_filters_rs::lmb::LmbFilterConfig;
+///
+/// let config = LmbFilterConfig::builder()
+///     .existence_threshold(0.001)
+///     .max_gm_components(50)
+///     .build();
+/// ```
+#[derive(Debug, Clone)]
+pub struct LmbFilterConfig {
+    /// Common settings (existence threshold, trajectory lengths).
+    pub common: CommonConfig,
+
+    /// GM component weight threshold for pruning.
+    /// Components with weight below this threshold are pruned.
+    pub gm_weight_threshold: f64,
+
+    /// Maximum number of GM components per track.
+    pub max_gm_components: usize,
+
+    /// Mahalanobis distance threshold for GM component merging.
+    /// Components closer than this threshold are merged.
+    /// Set to `f64::INFINITY` to disable merging.
+    pub gm_merge_threshold: f64,
+}
+
+impl LmbFilterConfig {
+    /// Create a new LMB filter configuration.
+    pub fn new(
+        common: CommonConfig,
+        gm_weight_threshold: f64,
+        max_gm_components: usize,
+        gm_merge_threshold: f64,
+    ) -> Self {
+        Self {
+            common,
+            gm_weight_threshold,
+            max_gm_components,
+            gm_merge_threshold,
+        }
+    }
+
+    /// Create with builder pattern.
+    pub fn builder() -> LmbFilterConfigBuilder {
+        LmbFilterConfigBuilder::default()
+    }
+
+    /// Convenience accessor for existence threshold.
+    #[inline]
+    pub fn existence_threshold(&self) -> f64 {
+        self.common.existence_threshold
+    }
+
+    /// Convenience accessor for min trajectory length.
+    #[inline]
+    pub fn min_trajectory_length(&self) -> usize {
+        self.common.min_trajectory_length
+    }
+
+    /// Convenience accessor for max trajectory length.
+    #[inline]
+    pub fn max_trajectory_length(&self) -> usize {
+        self.common.max_trajectory_length
+    }
+}
+
+impl Default for LmbFilterConfig {
+    fn default() -> Self {
+        Self {
+            common: CommonConfig::default(),
+            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: super::DEFAULT_GM_MERGE_THRESHOLD,
+        }
+    }
+}
+
+/// Builder for LmbFilterConfig.
+#[derive(Debug, Default)]
+pub struct LmbFilterConfigBuilder {
+    common: Option<CommonConfig>,
+    existence_threshold: Option<f64>,
+    min_trajectory_length: Option<usize>,
+    max_trajectory_length: Option<usize>,
+    gm_weight_threshold: Option<f64>,
+    max_gm_components: Option<usize>,
+    gm_merge_threshold: Option<f64>,
+}
+
+impl LmbFilterConfigBuilder {
+    /// Set the common configuration (overrides individual common fields).
+    pub fn common(mut self, common: CommonConfig) -> Self {
+        self.common = Some(common);
+        self
+    }
+
+    /// Set existence probability threshold.
+    pub fn existence_threshold(mut self, threshold: f64) -> Self {
+        self.existence_threshold = Some(threshold);
+        self
+    }
+
+    /// Set minimum trajectory length.
+    pub fn min_trajectory_length(mut self, length: usize) -> Self {
+        self.min_trajectory_length = Some(length);
+        self
+    }
+
+    /// Set maximum trajectory length.
+    pub fn max_trajectory_length(mut self, length: usize) -> Self {
+        self.max_trajectory_length = Some(length);
+        self
+    }
+
+    /// Set GM component weight threshold.
+    pub fn gm_weight_threshold(mut self, threshold: f64) -> Self {
+        self.gm_weight_threshold = Some(threshold);
+        self
+    }
+
+    /// Set maximum GM components per track.
+    pub fn max_gm_components(mut self, max: usize) -> Self {
+        self.max_gm_components = Some(max);
+        self
+    }
+
+    /// Set GM merge threshold (Mahalanobis distance).
+    /// Use `f64::INFINITY` to disable merging.
+    pub fn gm_merge_threshold(mut self, threshold: f64) -> Self {
+        self.gm_merge_threshold = Some(threshold);
+        self
+    }
+
+    /// Build the configuration.
+    pub fn build(self) -> LmbFilterConfig {
+        let common = self.common.unwrap_or_else(|| CommonConfig {
+            existence_threshold: self
+                .existence_threshold
+                .unwrap_or(super::DEFAULT_EXISTENCE_THRESHOLD),
+            min_trajectory_length: self
+                .min_trajectory_length
+                .unwrap_or(super::DEFAULT_MIN_TRAJECTORY_LENGTH),
+            max_trajectory_length: self
+                .max_trajectory_length
+                .unwrap_or(super::DEFAULT_MAX_TRAJECTORY_LENGTH),
+        });
+
+        LmbFilterConfig {
+            common,
+            gm_weight_threshold: self
+                .gm_weight_threshold
+                .unwrap_or(super::DEFAULT_GM_WEIGHT_THRESHOLD),
+            max_gm_components: self
+                .max_gm_components
+                .unwrap_or(super::DEFAULT_MAX_GM_COMPONENTS),
+            gm_merge_threshold: self
+                .gm_merge_threshold
+                .unwrap_or(super::DEFAULT_GM_MERGE_THRESHOLD),
+        }
+    }
+}
+
+/// LMBM filter configuration (hypothesis mixture posteriors).
+///
+/// This configuration type is used exclusively by LMBM-family filters
+/// (not LMB). It contains settings for hypothesis management that
+/// don't apply to LMB filters.
+///
+/// # Example
+///
+/// ```ignore
+/// use multisensor_lmb_filters_rs::lmb::LmbmFilterConfig;
+///
+/// let config = LmbmFilterConfig::builder()
+///     .existence_threshold(0.001)
+///     .max_hypotheses(500)
+///     .use_eap(true)
+///     .build();
+/// ```
+#[derive(Debug, Clone)]
+pub struct LmbmFilterConfig {
+    /// Common settings (existence threshold, trajectory lengths).
+    pub common: CommonConfig,
+
+    /// Maximum number of posterior hypotheses to maintain.
+    pub max_hypotheses: usize,
+
+    /// Hypothesis weight threshold for pruning.
+    /// Hypotheses with weight below this threshold are pruned.
+    pub hypothesis_weight_threshold: f64,
+
+    /// Use EAP (Expected A Posteriori) for state extraction.
+    /// If false, uses MAP (Maximum A Posteriori).
+    pub use_eap: bool,
+}
+
+impl LmbmFilterConfig {
+    /// Create a new LMBM filter configuration.
+    pub fn new(
+        common: CommonConfig,
+        max_hypotheses: usize,
+        hypothesis_weight_threshold: f64,
+        use_eap: bool,
+    ) -> Self {
+        Self {
+            common,
+            max_hypotheses,
+            hypothesis_weight_threshold,
+            use_eap,
+        }
+    }
+
+    /// Create with builder pattern.
+    pub fn builder() -> LmbmFilterConfigBuilder {
+        LmbmFilterConfigBuilder::default()
+    }
+
+    /// Convenience accessor for existence threshold.
+    #[inline]
+    pub fn existence_threshold(&self) -> f64 {
+        self.common.existence_threshold
+    }
+
+    /// Convenience accessor for min trajectory length.
+    #[inline]
+    pub fn min_trajectory_length(&self) -> usize {
+        self.common.min_trajectory_length
+    }
+
+    /// Convenience accessor for max trajectory length.
+    #[inline]
+    pub fn max_trajectory_length(&self) -> usize {
+        self.common.max_trajectory_length
+    }
+
+    /// Convert to the legacy LmbmConfig for backward compatibility.
+    pub fn to_legacy_lmbm_config(&self) -> LmbmConfig {
+        LmbmConfig {
+            max_hypotheses: self.max_hypotheses,
+            hypothesis_weight_threshold: self.hypothesis_weight_threshold,
+            use_eap: self.use_eap,
+        }
+    }
+}
+
+impl Default for LmbmFilterConfig {
+    fn default() -> Self {
+        Self {
+            common: CommonConfig::default(),
+            max_hypotheses: super::DEFAULT_LMBM_MAX_HYPOTHESES,
+            hypothesis_weight_threshold: super::DEFAULT_LMBM_WEIGHT_THRESHOLD,
+            use_eap: false,
+        }
+    }
+}
+
+/// Builder for LmbmFilterConfig.
+#[derive(Debug, Default)]
+pub struct LmbmFilterConfigBuilder {
+    common: Option<CommonConfig>,
+    existence_threshold: Option<f64>,
+    min_trajectory_length: Option<usize>,
+    max_trajectory_length: Option<usize>,
+    max_hypotheses: Option<usize>,
+    hypothesis_weight_threshold: Option<f64>,
+    use_eap: Option<bool>,
+}
+
+impl LmbmFilterConfigBuilder {
+    /// Set the common configuration (overrides individual common fields).
+    pub fn common(mut self, common: CommonConfig) -> Self {
+        self.common = Some(common);
+        self
+    }
+
+    /// Set existence probability threshold.
+    pub fn existence_threshold(mut self, threshold: f64) -> Self {
+        self.existence_threshold = Some(threshold);
+        self
+    }
+
+    /// Set minimum trajectory length.
+    pub fn min_trajectory_length(mut self, length: usize) -> Self {
+        self.min_trajectory_length = Some(length);
+        self
+    }
+
+    /// Set maximum trajectory length.
+    pub fn max_trajectory_length(mut self, length: usize) -> Self {
+        self.max_trajectory_length = Some(length);
+        self
+    }
+
+    /// Set maximum number of hypotheses.
+    pub fn max_hypotheses(mut self, max: usize) -> Self {
+        self.max_hypotheses = Some(max);
+        self
+    }
+
+    /// Set hypothesis weight threshold.
+    pub fn hypothesis_weight_threshold(mut self, threshold: f64) -> Self {
+        self.hypothesis_weight_threshold = Some(threshold);
+        self
+    }
+
+    /// Set whether to use EAP for state extraction.
+    pub fn use_eap(mut self, use_eap: bool) -> Self {
+        self.use_eap = Some(use_eap);
+        self
+    }
+
+    /// Build the configuration.
+    pub fn build(self) -> LmbmFilterConfig {
+        let common = self.common.unwrap_or_else(|| CommonConfig {
+            existence_threshold: self
+                .existence_threshold
+                .unwrap_or(super::DEFAULT_EXISTENCE_THRESHOLD),
+            min_trajectory_length: self
+                .min_trajectory_length
+                .unwrap_or(super::DEFAULT_MIN_TRAJECTORY_LENGTH),
+            max_trajectory_length: self
+                .max_trajectory_length
+                .unwrap_or(super::DEFAULT_MAX_TRAJECTORY_LENGTH),
+        });
+
+        LmbmFilterConfig {
+            common,
+            max_hypotheses: self
+                .max_hypotheses
+                .unwrap_or(super::DEFAULT_LMBM_MAX_HYPOTHESES),
+            hypothesis_weight_threshold: self
+                .hypothesis_weight_threshold
+                .unwrap_or(super::DEFAULT_LMBM_WEIGHT_THRESHOLD),
+            use_eap: self.use_eap.unwrap_or(false),
+        }
+    }
+}
+
 /// Sensor configuration variant (single or multi-sensor)
 #[derive(Debug, Clone)]
 pub enum SensorVariant {
@@ -983,5 +1432,166 @@ mod tests {
 
         assert_eq!(params.x_dim(), 4);
         assert!(!params.is_multisensor());
+    }
+
+    // ============================================================================
+    // Type-Safe Configuration Tests (Phase 2)
+    // ============================================================================
+
+    #[test]
+    fn test_common_config_default() {
+        let config = CommonConfig::default();
+        assert_eq!(
+            config.existence_threshold,
+            super::super::DEFAULT_EXISTENCE_THRESHOLD
+        );
+        assert_eq!(
+            config.min_trajectory_length,
+            super::super::DEFAULT_MIN_TRAJECTORY_LENGTH
+        );
+        assert_eq!(
+            config.max_trajectory_length,
+            super::super::DEFAULT_MAX_TRAJECTORY_LENGTH
+        );
+    }
+
+    #[test]
+    fn test_common_config_builder() {
+        let config = CommonConfig::builder()
+            .existence_threshold(0.01)
+            .min_trajectory_length(5)
+            .max_trajectory_length(500)
+            .build();
+
+        assert!((config.existence_threshold - 0.01).abs() < 1e-10);
+        assert_eq!(config.min_trajectory_length, 5);
+        assert_eq!(config.max_trajectory_length, 500);
+    }
+
+    #[test]
+    fn test_lmb_filter_config_default() {
+        let config = LmbFilterConfig::default();
+        assert_eq!(
+            config.existence_threshold(),
+            super::super::DEFAULT_EXISTENCE_THRESHOLD
+        );
+        assert_eq!(
+            config.gm_weight_threshold,
+            super::super::DEFAULT_GM_WEIGHT_THRESHOLD
+        );
+        assert_eq!(
+            config.max_gm_components,
+            super::super::DEFAULT_MAX_GM_COMPONENTS
+        );
+        assert!(config.gm_merge_threshold.is_infinite());
+    }
+
+    #[test]
+    fn test_lmb_filter_config_builder() {
+        let config = LmbFilterConfig::builder()
+            .existence_threshold(0.005)
+            .gm_weight_threshold(1e-5)
+            .max_gm_components(50)
+            .gm_merge_threshold(4.0)
+            .build();
+
+        assert!((config.existence_threshold() - 0.005).abs() < 1e-10);
+        assert!((config.gm_weight_threshold - 1e-5).abs() < 1e-15);
+        assert_eq!(config.max_gm_components, 50);
+        assert!((config.gm_merge_threshold - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_lmb_filter_config_with_common() {
+        let common = CommonConfig::new(0.02, 10, 200);
+        let config = LmbFilterConfig::builder()
+            .common(common.clone())
+            .max_gm_components(75)
+            .build();
+
+        // Common fields should come from the CommonConfig
+        assert!((config.existence_threshold() - 0.02).abs() < 1e-10);
+        assert_eq!(config.min_trajectory_length(), 10);
+        assert_eq!(config.max_trajectory_length(), 200);
+        // GM-specific field set explicitly
+        assert_eq!(config.max_gm_components, 75);
+        // GM-specific field from default
+        assert_eq!(
+            config.gm_weight_threshold,
+            super::super::DEFAULT_GM_WEIGHT_THRESHOLD
+        );
+    }
+
+    #[test]
+    fn test_lmbm_filter_config_default() {
+        let config = LmbmFilterConfig::default();
+        assert_eq!(
+            config.existence_threshold(),
+            super::super::DEFAULT_EXISTENCE_THRESHOLD
+        );
+        assert_eq!(
+            config.max_hypotheses,
+            super::super::DEFAULT_LMBM_MAX_HYPOTHESES
+        );
+        assert_eq!(
+            config.hypothesis_weight_threshold,
+            super::super::DEFAULT_LMBM_WEIGHT_THRESHOLD
+        );
+        assert!(!config.use_eap);
+    }
+
+    #[test]
+    fn test_lmbm_filter_config_builder() {
+        let config = LmbmFilterConfig::builder()
+            .existence_threshold(0.002)
+            .max_hypotheses(500)
+            .hypothesis_weight_threshold(1e-7)
+            .use_eap(true)
+            .build();
+
+        assert!((config.existence_threshold() - 0.002).abs() < 1e-10);
+        assert_eq!(config.max_hypotheses, 500);
+        assert!((config.hypothesis_weight_threshold - 1e-7).abs() < 1e-15);
+        assert!(config.use_eap);
+    }
+
+    #[test]
+    fn test_lmbm_filter_config_to_legacy() {
+        let config = LmbmFilterConfig::builder()
+            .max_hypotheses(200)
+            .hypothesis_weight_threshold(1e-4)
+            .use_eap(true)
+            .build();
+
+        let legacy = config.to_legacy_lmbm_config();
+        assert_eq!(legacy.max_hypotheses, 200);
+        assert!((legacy.hypothesis_weight_threshold - 1e-4).abs() < 1e-15);
+        assert!(legacy.use_eap);
+    }
+
+    #[test]
+    fn test_type_safety_lmb_has_no_hypothesis_fields() {
+        // This test documents that LmbFilterConfig has NO max_hypotheses field.
+        // The following would not compile:
+        // let config = LmbFilterConfig::builder().max_hypotheses(100).build();
+        //
+        // We verify type safety by checking LmbFilterConfig has GM-specific fields
+        let config = LmbFilterConfig::default();
+        let _ = config.max_gm_components; // This exists
+        let _ = config.gm_merge_threshold; // This exists
+                                           // config.max_hypotheses would NOT exist - that's the point!
+    }
+
+    #[test]
+    fn test_type_safety_lmbm_has_no_gm_fields() {
+        // This test documents that LmbmFilterConfig has NO GM-specific fields.
+        // The following would not compile:
+        // let config = LmbmFilterConfig::builder().max_gm_components(100).build();
+        //
+        // We verify type safety by checking LmbmFilterConfig has hypothesis-specific fields
+        let config = LmbmFilterConfig::default();
+        let _ = config.max_hypotheses; // This exists
+        let _ = config.use_eap; // This exists
+                                // config.max_gm_components would NOT exist - that's the point!
     }
 }
