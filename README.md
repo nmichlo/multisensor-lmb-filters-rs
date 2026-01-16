@@ -11,6 +11,19 @@
 ---
 
 > **Disclaimer:** This is an unofficial Rust port of the MATLAB [multisensor-lmb-filters](https://github.com/scjrobertson/multisensor-lmb-filters) library by Stuart Robertson. This project is **NOT** affiliated with or endorsed by the original author. All credit for the original design and algorithms goes to Stuart Robertson and the referenced academic papers.
+>
+> Please also cite the original work if you use this project:
+
+```latex
+@article{robertson2022efficient,
+  title={Efficient approximations of the multi-sensor labelled multi-Bernoulli filter},
+  journal={Signal Processing},
+  volume={199},
+  pages={108633},
+  year={2022},
+  publisher={Elsevier}
+}
+```
 
 ---
 
