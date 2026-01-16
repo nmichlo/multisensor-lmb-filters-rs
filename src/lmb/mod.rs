@@ -54,6 +54,7 @@ pub mod singlesensor;
 
 // Utilities
 pub mod cardinality;
+pub mod measurements;
 
 // Re-export all public types from submodules
 
@@ -101,6 +102,11 @@ pub use multisensor::{
 
 // Utilities (re-exported from common)
 pub use crate::common::rng::{SimpleRng, Uniform01};
+
+// Measurement sources (zero-copy abstractions)
+pub use measurements::{
+    MeasurementSource, SingleSensorMeasurements, SliceOfSlicesMeasurements, VecOfVecsMeasurements,
+};
 
 // ============================================================================
 // Default Filter Constants
