@@ -46,6 +46,7 @@ pub mod types;
 pub mod builder;
 pub mod common_ops;
 pub mod errors;
+pub mod reporter;
 pub mod scheduler;
 pub mod traits;
 
@@ -101,6 +102,9 @@ pub use scheduler::{
     DynamicScheduler, FusionCapable, IcLmbScheduler, LmbScheduler, MultisensorCapable,
     ParallelScheduler, SequentialScheduler, SingleSensorScheduler, UpdateScheduler,
 };
+
+// Observability (Phase 5 - StepReporter)
+pub use reporter::{CompositeReporter, DebugReporter, LoggingReporter, NoOpReporter, StepReporter};
 
 // Builder traits
 pub use builder::{FilterBuilder, LmbFilterBuilder};
