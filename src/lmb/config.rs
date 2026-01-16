@@ -4,6 +4,7 @@
 //! the monolithic Model struct with focused, purpose-specific configs.
 
 use nalgebra::{DMatrix, DVector};
+use serde::Serialize;
 
 /// Motion model parameters for prediction
 #[derive(Debug, Clone)]
@@ -41,40 +42,33 @@ impl MotionModel {
     }
 
     /// Create a constant velocity motion model in 2D
-    /// State: [x, vx, y, vy]
+    /// State: [x, y, vx, vy] (matches MATLAB convention)
+    ///
+    /// Transition matrix A = [I, dt*I; 0, I] where I is 2x2 identity
+    /// Process noise R = q * [(dt³/3)*I, (dt²/2)*I; (dt²/2)*I, dt*I]
     pub fn constant_velocity_2d(dt: f64, process_noise_std: f64, survival_prob: f64) -> Self {
-        let a = DMatrix::from_row_slice(
-            4,
-            4,
-            &[
-                1.0, dt, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, dt, 0.0, 0.0, 0.0, 1.0,
-            ],
-        );
+        // A = [eye(2), dt*eye(2); zeros(2), eye(2)]
+        // State ordering: [x, y, vx, vy]
+        #[rustfmt::skip]
+        let a = DMatrix::from_row_slice(4, 4, &[
+            1.0, 0.0, dt,  0.0,   // x' = x + dt*vx
+            0.0, 1.0, 0.0, dt,    // y' = y + dt*vy
+            0.0, 0.0, 1.0, 0.0,   // vx' = vx
+            0.0, 0.0, 0.0, 1.0,   // vy' = vy
+        ]);
 
         // Process noise (continuous white noise acceleration)
+        // R = q * [(1/3)*dt^3*eye(2), 0.5*dt^2*eye(2); 0.5*dt^2*eye(2), dt*eye(2)]
         let q = process_noise_std * process_noise_std;
-        let r = DMatrix::from_row_slice(
-            4,
-            4,
-            &[
-                q * dt.powi(3) / 3.0,
-                q * dt.powi(2) / 2.0,
-                0.0,
-                0.0,
-                q * dt.powi(2) / 2.0,
-                q * dt,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                q * dt.powi(3) / 3.0,
-                q * dt.powi(2) / 2.0,
-                0.0,
-                0.0,
-                q * dt.powi(2) / 2.0,
-                q * dt,
-            ],
-        );
+        let dt2 = dt * dt;
+        let dt3 = dt2 * dt;
+        #[rustfmt::skip]
+        let r = DMatrix::from_row_slice(4, 4, &[
+            q * dt3 / 3.0,  0.0,            q * dt2 / 2.0,  0.0,
+            0.0,            q * dt3 / 3.0,  0.0,            q * dt2 / 2.0,
+            q * dt2 / 2.0,  0.0,            q * dt,         0.0,
+            0.0,            q * dt2 / 2.0,  0.0,            q * dt,
+        ]);
 
         let u = DVector::zeros(4);
 
@@ -133,15 +127,22 @@ impl SensorModel {
         self.clutter_rate / self.observation_volume
     }
 
-    /// Create a position-only sensor for 4D state [x, vx, y, vy]
-    /// Measures [x, y]
+    /// Create a position-only sensor for 4D state [x, y, vx, vy]
+    /// Measures [x, y] (matches MATLAB convention)
+    ///
+    /// Observation matrix C = [eye(2), zeros(2)]
     pub fn position_sensor_2d(
         measurement_noise_std: f64,
         detection_prob: f64,
         clutter_rate: f64,
         obs_volume: f64,
     ) -> Self {
-        let c = DMatrix::from_row_slice(2, 4, &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        // C = [eye(2), zeros(2)] for state [x, y, vx, vy]
+        #[rustfmt::skip]
+        let c = DMatrix::from_row_slice(2, 4, &[
+            1.0, 0.0, 0.0, 0.0,   // z[0] = x
+            0.0, 1.0, 0.0, 0.0,   // z[1] = y
+        ]);
 
         let q_var = measurement_noise_std * measurement_noise_std;
         let q = DMatrix::from_diagonal(&DVector::from_vec(vec![q_var, q_var]));
@@ -541,6 +542,409 @@ impl FilterParamsBuilder {
             thresholds: self.thresholds.unwrap_or_default(),
             lmbm: self.lmbm.unwrap_or_default(),
         })
+    }
+}
+
+// ============================================================================
+// Configuration Snapshots (for debugging/comparison)
+// ============================================================================
+
+/// Snapshot of motion model configuration for debugging.
+#[derive(Debug, Clone, Serialize)]
+pub struct MotionModelSnapshot {
+    /// State dimension
+    pub x_dim: usize,
+    /// Survival probability
+    pub survival_probability: f64,
+    /// State transition matrix A (flattened row-major)
+    pub transition_matrix: Vec<f64>,
+    /// Process noise covariance Q (flattened row-major)
+    pub process_noise: Vec<f64>,
+}
+
+impl From<&MotionModel> for MotionModelSnapshot {
+    fn from(m: &MotionModel) -> Self {
+        Self {
+            x_dim: m.x_dim(),
+            survival_probability: m.survival_probability,
+            transition_matrix: m.transition_matrix.iter().copied().collect(),
+            process_noise: m.process_noise.iter().copied().collect(),
+        }
+    }
+}
+
+/// Snapshot of sensor model configuration for debugging.
+#[derive(Debug, Clone, Serialize)]
+pub struct SensorModelSnapshot {
+    /// Measurement dimension
+    pub z_dim: usize,
+    /// State dimension
+    pub x_dim: usize,
+    /// Detection probability
+    pub detection_probability: f64,
+    /// Clutter rate (expected false alarms per timestep)
+    pub clutter_rate: f64,
+    /// Observation space volume
+    pub observation_volume: f64,
+    /// Clutter density (derived: clutter_rate / observation_volume)
+    pub clutter_density: f64,
+    /// Observation matrix C (flattened row-major)
+    pub observation_matrix: Vec<f64>,
+    /// Measurement noise covariance R (flattened row-major)
+    pub measurement_noise: Vec<f64>,
+}
+
+impl From<&SensorModel> for SensorModelSnapshot {
+    fn from(s: &SensorModel) -> Self {
+        Self {
+            z_dim: s.z_dim(),
+            x_dim: s.x_dim(),
+            detection_probability: s.detection_probability,
+            clutter_rate: s.clutter_rate,
+            observation_volume: s.observation_volume,
+            clutter_density: s.clutter_density(),
+            observation_matrix: s.observation_matrix.iter().copied().collect(),
+            measurement_noise: s.measurement_noise.iter().copied().collect(),
+        }
+    }
+}
+
+/// Snapshot of a single birth location for debugging.
+#[derive(Debug, Clone, Serialize)]
+pub struct BirthLocationSnapshot {
+    /// Location label/index
+    pub label: usize,
+    /// Birth mean state (flattened)
+    pub mean: Vec<f64>,
+    /// Birth covariance diagonal (for readability - full matrix available separately)
+    pub covariance_diag: Vec<f64>,
+}
+
+impl From<&BirthLocation> for BirthLocationSnapshot {
+    fn from(loc: &BirthLocation) -> Self {
+        Self {
+            label: loc.label,
+            mean: loc.mean.iter().copied().collect(),
+            covariance_diag: loc.covariance.diagonal().iter().copied().collect(),
+        }
+    }
+}
+
+/// Snapshot of birth model configuration for debugging.
+#[derive(Debug, Clone, Serialize)]
+pub struct BirthModelSnapshot {
+    /// Number of birth locations
+    pub num_locations: usize,
+    /// Birth existence probability for LMB filters
+    pub lmb_existence: f64,
+    /// Birth existence probability for LMBM filters
+    pub lmbm_existence: f64,
+    /// Details of each birth location
+    pub locations: Vec<BirthLocationSnapshot>,
+}
+
+impl From<&BirthModel> for BirthModelSnapshot {
+    fn from(b: &BirthModel) -> Self {
+        Self {
+            num_locations: b.num_locations(),
+            lmb_existence: b.lmb_existence,
+            lmbm_existence: b.lmbm_existence,
+            locations: b.locations.iter().map(|l| l.into()).collect(),
+        }
+    }
+}
+
+/// Snapshot of association configuration for debugging.
+#[derive(Debug, Clone, Serialize)]
+pub struct AssociationConfigSnapshot {
+    /// Association method name
+    pub method: String,
+    /// LBP max iterations (if applicable)
+    pub lbp_max_iterations: usize,
+    /// LBP convergence tolerance (if applicable)
+    pub lbp_tolerance: f64,
+    /// Gibbs samples (if applicable)
+    pub gibbs_samples: usize,
+    /// Murty assignments (if applicable)
+    pub murty_assignments: usize,
+}
+
+impl From<&AssociationConfig> for AssociationConfigSnapshot {
+    fn from(a: &AssociationConfig) -> Self {
+        let method = match a.method {
+            DataAssociationMethod::Lbp => "LBP",
+            DataAssociationMethod::LbpFixed => "LBP-Fixed",
+            DataAssociationMethod::Gibbs => "Gibbs",
+            DataAssociationMethod::Murty => "Murty",
+        }
+        .to_string();
+        Self {
+            method,
+            lbp_max_iterations: a.lbp_max_iterations,
+            lbp_tolerance: a.lbp_tolerance,
+            gibbs_samples: a.gibbs_samples,
+            murty_assignments: a.murty_assignments,
+        }
+    }
+}
+
+/// Snapshot of filter thresholds for debugging.
+#[derive(Debug, Clone, Serialize)]
+pub struct ThresholdsSnapshot {
+    /// Existence probability threshold
+    pub existence_threshold: f64,
+    /// GM component weight threshold
+    pub gm_weight_threshold: f64,
+    /// Maximum GM components per track
+    pub max_gm_components: usize,
+    /// Minimum trajectory length
+    pub min_trajectory_length: usize,
+    /// GM merge threshold (Mahalanobis distance), None means infinity (disabled)
+    #[serde(serialize_with = "serialize_option_f64")]
+    pub gm_merge_threshold: Option<f64>,
+}
+
+/// Custom serializer for Option<f64> that outputs null for None
+fn serialize_option_f64<S>(value: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match value {
+        Some(v) => serializer.serialize_f64(*v),
+        None => serializer.serialize_none(),
+    }
+}
+
+/// Snapshot of LMBM-specific configuration for debugging.
+#[derive(Debug, Clone, Serialize)]
+pub struct LmbmConfigSnapshot {
+    /// Maximum number of hypotheses
+    pub max_hypotheses: usize,
+    /// Hypothesis weight threshold
+    pub hypothesis_weight_threshold: f64,
+    /// Use EAP for state extraction
+    pub use_eap: bool,
+}
+
+impl From<&LmbmConfig> for LmbmConfigSnapshot {
+    fn from(c: &LmbmConfig) -> Self {
+        Self {
+            max_hypotheses: c.max_hypotheses,
+            hypothesis_weight_threshold: c.hypothesis_weight_threshold,
+            use_eap: c.use_eap,
+        }
+    }
+}
+
+/// Complete filter configuration snapshot for debugging and comparison.
+///
+/// This struct captures all configuration parameters used to initialize a filter,
+/// making it easy to compare configurations across implementations (Rust, Python, Octave).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use multisensor_lmb_filters_rs::lmb::*;
+///
+/// let filter = LmbFilter::new(motion, sensor, birth, assoc_config);
+/// let config = filter.get_config();
+/// println!("{}", serde_json::to_string_pretty(&config).unwrap());
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct FilterConfigSnapshot {
+    /// Filter type identifier
+    pub filter_type: String,
+    /// Motion model configuration
+    pub motion: MotionModelSnapshot,
+    /// Sensor configuration (single sensor or summary for multi-sensor)
+    pub sensor: SensorModelSnapshot,
+    /// Number of sensors (1 for single-sensor filters)
+    pub num_sensors: usize,
+    /// Birth model configuration
+    pub birth: BirthModelSnapshot,
+    /// Association configuration
+    pub association: AssociationConfigSnapshot,
+    /// Filter thresholds
+    pub thresholds: ThresholdsSnapshot,
+    /// LMBM-specific config (None for LMB filters)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lmbm_config: Option<LmbmConfigSnapshot>,
+}
+
+impl FilterConfigSnapshot {
+    /// Create a snapshot for a single-sensor LMB-style filter.
+    #[allow(clippy::too_many_arguments)]
+    pub fn single_sensor_lmb(
+        filter_type: &str,
+        motion: &MotionModel,
+        sensor: &SensorModel,
+        birth: &BirthModel,
+        association: &AssociationConfig,
+        existence_threshold: f64,
+        gm_weight_threshold: f64,
+        max_gm_components: usize,
+        min_trajectory_length: usize,
+        gm_merge_threshold: f64,
+    ) -> Self {
+        Self {
+            filter_type: filter_type.to_string(),
+            motion: motion.into(),
+            sensor: sensor.into(),
+            num_sensors: 1,
+            birth: birth.into(),
+            association: association.into(),
+            thresholds: ThresholdsSnapshot {
+                existence_threshold,
+                gm_weight_threshold,
+                max_gm_components,
+                min_trajectory_length,
+                gm_merge_threshold: if gm_merge_threshold.is_infinite() {
+                    None
+                } else {
+                    Some(gm_merge_threshold)
+                },
+            },
+            lmbm_config: None,
+        }
+    }
+
+    /// Create a snapshot for a single-sensor LMBM-style filter.
+    #[allow(clippy::too_many_arguments)]
+    pub fn single_sensor_lmbm(
+        filter_type: &str,
+        motion: &MotionModel,
+        sensor: &SensorModel,
+        birth: &BirthModel,
+        association: &AssociationConfig,
+        existence_threshold: f64,
+        min_trajectory_length: usize,
+        lmbm_config: &LmbmConfig,
+    ) -> Self {
+        Self {
+            filter_type: filter_type.to_string(),
+            motion: motion.into(),
+            sensor: sensor.into(),
+            num_sensors: 1,
+            birth: birth.into(),
+            association: association.into(),
+            thresholds: ThresholdsSnapshot {
+                existence_threshold,
+                gm_weight_threshold: 0.0, // Not used by LMBM
+                max_gm_components: 0,     // Not used by LMBM
+                min_trajectory_length,
+                gm_merge_threshold: None, // Not used by LMBM
+            },
+            lmbm_config: Some(lmbm_config.into()),
+        }
+    }
+
+    /// Create a snapshot for a multi-sensor LMB-style filter.
+    #[allow(clippy::too_many_arguments)]
+    pub fn multi_sensor_lmb(
+        filter_type: &str,
+        motion: &MotionModel,
+        sensors: &MultisensorConfig,
+        birth: &BirthModel,
+        association: &AssociationConfig,
+        existence_threshold: f64,
+        gm_weight_threshold: f64,
+        max_gm_components: usize,
+        min_trajectory_length: usize,
+        gm_merge_threshold: f64,
+    ) -> Self {
+        // Use first sensor as representative (all sensors typically identical in benchmarks)
+        let sensor_snapshot =
+            sensors
+                .sensors
+                .first()
+                .map(|s| s.into())
+                .unwrap_or(SensorModelSnapshot {
+                    z_dim: 0,
+                    x_dim: 0,
+                    detection_probability: 0.0,
+                    clutter_rate: 0.0,
+                    observation_volume: 0.0,
+                    clutter_density: 0.0,
+                    observation_matrix: vec![],
+                    measurement_noise: vec![],
+                });
+
+        Self {
+            filter_type: filter_type.to_string(),
+            motion: motion.into(),
+            sensor: sensor_snapshot,
+            num_sensors: sensors.num_sensors(),
+            birth: birth.into(),
+            association: association.into(),
+            thresholds: ThresholdsSnapshot {
+                existence_threshold,
+                gm_weight_threshold,
+                max_gm_components,
+                min_trajectory_length,
+                gm_merge_threshold: if gm_merge_threshold.is_infinite() {
+                    None
+                } else {
+                    Some(gm_merge_threshold)
+                },
+            },
+            lmbm_config: None,
+        }
+    }
+
+    /// Create a snapshot for a multi-sensor LMBM-style filter.
+    #[allow(clippy::too_many_arguments)]
+    pub fn multi_sensor_lmbm(
+        filter_type: &str,
+        motion: &MotionModel,
+        sensors: &MultisensorConfig,
+        birth: &BirthModel,
+        association: &AssociationConfig,
+        existence_threshold: f64,
+        min_trajectory_length: usize,
+        lmbm_config: &LmbmConfig,
+    ) -> Self {
+        let sensor_snapshot =
+            sensors
+                .sensors
+                .first()
+                .map(|s| s.into())
+                .unwrap_or(SensorModelSnapshot {
+                    z_dim: 0,
+                    x_dim: 0,
+                    detection_probability: 0.0,
+                    clutter_rate: 0.0,
+                    observation_volume: 0.0,
+                    clutter_density: 0.0,
+                    observation_matrix: vec![],
+                    measurement_noise: vec![],
+                });
+
+        Self {
+            filter_type: filter_type.to_string(),
+            motion: motion.into(),
+            sensor: sensor_snapshot,
+            num_sensors: sensors.num_sensors(),
+            birth: birth.into(),
+            association: association.into(),
+            thresholds: ThresholdsSnapshot {
+                existence_threshold,
+                gm_weight_threshold: 0.0, // Not used by LMBM
+                max_gm_components: 0,     // Not used by LMBM
+                min_trajectory_length,
+                gm_merge_threshold: None, // Not used by LMBM
+            },
+            lmbm_config: Some(lmbm_config.into()),
+        }
+    }
+
+    /// Serialize to JSON string.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// Serialize to pretty-printed JSON string.
+    pub fn to_json_pretty(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
     }
 }
 

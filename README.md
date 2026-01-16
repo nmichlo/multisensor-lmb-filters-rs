@@ -27,25 +27,6 @@
 
 ---
 
-## What is Multi-Object Tracking?
-
-Imagine you have a security camera watching a parking lot. Cars come and go, and you want to:
-- **Detect** each car in every video frame
-- **Track** each car across frames (Car A in frame 1 is the same as Car A in frame 100)
-- **Handle uncertainty** (cars get occluded, detections are noisy, new cars appear)
-
-This library solves exactly that problem using **Labeled Multi-Bernoulli (LMB) filters** - a probabilistic approach that:
-- Maintains a probability distribution over "how many objects exist and where are they"
-- Assigns unique labels to each tracked object
-- Handles object birth (new objects appearing) and death (objects leaving)
-- Fuses data from multiple sensors (cameras, radars, lidars)
-
-### Related Projects
-
-- **[multisensor-lmb-filters](https://github.com/nmichlo/multisensor-lmb-filters)** - MATLAB reference implementation with deterministic fixtures
-- **[Original repository](https://github.com/scjrobertson/multisensor-lmb-filters)** - Stuart Robertson's original MATLAB implementation
-
----
 
 ## Overview
 
@@ -56,6 +37,18 @@ This library solves exactly that problem using **Labeled Multi-Bernoulli (LMB) f
 - **Type safety:** Compile-time validation of configurations
 - **Python bindings:** Use from Python with `pip install multisensor-lmb-filters-rs`
 - **Modular design:** Swap components via traits for custom implementations
+
+### Speedup vs MATLAB/Octave
+
+See extensive benchmarks at [README_BENCHMARKS.md](README_BENCHMARKS.md) run on an M4 Pro MacBook
+- Results are from 50-1000x faster over the original implementations, bringing tracking times into the 10s-100s of milliseconds range for typical scenarios.
+- _optimizations are still ongoing too for complex cases!_
+
+### Related Projects
+
+- **[multisensor-lmb-filters](https://github.com/nmichlo/multisensor-lmb-filters)** - MATLAB reference implementation with deterministic fixtures
+- **[Original repository](https://github.com/scjrobertson/multisensor-lmb-filters)** - Stuart Robertson's original MATLAB implementation
+
 
 ---
 
@@ -104,6 +97,8 @@ The library is modular: choose a **Filter** and an **Association Method** indepe
 | `LBP` | Yes | Fast | Good | **Default.** Works for most scenarios |
 | `Gibbs` | No | Medium | Excellent | Dense scenes with many overlapping objects |
 | `Murty` | Yes | Slow | Exact | Small problems (<20 objects), must be reproducible |
+
+> **Performance Note:** In Rust, Gibbs (40ms) can be faster than LBP (88ms) due to simple sampling loops that compile well, while LBP uses complex iterative matrix operations. However, in Octave/MATLAB, Gibbs (~75s) is much slower than LBP (~4s) because interpreted loops have high overhead while BLAS-optimized matrix operations stay fast. Murty's algorithm (960ms Rust, timeout Octave) is intentionally slow—it's O(K×n⁴) for exact K-best assignments and only suitable for small problems (<20 objects) where determinism is critical.
 
 All filters work with all association methods:
 

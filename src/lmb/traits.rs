@@ -233,6 +233,15 @@ pub trait Merger: Send + Sync {
     fn is_sequential(&self) -> bool {
         false // Default: parallel processing
     }
+
+    /// Set prior tracks for decorrelation (used by PU-LMB).
+    ///
+    /// Some fusion strategies (like Parallel Update) need access to the prior
+    /// tracks before sensor updates for proper decorrelation. Most mergers
+    /// don't need this and use the default no-op implementation.
+    fn set_prior(&mut self, _prior_tracks: Vec<Track>) {
+        // Default: no-op - most mergers don't need prior tracks
+    }
 }
 
 /// Track update strategy after data association.

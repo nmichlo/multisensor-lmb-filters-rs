@@ -18,7 +18,9 @@ use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
 
 use super::super::builder::{FilterBuilder, LmbFilterBuilder};
-use super::super::config::{AssociationConfig, BirthModel, FilterParams, MotionModel, SensorModel};
+use super::super::config::{
+    AssociationConfig, BirthModel, FilterConfigSnapshot, FilterParams, MotionModel, SensorModel,
+};
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{
@@ -239,6 +241,32 @@ impl<A: Associator> LmbFilter<A> {
     /// Returns a clone of all internal tracks with full Gaussian mixture data.
     pub fn get_tracks(&self) -> Vec<Track> {
         self.tracks.clone()
+    }
+
+    /// Get a snapshot of the filter's configuration for debugging.
+    ///
+    /// Returns all initialization parameters as a serializable struct,
+    /// useful for comparing configurations across implementations.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let config = filter.get_config();
+    /// println!("{}", config.to_json_pretty());
+    /// ```
+    pub fn get_config(&self) -> FilterConfigSnapshot {
+        FilterConfigSnapshot::single_sensor_lmb(
+            "LmbFilter",
+            &self.motion,
+            &self.sensor,
+            &self.birth,
+            &self.association_config,
+            self.existence_threshold,
+            self.gm_weight_threshold,
+            self.max_gm_components,
+            self.min_trajectory_length,
+            self.gm_merge_threshold,
+        )
     }
 
     /// Detailed step that returns all intermediate data for fixture validation.

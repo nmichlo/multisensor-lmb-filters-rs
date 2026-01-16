@@ -28,7 +28,7 @@ use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
 /// # MATLAB Fixture Correspondence
 ///
 /// This struct corresponds to MATLAB's `posteriorParameters` array in the fixture files
-/// at `tests/data/step_by_step/*.json`. For each track i in the fixture:
+/// at `tests/fixtures/step_*.json`. For each track i in the fixture:
 ///
 /// - `posteriorParameters[i].mu` → shape `(num_meas * num_comp, state_dim)`
 ///   Flattened posterior means. Use `(j * num_comp + k, :)` for measurement j, component k.
@@ -461,10 +461,11 @@ mod tests {
     use nalgebra::DMatrix;
 
     fn create_test_track() -> Track {
+        // State ordering: [x, y, vx, vy] (MATLAB convention)
         Track::new(
             TrackLabel::new(0, 0),
             0.9,
-            DVector::from_vec(vec![0.0, 1.0, 0.0, 1.0]),
+            DVector::from_vec(vec![0.0, 0.0, 1.0, 1.0]),
             DMatrix::identity(4, 4) * 10.0,
         )
     }

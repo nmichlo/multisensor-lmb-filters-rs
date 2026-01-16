@@ -417,6 +417,27 @@ macro_rules! impl_lmbm_hypothesis_access {
     };
 }
 
+/// Implement get_config methods for all filters
+macro_rules! impl_get_config {
+    ($filter:ty) => {
+        #[pymethods]
+        impl $filter {
+            /// Get a JSON string with all filter configuration parameters.
+            ///
+            /// Useful for debugging and comparing configurations across
+            /// implementations (Rust, Python, Octave).
+            fn get_config_json(&self) -> String {
+                self.inner.get_config().to_json()
+            }
+
+            /// Get a pretty-printed JSON string with all filter configuration parameters.
+            fn get_config_json_pretty(&self) -> String {
+                self.inner.get_config().to_json_pretty()
+            }
+        }
+    };
+}
+
 // =============================================================================
 // AssociatorConfig
 // =============================================================================
@@ -650,6 +671,7 @@ impl PyFilterLmb {
 impl_filter_reset!(PyFilterLmb);
 impl_singlesensor_step!(PyFilterLmb, true, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterLmb);
+impl_get_config!(PyFilterLmb);
 
 // =============================================================================
 // FilterLmbm - Single-sensor LMBM filter
@@ -734,6 +756,7 @@ impl_filter_reset!(PyFilterLmbm);
 impl_singlesensor_step!(PyFilterLmbm, true, true); // LMBM uses log space L
 impl_lmbm_track_access!(PyFilterLmbm);
 impl_lmbm_hypothesis_access!(PyFilterLmbm);
+impl_get_config!(PyFilterLmbm);
 
 // =============================================================================
 // FilterAaLmb - Arithmetic Average multi-sensor LMB filter
@@ -792,6 +815,7 @@ impl PyFilterAaLmb {
 impl_filter_reset!(PyFilterAaLmb);
 impl_multisensor_step!(PyFilterAaLmb, false, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterAaLmb);
+impl_get_config!(PyFilterAaLmb);
 
 // =============================================================================
 // FilterGaLmb - Geometric Average multi-sensor LMB filter
@@ -850,6 +874,7 @@ impl PyFilterGaLmb {
 impl_filter_reset!(PyFilterGaLmb);
 impl_multisensor_step!(PyFilterGaLmb, false, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterGaLmb);
+impl_get_config!(PyFilterGaLmb);
 
 // =============================================================================
 // FilterPuLmb - Parallel Update multi-sensor LMB filter
@@ -908,6 +933,7 @@ impl PyFilterPuLmb {
 impl_filter_reset!(PyFilterPuLmb);
 impl_multisensor_step!(PyFilterPuLmb, false, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterPuLmb);
+impl_get_config!(PyFilterPuLmb);
 
 // =============================================================================
 // FilterIcLmb - Iterated Corrector multi-sensor LMB filter
@@ -965,6 +991,7 @@ impl PyFilterIcLmb {
 impl_filter_reset!(PyFilterIcLmb);
 impl_multisensor_step!(PyFilterIcLmb, false, false); // LMB uses linear space L
 impl_lmb_track_access!(PyFilterIcLmb);
+impl_get_config!(PyFilterIcLmb);
 
 // =============================================================================
 // FilterMultisensorLmbm - Multi-sensor LMBM filter
@@ -1037,3 +1064,4 @@ impl_filter_reset!(PyFilterMultisensorLmbm);
 impl_multisensor_step!(PyFilterMultisensorLmbm, false, true); // LMBM uses log space L
 impl_lmbm_track_access!(PyFilterMultisensorLmbm);
 impl_lmbm_hypothesis_access!(PyFilterMultisensorLmbm);
+impl_get_config!(PyFilterMultisensorLmbm);

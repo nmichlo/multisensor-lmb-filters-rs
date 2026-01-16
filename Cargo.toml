@@ -46,7 +46,13 @@ numpy = { version = "0.23", optional = true }
 [dev-dependencies]
 # Testing
 approx = "0.5"      # Floating point comparisons
-criterion = "0.5"   # Benchmarking
+
+# Benchmarking
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "lmb_filters"
+harness = false
 
 [features]
 default = []
@@ -54,9 +60,9 @@ python = ["dep:pyo3", "dep:numpy"]
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 
-[[bench]]
-name = "lmb_performance"
-harness = false
+[[bin]]
+name = "benchmark_single"
+path = "scripts/bench_cross_lang/_run_rust.rs"
 
 [profile.release]
 lto = true

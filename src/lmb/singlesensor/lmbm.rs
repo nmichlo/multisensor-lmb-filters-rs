@@ -23,7 +23,8 @@ use crate::association::AssociationBuilder;
 
 use super::super::builder::FilterBuilder;
 use super::super::config::{
-    AssociationConfig, BirthModel, FilterParams, LmbmConfig, MotionModel, SensorModel,
+    AssociationConfig, BirthModel, FilterConfigSnapshot, FilterParams, LmbmConfig, MotionModel,
+    SensorModel,
 };
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
@@ -386,6 +387,23 @@ impl<A: Associator> LmbmFilter<A> {
             .max_by(|a, b| a.log_weight.partial_cmp(&b.log_weight).unwrap())
             .map(|h| h.tracks.clone())
             .unwrap_or_default()
+    }
+
+    /// Get a snapshot of the filter's configuration for debugging.
+    ///
+    /// Returns all initialization parameters as a serializable struct,
+    /// useful for comparing configurations across implementations.
+    pub fn get_config(&self) -> FilterConfigSnapshot {
+        FilterConfigSnapshot::single_sensor_lmbm(
+            "LmbmFilter",
+            &self.motion,
+            &self.sensor,
+            &self.birth,
+            &self.association_config,
+            self.existence_threshold,
+            self.min_trajectory_length,
+            &self.lmbm_config,
+        )
     }
 
     /// Detailed step that returns all intermediate data for fixture validation.

@@ -67,6 +67,12 @@ pub use config::{
     SensorVariant,
 };
 
+// Configuration snapshots (for debugging)
+pub use config::{
+    AssociationConfigSnapshot, BirthLocationSnapshot, BirthModelSnapshot, FilterConfigSnapshot,
+    LmbmConfigSnapshot, MotionModelSnapshot, SensorModelSnapshot, ThresholdsSnapshot,
+};
+
 // Output
 pub use output::{EstimatedTrack, FilterOutput, StateEstimate, Trajectory};
 

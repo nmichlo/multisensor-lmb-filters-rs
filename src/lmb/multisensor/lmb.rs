@@ -34,7 +34,9 @@ use crate::association::AssociationBuilder;
 use crate::components::prediction::predict_tracks;
 
 use super::super::builder::{FilterBuilder, LmbFilterBuilder};
-use super::super::config::{AssociationConfig, BirthModel, MotionModel, MultisensorConfig};
+use super::super::config::{
+    AssociationConfig, BirthModel, FilterConfigSnapshot, MotionModel, MultisensorConfig,
+};
 use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::{Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater};
@@ -247,6 +249,27 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
         self.tracks.clone()
     }
 
+    /// Get a snapshot of the filter's configuration for debugging.
+    ///
+    /// Returns all initialization parameters as a serializable struct,
+    /// useful for comparing configurations across implementations.
+    pub fn get_config(&self) -> FilterConfigSnapshot {
+        // Use merger name to identify the filter variant (AA-LMB, GA-LMB, PU-LMB, IC-LMB)
+        let filter_type = format!("MultisensorLmbFilter<{}>", self.merger.name());
+        FilterConfigSnapshot::multi_sensor_lmb(
+            &filter_type,
+            &self.motion,
+            &self.sensors,
+            &self.birth,
+            &self.association_config,
+            self.existence_threshold,
+            self.gm_weight_threshold,
+            self.max_gm_components,
+            self.min_trajectory_length,
+            self.gm_merge_threshold,
+        )
+    }
+
     /// Detailed step that returns all intermediate data for fixture validation.
     ///
     /// Note: Multi-sensor step_detailed does NOT return association matrices
@@ -354,6 +377,8 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
                 per_sensor_tracks.push(sensor_tracks);
             }
 
+            // Set prior for PU-LMB decorrelation (no-op for other mergers)
+            self.merger.set_prior(self.tracks.clone());
             self.tracks = self.merger.merge(&per_sensor_tracks, None);
         } else if !has_any_measurements {
             self.update_existence_no_measurements();
@@ -512,6 +537,8 @@ impl<A: Associator, M: Merger> Filter for MultisensorLmbFilter<A, M> {
             }
 
             // --- STEP 3b: Fuse per-sensor updates ---
+            // Set prior for PU-LMB decorrelation (no-op for other mergers)
+            self.merger.set_prior(self.tracks.clone());
             self.tracks = self.merger.merge(&per_sensor_tracks, None);
         } else if !has_any_measurements {
             // No measurements from any sensor
