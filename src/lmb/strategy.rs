@@ -132,10 +132,12 @@ pub struct UpdateContext<'a> {
 /// Used by `step_detailed()` to provide fixture validation data.
 #[derive(Debug, Clone, Default)]
 pub struct UpdateIntermediate {
-    /// Association matrices (if available)
+    /// Association matrices (if available - single sensor only)
     pub association_matrices: Option<AssociationMatrices>,
-    /// Association result (if available)
+    /// Association result (if available - single sensor only)
     pub association_result: Option<AssociationResult>,
+    /// Per-sensor update details (multisensor filters only)
+    pub sensor_updates: Option<Vec<super::types::SensorUpdateOutput>>,
 }
 
 // ============================================================================
@@ -430,6 +432,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SingleSensorSchedu
         Ok(UpdateIntermediate {
             association_matrices: matrices,
             association_result: result,
+            sensor_updates: None, // Single sensor - no per-sensor data
         })
     }
 
@@ -516,6 +519,8 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
         measurements: &Self::Measurements,
         ctx: &UpdateContext,
     ) -> Result<UpdateIntermediate, FilterError> {
+        use super::types::SensorUpdateOutput;
+
         let num_sensors = ctx.sensors.num_sensors();
 
         if measurements.len() != num_sensors {
@@ -530,10 +535,15 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
             return Ok(UpdateIntermediate::default());
         }
 
-        // Sequential sensor updates
+        let mut sensor_updates: Vec<SensorUpdateOutput> = Vec::with_capacity(num_sensors);
+
+        // Sequential sensor updates: each sensor uses output of previous sensor
         for (sensor_idx, sensor_measurements) in measurements.iter().enumerate() {
+            // Capture input tracks (output of previous sensor, or predicted tracks for first)
+            let input_tracks = hypotheses[0].tracks.clone();
+
             let sensor = ctx.sensors.get(sensor_idx).unwrap();
-            update_single_sensor(
+            let (association_matrices, association_result) = update_single_sensor(
                 &self.associator,
                 &self.updater,
                 ctx.association_config,
@@ -542,10 +552,22 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
                 &mut hypotheses[0].tracks,
                 rng,
             )?;
+
+            // Capture per-sensor update data
+            sensor_updates.push(SensorUpdateOutput::new(
+                sensor_idx,
+                input_tracks,
+                association_matrices,
+                association_result,
+                hypotheses[0].tracks.clone(),
+            ));
         }
 
-        // Sequential doesn't expose single-sensor association data
-        Ok(UpdateIntermediate::default())
+        Ok(UpdateIntermediate {
+            association_matrices: None,
+            association_result: None,
+            sensor_updates: Some(sensor_updates),
+        })
     }
 
     fn prune(
@@ -631,6 +653,8 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
         measurements: &Self::Measurements,
         ctx: &UpdateContext,
     ) -> Result<UpdateIntermediate, FilterError> {
+        use super::types::SensorUpdateOutput;
+
         let num_sensors = ctx.sensors.num_sensors();
 
         if measurements.len() != num_sensors {
@@ -646,15 +670,17 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
         }
 
         let has_any_measurements = measurements.iter().any(|m| !m.is_empty());
+        let mut sensor_updates: Vec<SensorUpdateOutput> = Vec::with_capacity(num_sensors);
 
         if has_any_measurements && !hypotheses[0].tracks.is_empty() {
             // Parallel sensor updates: each sensor uses the same prior
             let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
+            let input_tracks = hypotheses[0].tracks.clone(); // Same for all sensors in parallel
 
             for (sensor_idx, sensor_measurements) in measurements.iter().enumerate() {
                 let mut sensor_tracks = hypotheses[0].tracks.clone();
                 let sensor = ctx.sensors.get(sensor_idx).unwrap();
-                update_single_sensor(
+                let (association_matrices, association_result) = update_single_sensor(
                     &self.associator,
                     &self.updater,
                     ctx.association_config,
@@ -663,6 +689,16 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
                     &mut sensor_tracks,
                     rng,
                 )?;
+
+                // Capture per-sensor update data
+                sensor_updates.push(SensorUpdateOutput::new(
+                    sensor_idx,
+                    input_tracks.clone(),
+                    association_matrices,
+                    association_result,
+                    sensor_tracks.clone(),
+                ));
+
                 per_sensor_tracks.push(sensor_tracks);
             }
 
@@ -675,6 +711,7 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
             hypotheses[0].tracks = self.scheduler.merger().merge(&per_sensor_tracks, None);
         } else if !has_any_measurements {
             // No measurements: update existence for all sensors' missed detection
+            let input_tracks = hypotheses[0].tracks.clone();
             let detection_probs = ctx.sensors.detection_probabilities();
             for track in &mut hypotheses[0].tracks {
                 track.existence =
@@ -683,10 +720,24 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
                         &detection_probs,
                     );
             }
+
+            // Still capture per-sensor data (with no association since no measurements)
+            for sensor_idx in 0..num_sensors {
+                sensor_updates.push(SensorUpdateOutput::new(
+                    sensor_idx,
+                    input_tracks.clone(),
+                    None,
+                    None,
+                    hypotheses[0].tracks.clone(),
+                ));
+            }
         }
 
-        // Parallel doesn't expose per-sensor association data in intermediate
-        Ok(UpdateIntermediate::default())
+        Ok(UpdateIntermediate {
+            association_matrices: None,
+            association_result: None,
+            sensor_updates: Some(sensor_updates),
+        })
     }
 
     fn prune(
@@ -1445,6 +1496,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
             Some(i) => Ok(UpdateIntermediate {
                 association_matrices: i.matrices,
                 association_result: i.result,
+                sensor_updates: None, // LMBM - no per-sensor data in current implementation
             }),
             None => Ok(UpdateIntermediate::default()),
         }

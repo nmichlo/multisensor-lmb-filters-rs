@@ -392,8 +392,9 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
             self.strategy.extract(&self.hypotheses, timestep, &ctx)
         };
 
-        // Compute cardinality from final tracks
-        let cardinality = super::common_ops::compute_cardinality(&self.get_tracks());
+        // Compute cardinality from updated tracks (before pruning)
+        // MATLAB computes cardinality from fused tracks before the gating step
+        let cardinality = super::common_ops::compute_cardinality(&updated_tracks);
 
         Ok(StepDetailedOutput {
             predicted_tracks,
@@ -402,7 +403,7 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
             updated_tracks,
             cardinality,
             final_estimate,
-            sensor_updates: None, // TODO: Implement for multi-sensor
+            sensor_updates: intermediate.sensor_updates,
             predicted_hypotheses,
             pre_normalization_hypotheses,
             normalized_hypotheses,
