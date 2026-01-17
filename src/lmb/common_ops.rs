@@ -9,7 +9,7 @@ use super::cardinality::lmb_map_cardinality_estimate;
 use super::config::{BirthModel, MotionModel};
 use super::output::{EstimatedTrack, StateEstimate, Trajectory};
 use super::traits::AssociationResult;
-use super::types::{CardinalityEstimate, GaussianComponent, LmbmHypothesis, Track};
+use super::types::{CardinalityEstimate, GaussianComponent, Hypothesis, Track};
 
 use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
@@ -467,7 +467,7 @@ pub fn update_existence_from_marginals(tracks: &mut [Track], result: &Associatio
 /// * `birth` - Birth model for new track generation
 /// * `timestep` - Current timestep
 pub fn predict_all_hypotheses(
-    hypotheses: &mut [LmbmHypothesis],
+    hypotheses: &mut [Hypothesis],
     motion: &MotionModel,
     birth: &BirthModel,
     timestep: usize,
@@ -488,7 +488,7 @@ pub fn predict_all_hypotheses(
 /// * `existence_threshold` - Minimum existence probability to keep a track
 /// * `min_trajectory_length` - Minimum trajectory length to save
 pub fn gate_hypothesis_tracks(
-    hypotheses: &mut [LmbmHypothesis],
+    hypotheses: &mut [Hypothesis],
     trajectories: &mut Vec<Trajectory>,
     existence_threshold: f64,
     min_trajectory_length: usize,
@@ -549,7 +549,7 @@ pub fn gate_hypothesis_tracks(
 /// * `timestamp` - Current timestamp for the estimate
 /// * `use_eap` - If true, use EAP (floor of sum) instead of MAP
 pub fn extract_hypothesis_estimates(
-    hypotheses: &[LmbmHypothesis],
+    hypotheses: &[Hypothesis],
     timestamp: usize,
     use_eap: bool,
 ) -> StateEstimate {
@@ -616,7 +616,7 @@ pub fn extract_hypothesis_estimates(
 /// - `n_estimated`: The estimated number of objects
 /// - `map_indices`: Indices of tracks selected for extraction
 pub fn compute_hypothesis_cardinality(
-    hypotheses: &[LmbmHypothesis],
+    hypotheses: &[Hypothesis],
     use_eap: bool,
 ) -> CardinalityEstimate {
     if hypotheses.is_empty() || hypotheses[0].tracks.is_empty() {
@@ -661,7 +661,7 @@ pub fn compute_hypothesis_cardinality(
 /// # Arguments
 /// * `hypotheses` - Mutable reference to hypothesis list
 /// * `timestamp` - Current timestamp
-pub fn update_hypothesis_trajectories(hypotheses: &mut [LmbmHypothesis], timestamp: usize) {
+pub fn update_hypothesis_trajectories(hypotheses: &mut [Hypothesis], timestamp: usize) {
     for hyp in hypotheses.iter_mut() {
         for track in &mut hyp.tracks {
             track.record_state(timestamp);
@@ -674,7 +674,7 @@ pub fn update_hypothesis_trajectories(hypotheses: &mut [LmbmHypothesis], timesta
 /// # Arguments
 /// * `hypotheses` - Mutable reference to hypothesis list
 /// * `max_length` - Maximum trajectory length
-pub fn init_hypothesis_birth_trajectories(hypotheses: &mut [LmbmHypothesis], max_length: usize) {
+pub fn init_hypothesis_birth_trajectories(hypotheses: &mut [Hypothesis], max_length: usize) {
     for hyp in hypotheses.iter_mut() {
         for track in &mut hyp.tracks {
             if track.trajectory.is_none() {
@@ -704,7 +704,7 @@ pub fn init_hypothesis_birth_trajectories(hypotheses: &mut [LmbmHypothesis], max
 /// * `weight_threshold` - Minimum hypothesis weight to keep (linear scale)
 /// * `max_hypotheses` - Maximum number of hypotheses to keep
 pub fn normalize_and_gate_hypotheses(
-    hypotheses: &mut Vec<LmbmHypothesis>,
+    hypotheses: &mut Vec<Hypothesis>,
     weight_threshold: f64,
     max_hypotheses: usize,
 ) {
@@ -736,7 +736,7 @@ pub fn normalize_and_gate_hypotheses(
 
     if hypotheses.is_empty() {
         // Reinitialize with empty hypothesis if all were pruned
-        hypotheses.push(LmbmHypothesis::new(0.0, Vec::new()));
+        hypotheses.push(Hypothesis::new(0.0, Vec::new()));
         return;
     }
 
@@ -785,7 +785,7 @@ pub fn normalize_and_gate_hypotheses(
 /// # Returns
 /// A boolean vector indicating which track positions were kept (objectsLikelyToExist)
 pub fn normalize_gate_and_prune_tracks(
-    hypotheses: &mut Vec<LmbmHypothesis>,
+    hypotheses: &mut Vec<Hypothesis>,
     trajectories: &mut Vec<Trajectory>,
     weight_threshold: f64,
     max_hypotheses: usize,
@@ -853,7 +853,7 @@ pub fn normalize_gate_and_prune_tracks(
 /// assert_eq!(ole[0], true); // Object 0 likely exists
 /// ```
 pub fn compute_objects_likely_to_exist(
-    hypotheses: &[LmbmHypothesis],
+    hypotheses: &[Hypothesis],
     existence_threshold: f64,
 ) -> Vec<bool> {
     if hypotheses.is_empty() {

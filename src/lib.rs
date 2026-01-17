@@ -84,9 +84,13 @@ pub mod bench_utils;
 // Core types
 pub use lmb::{
     AssociationConfig, BirthLocation, BirthModel, EstimatedTrack, FilterOutput, FilterParams,
-    FilterThresholds, GaussianComponent, LmbmConfig, LmbmHypothesis, MotionModel,
-    MultisensorConfig, SensorModel, SensorSet, StateEstimate, Track, TrackLabel, Trajectory,
+    FilterThresholds, GaussianComponent, Hypothesis, LmbmConfig, MotionModel, MultisensorConfig,
+    SensorModel, SensorSet, StateEstimate, Track, TrackLabel, Trajectory,
 };
+
+// Deprecated re-exports (for backward compatibility)
+#[allow(deprecated)]
+pub use lmb::LmbmHypothesis;
 
 // Errors
 pub use lmb::{AssociationError, FilterError};

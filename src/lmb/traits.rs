@@ -42,7 +42,7 @@ impl<'a, R: rand::Rng> legacy_rng::Rng for RngAdapter<'a, R> {
 /// of the underlying algorithm (LMB, LMBM, multi-sensor variants).
 ///
 /// # Type Parameters
-/// - `State` - Internal state representation (e.g., `Vec<Track>` or `Vec<LmbmHypothesis>`)
+/// - `State` - Internal state representation (e.g., `Vec<Track>` or `Vec<Hypothesis>`)
 pub trait Filter {
     /// Type of internal filter state
     type State;

@@ -20,7 +20,7 @@
 //! - [`Track`] - Core track type with Gaussian mixture components
 //! - [`GaussianComponent`] - Single Gaussian component
 //! - [`TrackLabel`] - Unique track identifier
-//! - [`LmbmHypothesis`] - LMBM hypothesis
+//! - [`Hypothesis`] - LMBM hypothesis (also supports LMB single-hypothesis representation)
 //!
 //! # Configuration
 //!
@@ -50,6 +50,7 @@ pub mod errors;
 pub mod factory;
 pub mod reporter;
 pub mod scheduler;
+pub mod strategy;
 pub mod traits;
 
 // Filter implementations
@@ -62,7 +63,9 @@ pub mod measurements;
 // Re-export all public types from submodules
 
 // Types
-pub use types::{GaussianComponent, LmbmHypothesis, Track, TrackLabel, TrajectoryHistory};
+#[allow(deprecated)]
+pub use types::LmbmHypothesis;
+pub use types::{GaussianComponent, Hypothesis, Track, TrackLabel, TrajectoryHistory};
 
 // Configuration
 pub use config::{

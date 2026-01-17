@@ -96,7 +96,7 @@ pub fn predict_tracks(
 /// possible association history. This function predicts all tracks within each
 /// hypothesis and adds birth tracks to all of them.
 pub fn predict_hypotheses(
-    hypotheses: &mut [crate::lmb::LmbmHypothesis],
+    hypotheses: &mut [crate::lmb::Hypothesis],
     motion: &MotionModel,
     birth: &BirthModel,
     timestep: usize,

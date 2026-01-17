@@ -358,40 +358,52 @@ pub struct StepDetailedOutput {
     // ═══════════════════════════════════════════════════════════════════════
     /// LMBM predicted hypothesis after prediction step (step1_prediction in MATLAB).
     /// For LMBM, this contains a single hypothesis representing the predicted state.
-    pub predicted_hypotheses: Option<Vec<LmbmHypothesis>>,
+    pub predicted_hypotheses: Option<Vec<Hypothesis>>,
 
     /// LMBM hypotheses after association, before normalization (step4_hypothesis in MATLAB).
     /// Contains `new_hypotheses` with unnormalized weights.
-    pub pre_normalization_hypotheses: Option<Vec<LmbmHypothesis>>,
+    pub pre_normalization_hypotheses: Option<Vec<Hypothesis>>,
 
     /// LMBM hypotheses after normalization and weight gating (step5_normalization in MATLAB).
     /// Contains `normalized_hypotheses` with sum-to-one weights.
-    pub normalized_hypotheses: Option<Vec<LmbmHypothesis>>,
+    pub normalized_hypotheses: Option<Vec<Hypothesis>>,
 
     /// Mask of which tracks have weighted total existence > threshold (step5 in MATLAB).
     /// True means the track "likely exists" and is kept; False means it's pruned.
     pub objects_likely_to_exist: Option<Vec<bool>>,
 }
 
-/// LMBM Hypothesis - represents a single hypothesis in LMBM filter
+/// Hypothesis - represents a weighted hypothesis containing tracks.
 ///
-/// Unlike LMB which maintains a single track set with Gaussian mixtures,
-/// LMBM maintains multiple weighted hypotheses, each with single-component tracks.
+/// This type unifies LMB and LMBM representations:
+/// - **LMB**: Single hypothesis (weight=1.0) with multi-component tracks
+/// - **LMBM**: Multiple hypotheses with single-component tracks
 #[derive(Debug, Clone)]
-pub struct LmbmHypothesis {
+pub struct Hypothesis {
     /// Hypothesis weight (in log space for numerical stability)
     pub log_weight: f64,
-    /// Tracks in this hypothesis (single component per track)
+    /// Tracks in this hypothesis
     pub tracks: Vec<Track>,
 }
 
-impl LmbmHypothesis {
+impl Hypothesis {
     /// Create a new hypothesis
     pub fn new(log_weight: f64, tracks: Vec<Track>) -> Self {
         Self { log_weight, tracks }
     }
 
-    /// Create an empty hypothesis
+    /// Create an LMB-style hypothesis (single hypothesis with weight=1.0).
+    ///
+    /// This constructor creates a hypothesis with `log_weight = 0.0` (weight = 1.0),
+    /// suitable for LMB filters where there's only one hypothesis.
+    pub fn lmb(tracks: Vec<Track>) -> Self {
+        Self {
+            log_weight: 0.0,
+            tracks,
+        }
+    }
+
+    /// Create an empty hypothesis (weight=1.0, no tracks).
     pub fn empty() -> Self {
         Self {
             log_weight: 0.0,
@@ -409,6 +421,10 @@ impl LmbmHypothesis {
         self.tracks.len()
     }
 }
+
+/// Deprecated alias for backward compatibility.
+#[deprecated(since = "0.3.0", note = "Use `Hypothesis` instead")]
+pub type LmbmHypothesis = Hypothesis;
 
 #[cfg(test)]
 mod tests {
@@ -468,9 +484,16 @@ mod tests {
     }
 
     #[test]
-    fn test_lmbm_hypothesis() {
-        let hyp = LmbmHypothesis::new(0.0, vec![]);
+    fn test_hypothesis() {
+        let hyp = Hypothesis::new(0.0, vec![]);
         assert_eq!(hyp.weight(), 1.0); // exp(0) = 1
         assert_eq!(hyp.num_tracks(), 0);
+    }
+
+    #[test]
+    fn test_hypothesis_lmb_constructor() {
+        let hyp = Hypothesis::lmb(vec![]);
+        assert_eq!(hyp.weight(), 1.0); // exp(0) = 1
+        assert_eq!(hyp.log_weight, 0.0);
     }
 }

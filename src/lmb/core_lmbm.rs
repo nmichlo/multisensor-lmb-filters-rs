@@ -39,7 +39,7 @@ use super::output::{StateEstimate, Trajectory};
 use super::traits::{
     AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, Updater,
 };
-use super::types::{GaussianComponent, LmbmHypothesis, StepDetailedOutput, Track};
+use super::types::{GaussianComponent, Hypothesis, StepDetailedOutput, Track};
 
 /// Log-likelihood floor to prevent underflow when computing ln(x) for very small x.
 const LOG_UNDERFLOW: f64 = -700.0;
@@ -91,7 +91,7 @@ pub trait LmbmAssociator: Send + Sync {
     fn associate_and_update<R: rand::Rng>(
         &self,
         rng: &mut R,
-        hypotheses: &mut Vec<LmbmHypothesis>,
+        hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
         sensor_config: &SensorSet,
         motion: &MotionModel,
@@ -101,7 +101,7 @@ pub trait LmbmAssociator: Send + Sync {
     /// Update existence probabilities when there are no measurements.
     fn update_existence_no_measurements(
         &self,
-        hypotheses: &mut Vec<LmbmHypothesis>,
+        hypotheses: &mut Vec<Hypothesis>,
         sensor_config: &SensorSet,
     );
 
@@ -179,7 +179,7 @@ impl<A: Associator> SingleSensorLmbmStrategy<A> {
 
     /// Generate posterior hypotheses from sampled associations.
     fn generate_posterior_hypotheses(
-        hypotheses: &mut Vec<LmbmHypothesis>,
+        hypotheses: &mut Vec<Hypothesis>,
         result: &AssociationResult,
         matrices: &AssociationMatrices,
         log_likelihoods: &DMatrix<f64>,
@@ -245,7 +245,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
     fn associate_and_update<R: rand::Rng>(
         &self,
         rng: &mut R,
-        hypotheses: &mut Vec<LmbmHypothesis>,
+        hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
         sensor_config: &SensorSet,
         _motion: &MotionModel,
@@ -277,7 +277,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
 
     fn update_existence_no_measurements(
         &self,
-        hypotheses: &mut Vec<LmbmHypothesis>,
+        hypotheses: &mut Vec<Hypothesis>,
         sensor_config: &SensorSet,
     ) {
         let p_d = sensor_config.single().detection_probability;
@@ -558,7 +558,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmStrategy<A> {
 
     /// Generate posterior hypotheses from association samples.
     fn generate_posterior_hypotheses(
-        hypotheses: &mut Vec<LmbmHypothesis>,
+        hypotheses: &mut Vec<Hypothesis>,
         samples: &[Vec<usize>],
         log_likelihoods: &[f64],
         posteriors: &[MultisensorPosterior],
@@ -613,7 +613,7 @@ impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
     fn associate_and_update<R: rand::Rng>(
         &self,
         rng: &mut R,
-        hypotheses: &mut Vec<LmbmHypothesis>,
+        hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
         sensor_config: &SensorSet,
         motion: &MotionModel,
@@ -647,7 +647,7 @@ impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
 
     fn update_existence_no_measurements(
         &self,
-        hypotheses: &mut Vec<LmbmHypothesis>,
+        hypotheses: &mut Vec<Hypothesis>,
         sensor_config: &SensorSet,
     ) {
         let detection_probs = sensor_config.detection_probabilities();
@@ -724,7 +724,7 @@ pub struct LmbmFilterCore<S: LmbmAssociator> {
     lmbm_config: LmbmConfig,
 
     /// Current hypotheses (weighted mixture of track sets)
-    hypotheses: Vec<LmbmHypothesis>,
+    hypotheses: Vec<Hypothesis>,
     /// Complete trajectories for all discarded long-lived tracks
     trajectories: Vec<Trajectory>,
 
@@ -751,7 +751,7 @@ impl<S: LmbmAssociator> LmbmFilterCore<S> {
         lmbm_config: LmbmConfig,
         strategy: S,
     ) -> Self {
-        let initial_hypothesis = LmbmHypothesis::new(0.0, Vec::new());
+        let initial_hypothesis = Hypothesis::new(0.0, Vec::new());
 
         Self {
             motion,
@@ -841,12 +841,12 @@ impl<S: LmbmAssociator> LmbmFilterCore<S> {
     // ========================================================================
 
     /// Set the internal hypotheses directly (for fixture testing).
-    pub fn set_hypotheses(&mut self, hypotheses: Vec<LmbmHypothesis>) {
+    pub fn set_hypotheses(&mut self, hypotheses: Vec<Hypothesis>) {
         self.hypotheses = hypotheses;
     }
 
     /// Get the current hypotheses (for fixture testing).
-    pub fn get_hypotheses(&self) -> Vec<LmbmHypothesis> {
+    pub fn get_hypotheses(&self) -> Vec<Hypothesis> {
         self.hypotheses.clone()
     }
 
@@ -951,7 +951,7 @@ impl<A: Associator> LmbmFilterCore<SingleSensorLmbmStrategy<A>> {
 }
 
 impl<A: Associator> Filter for LmbmFilterCore<SingleSensorLmbmStrategy<A>> {
-    type State = Vec<LmbmHypothesis>;
+    type State = Vec<Hypothesis>;
     type Measurements = Vec<DVector<f64>>;
 
     fn step<R: rand::Rng>(
@@ -993,7 +993,7 @@ impl<A: Associator> Filter for LmbmFilterCore<SingleSensorLmbmStrategy<A>> {
 
     fn reset(&mut self) {
         self.hypotheses.clear();
-        self.hypotheses.push(LmbmHypothesis::new(0.0, Vec::new()));
+        self.hypotheses.push(Hypothesis::new(0.0, Vec::new()));
         self.trajectories.clear();
     }
 
@@ -1089,7 +1089,7 @@ impl<A: MultisensorAssociator> LmbmFilterCore<MultisensorLmbmStrategy<A>> {
 }
 
 impl<A: MultisensorAssociator> Filter for LmbmFilterCore<MultisensorLmbmStrategy<A>> {
-    type State = Vec<LmbmHypothesis>;
+    type State = Vec<Hypothesis>;
     type Measurements = MultisensorMeasurements;
 
     fn step<R: rand::Rng>(
@@ -1136,7 +1136,7 @@ impl<A: MultisensorAssociator> Filter for LmbmFilterCore<MultisensorLmbmStrategy
 
     fn reset(&mut self) {
         self.hypotheses.clear();
-        self.hypotheses.push(LmbmHypothesis::new(0.0, Vec::new()));
+        self.hypotheses.push(Hypothesis::new(0.0, Vec::new()));
         self.trajectories.clear();
     }
 
