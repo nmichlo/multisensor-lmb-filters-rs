@@ -29,7 +29,6 @@ use nalgebra::DVector;
 use crate::association::{AssociationBuilder, AssociationMatrices};
 use crate::components::prediction::predict_tracks;
 
-use super::builder::{FilterBuilder, LmbFilterBuilder};
 use super::config::{
     AssociationConfig, BirthModel, FilterConfigSnapshot, MotionModel, SensorModel, SensorSet,
 };
@@ -824,30 +823,6 @@ impl<A: Associator, M: Merger> Filter for LmbFilterCore<A, ParallelScheduler<M>>
 
     fn z_dim(&self) -> usize {
         self.sensors.z_dim()
-    }
-}
-
-// ============================================================================
-// Builder Trait Implementations
-// ============================================================================
-
-impl<A: Associator, S: UpdateScheduler> FilterBuilder for LmbFilterCore<A, S> {
-    fn existence_threshold_mut(&mut self) -> &mut f64 {
-        &mut self.existence_threshold
-    }
-
-    fn min_trajectory_length_mut(&mut self) -> &mut usize {
-        &mut self.min_trajectory_length
-    }
-}
-
-impl<A: Associator, S: UpdateScheduler> LmbFilterBuilder for LmbFilterCore<A, S> {
-    fn gm_weight_threshold_mut(&mut self) -> &mut f64 {
-        &mut self.gm_weight_threshold
-    }
-
-    fn max_gm_components_mut(&mut self) -> &mut usize {
-        &mut self.max_gm_components
     }
 }
 

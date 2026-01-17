@@ -42,7 +42,6 @@ pub mod output;
 pub mod types;
 
 // Filter infrastructure
-pub mod builder;
 pub mod common_ops;
 pub mod core;
 pub mod core_lmbm;
@@ -52,6 +51,7 @@ pub mod reporter;
 pub mod scheduler;
 pub mod strategy;
 pub mod traits;
+pub mod unified;
 
 // Filter implementations
 pub mod multisensor;
@@ -106,8 +106,15 @@ pub use scheduler::{
 // Observability (Phase 5 - StepReporter)
 pub use reporter::{CompositeReporter, DebugReporter, LoggingReporter, NoOpReporter, StepReporter};
 
-// Builder traits
-pub use builder::{FilterBuilder, LmbFilterBuilder};
+
+// Update strategy (Phase 8 - Unified Filter Architecture)
+pub use strategy::{
+    CommonPruneConfig, LmbPruneConfig, LmbStrategy, LmbmPruneConfig, LmbmStrategy, UpdateContext,
+    UpdateIntermediate, UpdateStrategy,
+    // Strategy type aliases
+    AaLmbStrategyLbp, GaLmbStrategyLbp, IcLmbStrategyLbp, LmbStrategyLbp, LmbmStrategyGibbs,
+    MultisensorLmbmStrategyGibbs, PuLmbStrategyLbp,
+};
 
 // Single-sensor filters (from unified cores)
 pub use core::{LmbFilter, LmbFilterCore};
@@ -118,6 +125,9 @@ pub use core::{AaLmbFilter, GaLmbFilter, IcLmbFilter, PuLmbFilter};
 
 // Multi-sensor LMBM filter (from unified core)
 pub use core_lmbm::MultisensorLmbmFilter;
+
+// Unified filter (Phase 8 - Single filter struct for all variants)
+pub use unified::UnifiedFilter;
 
 // Fusion mergers and multi-sensor traits
 pub use multisensor::{

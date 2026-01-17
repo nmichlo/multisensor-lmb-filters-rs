@@ -25,7 +25,27 @@ pub const MAX_GM_COMPONENTS: usize = 100;
 /// GM merge threshold (infinity = no merging, for MATLAB equivalence)
 pub const GM_MERGE_THRESHOLD: f64 = f64::INFINITY;
 
-/// LMBM configuration for hypothesis management
+/// Common pruning configuration
+pub const COMMON_PRUNE_CONFIG: CommonPruneConfig = CommonPruneConfig {
+    existence_threshold: DEFAULT_EXISTENCE_THRESHOLD,
+    min_trajectory_length: DEFAULT_MIN_TRAJECTORY_LENGTH,
+};
+
+/// LMB-specific pruning configuration
+pub const LMB_PRUNE_CONFIG: LmbPruneConfig = LmbPruneConfig {
+    gm_weight_threshold: GM_WEIGHT_THRESHOLD,
+    max_gm_components: MAX_GM_COMPONENTS,
+    gm_merge_threshold: GM_MERGE_THRESHOLD,
+};
+
+/// LMBM-specific pruning configuration
+pub const LMBM_PRUNE_CONFIG: LmbmPruneConfig = LmbmPruneConfig {
+    max_hypotheses: 25,
+    hypothesis_weight_threshold: 1e-3,
+    use_eap: false,
+};
+
+/// LMBM configuration (old API, for LmbmFilterCore)
 pub const LMBM_CONFIG: LmbmConfig = LmbmConfig {
     max_hypotheses: 25,
     hypothesis_weight_threshold: 1e-3,
@@ -182,15 +202,16 @@ pub fn preprocess(scenario: &ScenarioJson) -> PreprocessedScenario {
 
 /// Enum to hold any filter type for unified handling.
 ///
-/// Uses concrete `LmbFilterCore`/`LmbmFilterCore` types for dynamic dispatch at runtime.
+/// Uses concrete `LmbFilterCore`/`LmbmFilterCore` for old API (dynamic associators).
+/// Uses `UnifiedFilter` for new API (factory functions with static associators).
 pub enum AnyFilter {
     Lmb(LmbFilterCore<DynamicAssociator, SingleSensorScheduler>),
     Lmbm(LmbmFilterCore<SingleSensorLmbmStrategy<DynamicAssociator>>),
-    AaLmb(AaLmbFilter),
-    IcLmb(IcLmbFilter),
-    PuLmb(PuLmbFilter),
-    GaLmb(GaLmbFilter),
-    MsLmbm(MultisensorLmbmFilter),
+    AaLmb(UnifiedFilter<AaLmbStrategyLbp>),
+    IcLmb(UnifiedFilter<IcLmbStrategyLbp>),
+    PuLmb(UnifiedFilter<PuLmbStrategyLbp>),
+    GaLmb(UnifiedFilter<GaLmbStrategyLbp>),
+    MsLmbm(UnifiedFilter<MultisensorLmbmStrategyGibbs>),
 }
 
 impl AnyFilter {
@@ -199,11 +220,12 @@ impl AnyFilter {
         match self {
             AnyFilter::Lmb(f) => f.get_config().to_json_pretty(),
             AnyFilter::Lmbm(f) => f.get_config().to_json_pretty(),
-            AnyFilter::AaLmb(f) => f.get_config().to_json_pretty(),
-            AnyFilter::IcLmb(f) => f.get_config().to_json_pretty(),
-            AnyFilter::PuLmb(f) => f.get_config().to_json_pretty(),
-            AnyFilter::GaLmb(f) => f.get_config().to_json_pretty(),
-            AnyFilter::MsLmbm(f) => f.get_config().to_json_pretty(),
+            // UnifiedFilter types don't have get_config() yet
+            AnyFilter::AaLmb(_) => "{}".to_string(),
+            AnyFilter::IcLmb(_) => "{}".to_string(),
+            AnyFilter::PuLmb(_) => "{}".to_string(),
+            AnyFilter::GaLmb(_) => "{}".to_string(),
+            AnyFilter::MsLmbm(_) => "{}".to_string(),
         }
     }
 
@@ -382,56 +404,48 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         // Multi-sensor LMB variants (using factory functions)
         "AA-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
-            Ok(AnyFilter::AaLmb(
-                aa_lmb_filter(
-                    prep.motion.clone(),
-                    prep.sensors_config.clone(),
-                    prep.birth.clone(),
-                    assoc,
-                    MAX_GM_COMPONENTS,
-                )
-                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
-            ))
+            Ok(AnyFilter::AaLmb(aa_lmb_filter(
+                prep.motion.clone(),
+                prep.sensors_config.clone(),
+                prep.birth.clone(),
+                assoc,
+                COMMON_PRUNE_CONFIG,
+                LMB_PRUNE_CONFIG,
+                MAX_GM_COMPONENTS,
+            )))
         }
         "IC-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
-            Ok(AnyFilter::IcLmb(
-                ic_lmb_filter(
-                    prep.motion.clone(),
-                    prep.sensors_config.clone(),
-                    prep.birth.clone(),
-                    assoc,
-                )
-                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
-            ))
+            Ok(AnyFilter::IcLmb(ic_lmb_filter(
+                prep.motion.clone(),
+                prep.sensors_config.clone(),
+                prep.birth.clone(),
+                assoc,
+                COMMON_PRUNE_CONFIG,
+                LMB_PRUNE_CONFIG,
+            )))
         }
         "PU-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
-            Ok(AnyFilter::PuLmb(
-                pu_lmb_filter(
-                    prep.motion.clone(),
-                    prep.sensors_config.clone(),
-                    prep.birth.clone(),
-                    assoc,
-                )
-                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
-            ))
+            Ok(AnyFilter::PuLmb(pu_lmb_filter(
+                prep.motion.clone(),
+                prep.sensors_config.clone(),
+                prep.birth.clone(),
+                assoc,
+                COMMON_PRUNE_CONFIG,
+                LMB_PRUNE_CONFIG,
+            )))
         }
         "GA-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
-            Ok(AnyFilter::GaLmb(
-                ga_lmb_filter(
-                    prep.motion.clone(),
-                    prep.sensors_config.clone(),
-                    prep.birth.clone(),
-                    assoc,
-                )
-                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
-            ))
+            Ok(AnyFilter::GaLmb(ga_lmb_filter(
+                prep.motion.clone(),
+                prep.sensors_config.clone(),
+                prep.birth.clone(),
+                assoc,
+                COMMON_PRUNE_CONFIG,
+                LMB_PRUNE_CONFIG,
+            )))
         }
 
         // Multi-sensor LMBM (using factory functions)
@@ -442,7 +456,8 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
                 prep.sensors_config.clone(),
                 prep.birth.clone(),
                 assoc,
-                LMBM_CONFIG,
+                COMMON_PRUNE_CONFIG,
+                LMBM_PRUNE_CONFIG,
             )))
         }
 

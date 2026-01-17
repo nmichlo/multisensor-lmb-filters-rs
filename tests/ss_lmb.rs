@@ -1530,7 +1530,9 @@ fn test_new_api_lbp_marginals_equivalence() {
 /// Test a complete filter step against MATLAB
 #[test]
 fn test_new_api_lmb_filter_step() {
-    use multisensor_lmb_filters_rs::lmb::{Filter, FilterBuilder, LmbFilter, LmbFilterBuilder};
+    use multisensor_lmb_filters_rs::lmb::{
+        lmb_filter, CommonPruneConfig, Filter, LmbPruneConfig,
+    };
 
     let fixture_path = "tests/fixtures/step_ss_lmb_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
@@ -1553,10 +1555,16 @@ fn test_new_api_lmb_filter_step() {
         ..Default::default()
     };
 
-    let mut filter =
-        multisensor_lmb_filters_rs::lmb::lmb_filter(motion, sensor, birth, association)
-            .with_existence_threshold(1e-3)
-            .with_gm_pruning(1e-6, 5);
+    let common_prune = CommonPruneConfig {
+        existence_threshold: 1e-3,
+        min_trajectory_length: 3,
+    };
+    let lmb_prune = LmbPruneConfig {
+        gm_weight_threshold: 1e-6,
+        max_gm_components: 5,
+        gm_merge_threshold: f64::INFINITY,
+    };
+    let _filter = lmb_filter(motion, sensor, birth, association, common_prune, lmb_prune);
 
     // Inject prior tracks (normally filter starts empty and uses birth)
     let prior_tracks: Vec<Track> = fixture

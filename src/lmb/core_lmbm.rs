@@ -27,7 +27,6 @@ use nalgebra::{DMatrix, DVector};
 use crate::association::{AssociationBuilder, AssociationMatrices};
 use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
 
-use super::builder::FilterBuilder;
 use super::config::{
     AssociationConfig, BirthModel, FilterConfigSnapshot, LmbmConfig, MotionModel,
     MultisensorConfig, SensorSet,
@@ -1146,20 +1145,6 @@ impl<A: MultisensorAssociator> Filter for LmbmFilterCore<MultisensorLmbmStrategy
 
     fn z_dim(&self) -> usize {
         self.sensors.z_dim()
-    }
-}
-
-// ============================================================================
-// Builder Trait Implementation
-// ============================================================================
-
-impl<S: LmbmAssociator> FilterBuilder for LmbmFilterCore<S> {
-    fn existence_threshold_mut(&mut self) -> &mut f64 {
-        &mut self.existence_threshold
-    }
-
-    fn min_trajectory_length_mut(&mut self) -> &mut usize {
-        &mut self.min_trajectory_length
     }
 }
 

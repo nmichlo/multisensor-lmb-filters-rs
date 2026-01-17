@@ -1,8 +1,7 @@
 //! Factory functions for creating LMB and LMBM filters.
 //!
 //! These functions provide simple, one-call construction for common filter configurations.
-//! For custom associators or schedulers, use [`LmbFilterCore::with_scheduler`] or
-//! [`LmbmFilterCore::with_strategy`] directly.
+//! For custom associators or schedulers, use [`UnifiedFilter::new`] with a custom strategy.
 //!
 //! # LMB Filters
 //!
@@ -17,29 +16,26 @@
 //! - [`lmbm_filter`] - Single-sensor LMBM with Gibbs associator
 //! - [`multisensor_lmbm_filter`] - Multi-sensor LMBM with Gibbs associator
 
-use super::config::{
-    AssociationConfig, BirthModel, LmbmConfig, MotionModel, MultisensorConfig, SensorModel,
-};
-use super::core::{AaLmbFilter, GaLmbFilter, IcLmbFilter, LmbFilter, LmbFilterCore, PuLmbFilter};
-use super::core_lmbm::{
-    LmbmFilter, LmbmFilterCore, MultisensorLmbmFilter, MultisensorLmbmStrategy,
-    SingleSensorLmbmStrategy,
-};
+use super::config::{AssociationConfig, BirthModel, MotionModel, MultisensorConfig, SensorModel};
+use super::core_lmbm::{MultisensorLmbmStrategy, SingleSensorLmbmStrategy};
 use super::multisensor::fusion::{
     ArithmeticAverageMerger, GeometricAverageMerger, ParallelUpdateMerger,
 };
 use super::multisensor::traits::MultisensorGibbsAssociator;
 use super::scheduler::{ParallelScheduler, SequentialScheduler, SingleSensorScheduler};
+use super::strategy::{
+    AaLmbStrategyLbp, CommonPruneConfig, GaLmbStrategyLbp, IcLmbStrategyLbp, LmbPruneConfig,
+    LmbStrategy, LmbStrategyLbp, LmbmPruneConfig, LmbmStrategy, LmbmStrategyGibbs,
+    MultisensorLmbmStrategyGibbs, PuLmbStrategyLbp,
+};
 use super::traits::{GibbsAssociator, LbpAssociator};
+use super::unified::UnifiedFilter;
 
 // ============================================================================
 // LMB Filter Factory Functions
 // ============================================================================
 
-/// Create a single-sensor LMB filter with default LBP associator.
-///
-/// This is the standard LMB filter for tracking with a single sensor.
-/// Uses Loopy Belief Propagation for data association.
+/// Create a single-sensor LMB filter with LBP associator.
 ///
 /// # Arguments
 ///
@@ -47,34 +43,24 @@ use super::traits::{GibbsAssociator, LbpAssociator};
 /// * `sensor` - Sensor model (observation model, detection probability, clutter)
 /// * `birth` - Birth model (where new objects can appear)
 /// * `association` - Association algorithm configuration
-///
-/// # Example
-///
-/// ```ignore
-/// use multisensor_lmb_filters_rs::lmb::{lmb_filter, MotionModel, SensorModel, BirthModel, AssociationConfig};
-///
-/// let filter = lmb_filter(motion, sensor, birth, AssociationConfig::default());
-/// ```
+/// * `common_prune` - Common pruning config (existence threshold, trajectory length)
+/// * `lmb_prune` - LMB-specific pruning config (GM component management)
 pub fn lmb_filter(
     motion: MotionModel,
     sensor: SensorModel,
     birth: BirthModel,
     association: AssociationConfig,
-) -> LmbFilter {
-    LmbFilterCore::with_scheduler(
-        motion,
-        sensor.into(),
-        birth,
-        association,
-        LbpAssociator,
-        SingleSensorScheduler::new(),
-    )
+    common_prune: CommonPruneConfig,
+    lmb_prune: LmbPruneConfig,
+) -> UnifiedFilter<LmbStrategyLbp> {
+    let strategy = LmbStrategy::new(LbpAssociator, SingleSensorScheduler::new(), lmb_prune);
+    UnifiedFilter::new(motion, sensor.into(), birth, association, common_prune, strategy)
 }
 
 /// Create an IC-LMB (Iterated Corrector) multi-sensor filter.
 ///
 /// Processes sensors sequentially, where the output of sensor N becomes
-/// the input to sensor N+1. Simple but order-dependent.
+/// the input to sensor N+1.
 ///
 /// # Arguments
 ///
@@ -82,26 +68,23 @@ pub fn lmb_filter(
 /// * `sensors` - Multi-sensor configuration
 /// * `birth` - Birth model (where new objects can appear)
 /// * `association` - Association algorithm configuration
+/// * `common_prune` - Common pruning config (existence threshold, trajectory length)
+/// * `lmb_prune` - LMB-specific pruning config (GM component management)
 pub fn ic_lmb_filter(
     motion: MotionModel,
     sensors: MultisensorConfig,
     birth: BirthModel,
     association: AssociationConfig,
-) -> IcLmbFilter {
-    LmbFilterCore::with_scheduler(
-        motion,
-        sensors.into(),
-        birth,
-        association,
-        LbpAssociator,
-        SequentialScheduler::new(),
-    )
+    common_prune: CommonPruneConfig,
+    lmb_prune: LmbPruneConfig,
+) -> UnifiedFilter<IcLmbStrategyLbp> {
+    let strategy = LmbStrategy::new(LbpAssociator, SequentialScheduler::new(), lmb_prune);
+    UnifiedFilter::new(motion, sensors.into(), birth, association, common_prune, strategy)
 }
 
 /// Create an AA-LMB (Arithmetic Average) multi-sensor filter.
 ///
 /// Processes sensors in parallel, then fuses using weighted arithmetic average.
-/// Fast and robust, but doesn't account for sensor correlation.
 ///
 /// # Arguments
 ///
@@ -109,30 +92,27 @@ pub fn ic_lmb_filter(
 /// * `sensors` - Multi-sensor configuration
 /// * `birth` - Birth model (where new objects can appear)
 /// * `association` - Association algorithm configuration
+/// * `common_prune` - Common pruning config (existence threshold, trajectory length)
+/// * `lmb_prune` - LMB-specific pruning config (GM component management)
 /// * `max_hypotheses` - Maximum number of hypotheses for fusion
 pub fn aa_lmb_filter(
     motion: MotionModel,
     sensors: MultisensorConfig,
     birth: BirthModel,
     association: AssociationConfig,
+    common_prune: CommonPruneConfig,
+    lmb_prune: LmbPruneConfig,
     max_hypotheses: usize,
-) -> AaLmbFilter {
+) -> UnifiedFilter<AaLmbStrategyLbp> {
     let num_sensors = sensors.num_sensors();
     let merger = ArithmeticAverageMerger::uniform(num_sensors, max_hypotheses);
-    LmbFilterCore::with_scheduler(
-        motion,
-        sensors.into(),
-        birth,
-        association,
-        LbpAssociator,
-        ParallelScheduler::new(merger),
-    )
+    let strategy = LmbStrategy::new(LbpAssociator, ParallelScheduler::new(merger), lmb_prune);
+    UnifiedFilter::new(motion, sensors.into(), birth, association, common_prune, strategy)
 }
 
 /// Create a GA-LMB (Geometric Average) multi-sensor filter.
 ///
 /// Processes sensors in parallel, then fuses using covariance intersection.
-/// Produces conservative estimates, robust to unknown correlations.
 ///
 /// # Arguments
 ///
@@ -140,28 +120,26 @@ pub fn aa_lmb_filter(
 /// * `sensors` - Multi-sensor configuration
 /// * `birth` - Birth model (where new objects can appear)
 /// * `association` - Association algorithm configuration
+/// * `common_prune` - Common pruning config (existence threshold, trajectory length)
+/// * `lmb_prune` - LMB-specific pruning config (GM component management)
 pub fn ga_lmb_filter(
     motion: MotionModel,
     sensors: MultisensorConfig,
     birth: BirthModel,
     association: AssociationConfig,
-) -> GaLmbFilter {
+    common_prune: CommonPruneConfig,
+    lmb_prune: LmbPruneConfig,
+) -> UnifiedFilter<GaLmbStrategyLbp> {
     let num_sensors = sensors.num_sensors();
     let merger = GeometricAverageMerger::uniform(num_sensors);
-    LmbFilterCore::with_scheduler(
-        motion,
-        sensors.into(),
-        birth,
-        association,
-        LbpAssociator,
-        ParallelScheduler::new(merger),
-    )
+    let strategy = LmbStrategy::new(LbpAssociator, ParallelScheduler::new(merger), lmb_prune);
+    UnifiedFilter::new(motion, sensors.into(), birth, association, common_prune, strategy)
 }
 
 /// Create a PU-LMB (Parallel Update) multi-sensor filter.
 ///
 /// Processes sensors in parallel, then fuses using information-form fusion
-/// with decorrelation. Theoretically optimal for independent sensors.
+/// with decorrelation.
 ///
 /// # Arguments
 ///
@@ -169,32 +147,29 @@ pub fn ga_lmb_filter(
 /// * `sensors` - Multi-sensor configuration
 /// * `birth` - Birth model (where new objects can appear)
 /// * `association` - Association algorithm configuration
+/// * `common_prune` - Common pruning config (existence threshold, trajectory length)
+/// * `lmb_prune` - LMB-specific pruning config (GM component management)
 pub fn pu_lmb_filter(
     motion: MotionModel,
     sensors: MultisensorConfig,
     birth: BirthModel,
     association: AssociationConfig,
-) -> PuLmbFilter {
+    common_prune: CommonPruneConfig,
+    lmb_prune: LmbPruneConfig,
+) -> UnifiedFilter<PuLmbStrategyLbp> {
     let merger = ParallelUpdateMerger::new(Vec::new());
-    LmbFilterCore::with_scheduler(
-        motion,
-        sensors.into(),
-        birth,
-        association,
-        LbpAssociator,
-        ParallelScheduler::new(merger),
-    )
+    let strategy = LmbStrategy::new(LbpAssociator, ParallelScheduler::new(merger), lmb_prune);
+    UnifiedFilter::new(motion, sensors.into(), birth, association, common_prune, strategy)
 }
 
 // ============================================================================
 // LMBM Filter Factory Functions
 // ============================================================================
 
-/// Create a single-sensor LMBM filter with default Gibbs associator.
+/// Create a single-sensor LMBM filter with Gibbs associator.
 ///
-/// LMBM (Labeled Multi-Bernoulli Mixture) maintains a set of hypotheses,
-/// each representing a possible data association. Uses Gibbs sampling
-/// for association.
+/// LMBM maintains a set of hypotheses, each representing a possible
+/// data association. Uses Gibbs sampling for association.
 ///
 /// # Arguments
 ///
@@ -202,28 +177,24 @@ pub fn pu_lmb_filter(
 /// * `sensor` - Sensor model (observation model, detection probability, clutter)
 /// * `birth` - Birth model (where new objects can appear)
 /// * `association` - Association algorithm configuration
-/// * `lmbm_config` - LMBM-specific configuration (max hypotheses, etc.)
+/// * `common_prune` - Common pruning config (existence threshold, trajectory length)
+/// * `lmbm_prune` - LMBM-specific pruning config (hypothesis management)
 pub fn lmbm_filter(
     motion: MotionModel,
     sensor: SensorModel,
     birth: BirthModel,
     association: AssociationConfig,
-    lmbm_config: LmbmConfig,
-) -> LmbmFilter {
-    let strategy = SingleSensorLmbmStrategy {
+    common_prune: CommonPruneConfig,
+    lmbm_prune: LmbmPruneConfig,
+) -> UnifiedFilter<LmbmStrategyGibbs> {
+    let inner = SingleSensorLmbmStrategy {
         associator: GibbsAssociator,
     };
-    LmbmFilterCore::with_strategy(
-        motion,
-        sensor.into(),
-        birth,
-        association,
-        lmbm_config,
-        strategy,
-    )
+    let strategy = LmbmStrategy::new(inner, lmbm_prune);
+    UnifiedFilter::new(motion, sensor.into(), birth, association, common_prune, strategy)
 }
 
-/// Create a multi-sensor LMBM filter with default Gibbs associator.
+/// Create a multi-sensor LMBM filter with Gibbs associator.
 ///
 /// Multi-sensor LMBM processes all sensors jointly using a multi-sensor
 /// Gibbs sampler for association.
@@ -234,25 +205,21 @@ pub fn lmbm_filter(
 /// * `sensors` - Multi-sensor configuration
 /// * `birth` - Birth model (where new objects can appear)
 /// * `association` - Association algorithm configuration
-/// * `lmbm_config` - LMBM-specific configuration (max hypotheses, etc.)
+/// * `common_prune` - Common pruning config (existence threshold, trajectory length)
+/// * `lmbm_prune` - LMBM-specific pruning config (hypothesis management)
 pub fn multisensor_lmbm_filter(
     motion: MotionModel,
     sensors: MultisensorConfig,
     birth: BirthModel,
     association: AssociationConfig,
-    lmbm_config: LmbmConfig,
-) -> MultisensorLmbmFilter {
-    let strategy = MultisensorLmbmStrategy {
+    common_prune: CommonPruneConfig,
+    lmbm_prune: LmbmPruneConfig,
+) -> UnifiedFilter<MultisensorLmbmStrategyGibbs> {
+    let inner = MultisensorLmbmStrategy {
         associator: MultisensorGibbsAssociator,
     };
-    LmbmFilterCore::with_strategy(
-        motion,
-        sensors.into(),
-        birth,
-        association,
-        lmbm_config,
-        strategy,
-    )
+    let strategy = LmbmStrategy::new(inner, lmbm_prune);
+    UnifiedFilter::new(motion, sensors.into(), birth, association, common_prune, strategy)
 }
 
 // ============================================================================
@@ -296,6 +263,8 @@ mod tests {
             create_sensor(),
             create_birth(),
             AssociationConfig::default(),
+            CommonPruneConfig::default(),
+            LmbPruneConfig::default(),
         );
         assert_eq!(filter.x_dim(), 4);
         assert_eq!(filter.z_dim(), 2);
@@ -308,6 +277,8 @@ mod tests {
             create_multi_sensor(),
             create_birth(),
             AssociationConfig::default(),
+            CommonPruneConfig::default(),
+            LmbPruneConfig::default(),
         );
         assert_eq!(filter.x_dim(), 4);
         assert_eq!(filter.num_sensors(), 2);
@@ -320,6 +291,8 @@ mod tests {
             create_multi_sensor(),
             create_birth(),
             AssociationConfig::default(),
+            CommonPruneConfig::default(),
+            LmbPruneConfig::default(),
             100,
         );
         assert_eq!(filter.x_dim(), 4);
@@ -333,6 +306,8 @@ mod tests {
             create_multi_sensor(),
             create_birth(),
             AssociationConfig::default(),
+            CommonPruneConfig::default(),
+            LmbPruneConfig::default(),
         );
         assert_eq!(filter.x_dim(), 4);
         assert_eq!(filter.num_sensors(), 2);
@@ -345,6 +320,8 @@ mod tests {
             create_multi_sensor(),
             create_birth(),
             AssociationConfig::default(),
+            CommonPruneConfig::default(),
+            LmbPruneConfig::default(),
         );
         assert_eq!(filter.x_dim(), 4);
         assert_eq!(filter.num_sensors(), 2);
@@ -357,7 +334,8 @@ mod tests {
             create_sensor(),
             create_birth(),
             AssociationConfig::default(),
-            LmbmConfig::default(),
+            CommonPruneConfig::default(),
+            LmbmPruneConfig::default(),
         );
         assert_eq!(filter.x_dim(), 4);
         assert_eq!(filter.z_dim(), 2);
@@ -370,7 +348,8 @@ mod tests {
             create_multi_sensor(),
             create_birth(),
             AssociationConfig::default(),
-            LmbmConfig::default(),
+            CommonPruneConfig::default(),
+            LmbmPruneConfig::default(),
         );
         assert_eq!(filter.x_dim(), 4);
         assert_eq!(filter.num_sensors(), 2);

@@ -20,9 +20,10 @@ use multisensor_lmb_filters_rs::common::association::gibbs::{
 use multisensor_lmb_filters_rs::common::rng::SimpleRng;
 use multisensor_lmb_filters_rs::lmb::{
     common_ops::compute_hypothesis_cardinality, AssociationConfig, BirthLocation, BirthModel,
-    Filter, GaussianComponent, GibbsAssociator, LmbmConfig, LmbmFilter, MotionModel, SensorModel,
-    Track, TrackLabel,
+    Filter, GaussianComponent, GibbsAssociator, LmbmConfig, MotionModel, SensorModel, Track,
+    TrackLabel,
 };
+use multisensor_lmb_filters_rs::lmb::core_lmbm::{LmbmFilterCore, SingleSensorLmbmStrategy};
 
 // Import deserialization helpers from fixtures module
 use helpers::fixtures::{deserialize_matrix, deserialize_p_s, deserialize_v_matrix};
@@ -661,8 +662,6 @@ fn test_lmbm_murty_v_matrix_equivalence() {
 /// Test LMBM hypothesis generation (step4) VALUES match MATLAB exactly
 #[test]
 fn test_lmbm_hypothesis_generation_equivalence() {
-    use multisensor_lmb_filters_rs::lmb::builder::FilterBuilder;
-
     let fixture = load_lmbm_fixture();
 
     println!("Testing LMBM hypothesis generation (step4) against MATLAB...");
@@ -685,12 +684,14 @@ fn test_lmbm_hypothesis_generation_equivalence() {
     };
 
     // Create filter with existence threshold from fixture
-    let mut filter = multisensor_lmb_filters_rs::lmb::lmbm_filter(
+    // Use LmbmFilterCore directly since we need step_detailed() for fixture validation
+    let mut filter = LmbmFilterCore::with_strategy(
         motion,
-        sensor,
+        sensor.into(),
         birth,
         association_config,
         lmbm_config,
+        GibbsAssociator,
     )
     .with_existence_threshold(step5_input.model_existence_threshold);
 
