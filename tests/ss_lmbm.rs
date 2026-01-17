@@ -20,10 +20,9 @@ use multisensor_lmb_filters_rs::common::association::gibbs::{
 use multisensor_lmb_filters_rs::common::rng::SimpleRng;
 use multisensor_lmb_filters_rs::lmb::{
     common_ops::compute_hypothesis_cardinality, AssociationConfig, BirthLocation, BirthModel,
-    Filter, GaussianComponent, GibbsAssociator, LmbmConfig, MotionModel, SensorModel, Track,
-    TrackLabel,
+    CommonPruneConfig, Filter, GaussianComponent, GibbsAssociator, LmbmPruneConfig, LmbmStrategy,
+    MotionModel, SensorModel, SingleSensorLmbmStrategy, Track, TrackLabel, UnifiedFilter,
 };
-use multisensor_lmb_filters_rs::lmb::core_lmbm::{LmbmFilterCore, SingleSensorLmbmStrategy};
 
 // Import deserialization helpers from fixtures module
 use helpers::fixtures::{deserialize_matrix, deserialize_p_s, deserialize_v_matrix};
@@ -677,23 +676,29 @@ fn test_lmbm_hypothesis_generation_equivalence() {
 
     // Get LMBM configuration from fixture
     let step5_input = &fixture.step5_normalization.input;
-    let lmbm_config = LmbmConfig {
+    let lmbm_prune = LmbmPruneConfig {
         max_hypotheses: step5_input.model_maximum_number_of_posterior_hypotheses,
         hypothesis_weight_threshold: step5_input.model_posterior_hypothesis_weight_threshold,
         use_eap: false,
     };
+    let common_prune = CommonPruneConfig {
+        existence_threshold: step5_input.model_existence_threshold,
+        min_trajectory_length: 3,
+    };
 
-    // Create filter with existence threshold from fixture
-    // Use LmbmFilterCore directly since we need step_detailed() for fixture validation
-    let mut filter = LmbmFilterCore::with_strategy(
+    // Create filter using UnifiedFilter with LmbmStrategy
+    let inner = SingleSensorLmbmStrategy {
+        associator: GibbsAssociator,
+    };
+    let strategy = LmbmStrategy::new(inner, lmbm_prune);
+    let mut filter = UnifiedFilter::new(
         motion,
         sensor.into(),
         birth,
         association_config,
-        lmbm_config,
-        GibbsAssociator,
-    )
-    .with_existence_threshold(step5_input.model_existence_threshold);
+        common_prune,
+        strategy,
+    );
 
     // Set PRIOR hypothesis (before prediction, 5 tracks)
     // step_detailed() will run prediction to get to 9 tracks (5 + 4 births)

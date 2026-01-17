@@ -45,13 +45,6 @@ pub const LMBM_PRUNE_CONFIG: LmbmPruneConfig = LmbmPruneConfig {
     use_eap: false,
 };
 
-/// LMBM configuration (old API, for LmbmFilterCore)
-pub const LMBM_CONFIG: LmbmConfig = LmbmConfig {
-    max_hypotheses: 25,
-    hypothesis_weight_threshold: 1e-3,
-    use_eap: false,
-};
-
 // =============================================================================
 // JSON Schema for Scenario Files
 // =============================================================================
@@ -200,13 +193,19 @@ pub fn preprocess(scenario: &ScenarioJson) -> PreprocessedScenario {
 // Filter Factory
 // =============================================================================
 
+/// Type alias for LMB filter with dynamic associator (supports runtime-configurable associator type).
+pub type LmbFilterDynamic = UnifiedFilter<LmbStrategy<DynamicAssociator, SingleSensorScheduler>>;
+
+/// Type alias for LMBM filter with dynamic associator (supports runtime-configurable associator type).
+pub type LmbmFilterDynamic =
+    UnifiedFilter<LmbmStrategy<SingleSensorLmbmStrategy<DynamicAssociator>>>;
+
 /// Enum to hold any filter type for unified handling.
 ///
-/// Uses concrete `LmbFilterCore`/`LmbmFilterCore` for old API (dynamic associators).
-/// Uses `UnifiedFilter` for new API (factory functions with static associators).
+/// All variants now use `UnifiedFilter` with appropriate strategies.
 pub enum AnyFilter {
-    Lmb(LmbFilterCore<DynamicAssociator, SingleSensorScheduler>),
-    Lmbm(LmbmFilterCore<SingleSensorLmbmStrategy<DynamicAssociator>>),
+    Lmb(LmbFilterDynamic),
+    Lmbm(LmbmFilterDynamic),
     AaLmb(UnifiedFilter<AaLmbStrategyLbp>),
     IcLmb(UnifiedFilter<IcLmbStrategyLbp>),
     PuLmb(UnifiedFilter<PuLmbStrategyLbp>),
@@ -216,17 +215,11 @@ pub enum AnyFilter {
 
 impl AnyFilter {
     /// Get config JSON from any filter type
+    ///
+    /// Note: UnifiedFilter doesn't expose config JSON yet, returning empty object.
     pub fn get_config_json(&self) -> String {
-        match self {
-            AnyFilter::Lmb(f) => f.get_config().to_json_pretty(),
-            AnyFilter::Lmbm(f) => f.get_config().to_json_pretty(),
-            // UnifiedFilter types don't have get_config() yet
-            AnyFilter::AaLmb(_) => "{}".to_string(),
-            AnyFilter::IcLmb(_) => "{}".to_string(),
-            AnyFilter::PuLmb(_) => "{}".to_string(),
-            AnyFilter::GaLmb(_) => "{}".to_string(),
-            AnyFilter::MsLmbm(_) => "{}".to_string(),
-        }
+        // UnifiedFilter types don't have get_config() - return empty JSON
+        "{}".to_string()
     }
 
     /// Run benchmark on single-sensor steps, returning (mean_ms, std_ms)
@@ -324,79 +317,84 @@ fn compute_stats(step_times: &[f64]) -> (f64, f64) {
 /// Create a filter by name
 pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<AnyFilter, String> {
     match filter_name {
-        // Single-sensor LMB (using LmbFilterCore for dynamic associator)
+        // Single-sensor LMB (with dynamic associator for runtime configurability)
         "LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
-            Ok(AnyFilter::Lmb(
-                LmbFilterCore::with_scheduler(
-                    prep.motion.clone(),
-                    prep.sensor.clone().into(),
-                    prep.birth.clone(),
-                    assoc.clone(),
-                    DynamicAssociator::from_config(&assoc),
-                    SingleSensorScheduler::new(),
-                )
-                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
-            ))
-        }
-        "LMB-Gibbs" => {
-            let assoc = AssociationConfig::gibbs(1000);
-            Ok(AnyFilter::Lmb(
-                LmbFilterCore::with_scheduler(
-                    prep.motion.clone(),
-                    prep.sensor.clone().into(),
-                    prep.birth.clone(),
-                    assoc.clone(),
-                    DynamicAssociator::from_config(&assoc),
-                    SingleSensorScheduler::new(),
-                )
-                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
-            ))
-        }
-        "LMB-Murty" => {
-            let assoc = AssociationConfig::murty(25);
-            Ok(AnyFilter::Lmb(
-                LmbFilterCore::with_scheduler(
-                    prep.motion.clone(),
-                    prep.sensor.clone().into(),
-                    prep.birth.clone(),
-                    assoc.clone(),
-                    DynamicAssociator::from_config(&assoc),
-                    SingleSensorScheduler::new(),
-                )
-                .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
-                .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
-            ))
-        }
-
-        // Single-sensor LMBM (using LmbmFilterCore for dynamic associator)
-        "LMBM-Gibbs" => {
-            let assoc = AssociationConfig::gibbs(1000);
-            let strategy = SingleSensorLmbmStrategy {
-                associator: DynamicAssociator::from_config(&assoc),
-            };
-            Ok(AnyFilter::Lmbm(LmbmFilterCore::with_strategy(
+            let strategy = LmbStrategy::new(
+                DynamicAssociator::from_config(&assoc),
+                SingleSensorScheduler::new(),
+                LMB_PRUNE_CONFIG,
+            );
+            Ok(AnyFilter::Lmb(UnifiedFilter::new(
                 prep.motion.clone(),
                 prep.sensor.clone().into(),
                 prep.birth.clone(),
-                assoc.clone(),
-                LMBM_CONFIG,
+                assoc,
+                COMMON_PRUNE_CONFIG,
+                strategy,
+            )))
+        }
+        "LMB-Gibbs" => {
+            let assoc = AssociationConfig::gibbs(1000);
+            let strategy = LmbStrategy::new(
+                DynamicAssociator::from_config(&assoc),
+                SingleSensorScheduler::new(),
+                LMB_PRUNE_CONFIG,
+            );
+            Ok(AnyFilter::Lmb(UnifiedFilter::new(
+                prep.motion.clone(),
+                prep.sensor.clone().into(),
+                prep.birth.clone(),
+                assoc,
+                COMMON_PRUNE_CONFIG,
+                strategy,
+            )))
+        }
+        "LMB-Murty" => {
+            let assoc = AssociationConfig::murty(25);
+            let strategy = LmbStrategy::new(
+                DynamicAssociator::from_config(&assoc),
+                SingleSensorScheduler::new(),
+                LMB_PRUNE_CONFIG,
+            );
+            Ok(AnyFilter::Lmb(UnifiedFilter::new(
+                prep.motion.clone(),
+                prep.sensor.clone().into(),
+                prep.birth.clone(),
+                assoc,
+                COMMON_PRUNE_CONFIG,
+                strategy,
+            )))
+        }
+
+        // Single-sensor LMBM (with dynamic associator for runtime configurability)
+        "LMBM-Gibbs" => {
+            let assoc = AssociationConfig::gibbs(1000);
+            let inner = SingleSensorLmbmStrategy {
+                associator: DynamicAssociator::from_config(&assoc),
+            };
+            let strategy = LmbmStrategy::new(inner, LMBM_PRUNE_CONFIG);
+            Ok(AnyFilter::Lmbm(UnifiedFilter::new(
+                prep.motion.clone(),
+                prep.sensor.clone().into(),
+                prep.birth.clone(),
+                assoc,
+                COMMON_PRUNE_CONFIG,
                 strategy,
             )))
         }
         "LMBM-Murty" => {
             let assoc = AssociationConfig::murty(25);
-            let strategy = SingleSensorLmbmStrategy {
+            let inner = SingleSensorLmbmStrategy {
                 associator: DynamicAssociator::from_config(&assoc),
             };
-            Ok(AnyFilter::Lmbm(LmbmFilterCore::with_strategy(
+            let strategy = LmbmStrategy::new(inner, LMBM_PRUNE_CONFIG);
+            Ok(AnyFilter::Lmbm(UnifiedFilter::new(
                 prep.motion.clone(),
                 prep.sensor.clone().into(),
                 prep.birth.clone(),
-                assoc.clone(),
-                LMBM_CONFIG,
+                assoc,
+                COMMON_PRUNE_CONFIG,
                 strategy,
             )))
         }

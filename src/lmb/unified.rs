@@ -9,16 +9,16 @@ use nalgebra::DVector;
 use rand::Rng;
 
 use super::config::{AssociationConfig, BirthModel, MotionModel, SensorSet};
-use super::core_lmbm::{MultisensorLmbmStrategy, SingleSensorLmbmStrategy};
 use super::errors::FilterError;
 use super::multisensor::MultisensorMeasurements;
 use super::output::{StateEstimate, Trajectory};
 use super::scheduler::{ParallelScheduler, SequentialScheduler, SingleSensorScheduler};
 use super::strategy::{
-    CommonPruneConfig, LmbStrategy, LmbmStrategy, UpdateContext, UpdateIntermediate, UpdateStrategy,
+    CommonPruneConfig, LmbStrategy, LmbmStrategy, MultisensorLmbmStrategy,
+    SingleSensorLmbmStrategy, UpdateContext, UpdateIntermediate, UpdateStrategy,
 };
 use super::traits::Filter;
-use super::types::{Hypothesis, Track};
+use super::types::{Hypothesis, StepDetailedOutput, Track};
 
 // ============================================================================
 // UnifiedFilter
@@ -189,7 +189,8 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
                 association_config: &self.association_config,
                 common_prune: &self.common_prune,
             };
-            self.strategy.update(rng, &mut self.hypotheses, measurements, &ctx)?
+            self.strategy
+                .update(rng, &mut self.hypotheses, measurements, &ctx)?
         };
 
         // Prune
@@ -221,6 +222,128 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
             association_config: &self.association_config,
             common_prune: &self.common_prune,
         }
+    }
+
+    /// Detailed step implementation that captures intermediate state for fixture validation.
+    ///
+    /// This method runs the full predict-update-prune cycle while capturing
+    /// intermediate state at each stage for debugging and fixture validation.
+    ///
+    /// # Returns
+    /// `StepDetailedOutput` containing intermediate state at each processing stage.
+    pub fn step_detailed<R: Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &S::Measurements,
+        timestep: usize,
+    ) -> Result<StepDetailedOutput, FilterError> {
+        // Prediction (use block to limit context lifetime)
+        {
+            let ctx = UpdateContext {
+                motion: &self.motion,
+                sensors: &self.sensors,
+                birth: &self.birth,
+                association_config: &self.association_config,
+                common_prune: &self.common_prune,
+            };
+            self.strategy.predict(&mut self.hypotheses, &ctx, timestep);
+        }
+        self.strategy
+            .init_birth_trajectories(&mut self.hypotheses, super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+
+        // Capture predicted tracks (from first hypothesis for LMB, or all for LMBM)
+        let predicted_tracks = self.get_tracks();
+        let predicted_hypotheses = if self.strategy.is_hypothesis_based() {
+            Some(self.hypotheses.clone())
+        } else {
+            None
+        };
+
+        // Update (use block to limit context lifetime)
+        let intermediate = {
+            let ctx = UpdateContext {
+                motion: &self.motion,
+                sensors: &self.sensors,
+                birth: &self.birth,
+                association_config: &self.association_config,
+                common_prune: &self.common_prune,
+            };
+            self.strategy
+                .update(rng, &mut self.hypotheses, measurements, &ctx)?
+        };
+
+        // Capture pre-normalization hypotheses (after update, before prune)
+        let pre_normalization_hypotheses = if self.strategy.is_hypothesis_based() {
+            Some(self.hypotheses.clone())
+        } else {
+            None
+        };
+
+        // Capture updated tracks before pruning
+        let updated_tracks = self.get_tracks();
+
+        // Prune (use block to limit context lifetime)
+        {
+            let ctx = UpdateContext {
+                motion: &self.motion,
+                sensors: &self.sensors,
+                birth: &self.birth,
+                association_config: &self.association_config,
+                common_prune: &self.common_prune,
+            };
+            self.strategy
+                .prune(&mut self.hypotheses, &mut self.trajectories, &ctx);
+        }
+
+        // Capture normalized hypotheses (after prune, for LMBM)
+        let normalized_hypotheses = if self.strategy.is_hypothesis_based() {
+            Some(self.hypotheses.clone())
+        } else {
+            None
+        };
+
+        // Compute objects likely to exist mask
+        let objects_likely_to_exist = if self.strategy.is_hypothesis_based() {
+            Some(super::common_ops::compute_objects_likely_to_exist(
+                &self.hypotheses,
+                self.common_prune.existence_threshold,
+            ))
+        } else {
+            None
+        };
+
+        // Update trajectories
+        self.strategy
+            .update_trajectories(&mut self.hypotheses, timestep);
+
+        // Extract final estimates (use block to limit context lifetime)
+        let final_estimate = {
+            let ctx = UpdateContext {
+                motion: &self.motion,
+                sensors: &self.sensors,
+                birth: &self.birth,
+                association_config: &self.association_config,
+                common_prune: &self.common_prune,
+            };
+            self.strategy.extract(&self.hypotheses, timestep, &ctx)
+        };
+
+        // Compute cardinality from final tracks
+        let cardinality = super::common_ops::compute_cardinality(&self.get_tracks());
+
+        Ok(StepDetailedOutput {
+            predicted_tracks,
+            association_matrices: intermediate.association_matrices,
+            association_result: intermediate.association_result,
+            updated_tracks,
+            cardinality,
+            final_estimate,
+            sensor_updates: None, // TODO: Implement for multi-sensor
+            predicted_hypotheses,
+            pre_normalization_hypotheses,
+            normalized_hypotheses,
+            objects_likely_to_exist,
+        })
     }
 }
 

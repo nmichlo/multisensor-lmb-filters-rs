@@ -15,14 +15,26 @@
 //! - [`LmbStrategy`] - LMB algorithm with marginal GM posteriors
 //! - [`LmbmStrategy`] - LMBM algorithm with hypothesis mixture management
 
+use nalgebra::{DMatrix, DVector};
 use rand::Rng;
 
-use super::config::{AssociationConfig, BirthModel, MotionModel, SensorSet};
+use super::config::{
+    AssociationConfig, BirthModel, MotionModel, MultisensorConfig, SensorModel, SensorSet,
+};
 use super::errors::FilterError;
+use super::multisensor::traits::MultisensorAssociator;
+use super::multisensor::MultisensorMeasurements;
 use super::output::{StateEstimate, Trajectory};
-use super::traits::AssociationResult;
-use super::types::Hypothesis;
-use crate::association::AssociationMatrices;
+use super::scheduler::{
+    ParallelScheduler, SequentialScheduler, SingleSensorScheduler, UpdateScheduler,
+};
+use super::traits::{
+    AssociationResult, Associator, HardAssignmentUpdater, MarginalUpdater, Merger, Updater,
+};
+use super::types::{GaussianComponent, Hypothesis, Track};
+use crate::association::{AssociationBuilder, AssociationMatrices};
+use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
+use crate::components::prediction::predict_tracks;
 
 // ============================================================================
 // Configuration Types
@@ -179,7 +191,7 @@ pub trait UpdateStrategy: Send + Sync + Clone {
     ///
     /// Ok with optional intermediate data for detailed output, or error on failure.
     fn update<R: Rng>(
-        &self,
+        &mut self,
         rng: &mut R,
         hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
@@ -248,16 +260,6 @@ pub trait UpdateStrategy: Send + Sync + Clone {
 // ============================================================================
 // LmbStrategy - LMB filter update strategy
 // ============================================================================
-
-use nalgebra::DVector;
-
-use crate::association::AssociationBuilder;
-use crate::components::prediction::predict_tracks;
-
-use super::config::SensorModel;
-use super::scheduler::{ParallelScheduler, SequentialScheduler, SingleSensorScheduler, UpdateScheduler};
-use super::traits::{Associator, MarginalUpdater, Merger, Updater};
-use super::types::Track;
 
 /// LMB filter update strategy.
 ///
@@ -385,7 +387,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SingleSensorSchedu
     }
 
     fn update<R: Rng>(
-        &self,
+        &mut self,
         rng: &mut R,
         hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
@@ -481,7 +483,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
     }
 
     fn update<R: Rng>(
-        &self,
+        &mut self,
         rng: &mut R,
         hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
@@ -568,7 +570,9 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
 // LmbStrategy for ParallelScheduler (AA, GA, PU-LMB)
 // ============================================================================
 
-impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy for LmbStrategy<A, ParallelScheduler<M>> {
+impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
+    for LmbStrategy<A, ParallelScheduler<M>>
+{
     type Measurements = [Vec<DVector<f64>>];
 
     fn predict(&self, hypotheses: &mut Vec<Hypothesis>, ctx: &UpdateContext, timestep: usize) {
@@ -586,7 +590,7 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy for LmbStrategy<A,
     }
 
     fn update<R: Rng>(
-        &self,
+        &mut self,
         rng: &mut R,
         hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
@@ -627,9 +631,10 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy for LmbStrategy<A,
                 per_sensor_tracks.push(sensor_tracks);
             }
 
-            // Set prior for PU-LMB decorrelation (no-op for other mergers)
-            // Note: We can't modify self here since &self is immutable
-            // The UnifiedFilter will handle this at a higher level
+            // Set prior for PU-LMB decorrelation (required for information form fusion)
+            self.scheduler
+                .merger_mut()
+                .set_prior(hypotheses[0].tracks.clone());
 
             // Fuse per-sensor posteriors
             hypotheses[0].tracks = self.scheduler.merger().merge(&per_sensor_tracks, None);
@@ -700,11 +705,604 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy for LmbStrategy<A,
 }
 
 // ============================================================================
-// LmbmStrategy - LMBM filter update strategy
+// LmbmAssociator trait - Unified association for LMBM filters
 // ============================================================================
 
-use super::core_lmbm::LmbmAssociator;
-use super::multisensor::MultisensorMeasurements;
+/// Log-likelihood floor to prevent underflow when computing ln(x) for very small x.
+const LOG_UNDERFLOW: f64 = -700.0;
+
+/// Unified LMBM association trait.
+///
+/// This trait abstracts over the different association patterns used by single-sensor
+/// and multi-sensor LMBM filters. It combines association AND posterior hypothesis
+/// generation into one operation, since the inputs and logic differ significantly.
+pub trait LmbmAssociator: Send + Sync {
+    /// Type of measurements this associator accepts.
+    type Measurements;
+
+    /// Perform association and generate posterior hypotheses.
+    fn associate_and_update<R: Rng>(
+        &self,
+        rng: &mut R,
+        hypotheses: &mut Vec<Hypothesis>,
+        measurements: &Self::Measurements,
+        sensor_config: &SensorSet,
+        motion: &MotionModel,
+        association_config: &AssociationConfig,
+    ) -> Result<Option<LmbmAssociationIntermediate>, FilterError>;
+
+    /// Update existence probabilities when there are no measurements.
+    fn update_existence_no_measurements(
+        &self,
+        hypotheses: &mut Vec<Hypothesis>,
+        sensor_config: &SensorSet,
+    );
+
+    /// Check if measurements are empty.
+    fn measurements_empty(&self, measurements: &Self::Measurements) -> bool;
+
+    /// Validate measurements match expected sensor count.
+    fn validate_measurements(
+        &self,
+        measurements: &Self::Measurements,
+        sensor_config: &SensorSet,
+    ) -> Result<(), FilterError>;
+
+    /// Algorithm name for logging and debugging.
+    fn name(&self) -> &'static str;
+}
+
+/// Intermediate association data for detailed step output.
+#[derive(Debug, Clone)]
+pub struct LmbmAssociationIntermediate {
+    /// Association matrices (single-sensor only).
+    pub matrices: Option<AssociationMatrices>,
+    /// Association result (single-sensor only).
+    pub result: Option<AssociationResult>,
+}
+
+// ============================================================================
+// SingleSensorLmbmStrategy - Wraps Associator for single-sensor LMBM
+// ============================================================================
+
+/// Single-sensor LMBM association strategy.
+#[derive(Debug, Clone, Default)]
+pub struct SingleSensorLmbmStrategy<A: Associator = super::traits::GibbsAssociator> {
+    pub associator: A,
+}
+
+impl<A: Associator> SingleSensorLmbmStrategy<A> {
+    /// Build log-likelihood matrix for computing hypothesis weights.
+    fn build_log_likelihood_matrix(matrices: &AssociationMatrices) -> DMatrix<f64> {
+        let n = matrices.eta.len();
+        let m = matrices.psi.ncols();
+        let mut log_likelihood = DMatrix::zeros(n, m + 1);
+
+        for i in 0..n {
+            log_likelihood[(i, 0)] = if matrices.eta[i] > super::UNDERFLOW_THRESHOLD {
+                matrices.eta[i].ln()
+            } else {
+                LOG_UNDERFLOW
+            };
+
+            for j in 0..m {
+                let likelihood_ij = matrices.eta[i] * matrices.psi[(i, j)];
+                log_likelihood[(i, j + 1)] = if likelihood_ij > super::UNDERFLOW_THRESHOLD {
+                    likelihood_ij.ln()
+                } else {
+                    LOG_UNDERFLOW
+                };
+            }
+        }
+        log_likelihood
+    }
+
+    /// Generate posterior hypotheses from sampled associations.
+    fn generate_posterior_hypotheses(
+        hypotheses: &mut Vec<Hypothesis>,
+        result: &AssociationResult,
+        matrices: &AssociationMatrices,
+        log_likelihoods: &DMatrix<f64>,
+    ) {
+        let samples = match &result.sampled_associations {
+            Some(s) if !s.is_empty() => s,
+            _ => return,
+        };
+
+        let miss_posterior_r = matrices.miss_posterior_existence();
+        let mut new_hypotheses = Vec::new();
+
+        for prior_hyp in hypotheses.iter() {
+            for (sample_idx, assignments) in samples.iter().enumerate() {
+                let mut new_hyp = prior_hyp.clone();
+
+                for (track_idx, track) in new_hyp.tracks.iter_mut().enumerate() {
+                    if track_idx < miss_posterior_r.len() {
+                        track.existence = miss_posterior_r[track_idx];
+                    }
+                }
+
+                let mut log_likelihood_sum = 0.0;
+                for (track_idx, &meas_assignment) in assignments.iter().enumerate() {
+                    if track_idx < new_hyp.tracks.len() {
+                        let col_idx = if meas_assignment < 0 {
+                            0
+                        } else {
+                            (meas_assignment + 1) as usize
+                        };
+                        if col_idx < log_likelihoods.ncols() {
+                            log_likelihood_sum += log_likelihoods[(track_idx, col_idx)];
+                        }
+                    }
+                }
+
+                new_hyp.log_weight += log_likelihood_sum;
+
+                let updater = HardAssignmentUpdater::with_sample_index(sample_idx);
+                updater.update(&mut new_hyp.tracks, result, &matrices.posteriors);
+
+                for (track_idx, &meas_assignment) in assignments.iter().enumerate() {
+                    if track_idx < new_hyp.tracks.len() && meas_assignment >= 0 {
+                        new_hyp.tracks[track_idx].existence = 1.0;
+                    }
+                }
+
+                new_hypotheses.push(new_hyp);
+            }
+        }
+
+        *hypotheses = new_hypotheses;
+    }
+}
+
+impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
+    type Measurements = Vec<DVector<f64>>;
+
+    fn associate_and_update<R: Rng>(
+        &self,
+        rng: &mut R,
+        hypotheses: &mut Vec<Hypothesis>,
+        measurements: &Self::Measurements,
+        sensor_config: &SensorSet,
+        _motion: &MotionModel,
+        association_config: &AssociationConfig,
+    ) -> Result<Option<LmbmAssociationIntermediate>, FilterError> {
+        if hypotheses.is_empty() || hypotheses[0].tracks.is_empty() {
+            return Ok(None);
+        }
+
+        let sensor = sensor_config.single();
+        let tracks = &hypotheses[0].tracks;
+
+        let mut builder = AssociationBuilder::new(tracks, sensor);
+        let matrices = builder.build(measurements);
+        let log_likelihood = Self::build_log_likelihood_matrix(&matrices);
+
+        let result = self
+            .associator
+            .associate(&matrices, association_config, rng)
+            .map_err(FilterError::Association)?;
+
+        Self::generate_posterior_hypotheses(hypotheses, &result, &matrices, &log_likelihood);
+
+        Ok(Some(LmbmAssociationIntermediate {
+            matrices: Some(matrices),
+            result: Some(result),
+        }))
+    }
+
+    fn update_existence_no_measurements(
+        &self,
+        hypotheses: &mut Vec<Hypothesis>,
+        sensor_config: &SensorSet,
+    ) {
+        let p_d = sensor_config.single().detection_probability;
+        for hyp in hypotheses.iter_mut() {
+            for track in &mut hyp.tracks {
+                track.existence =
+                    crate::components::update::update_existence_no_detection(track.existence, p_d);
+            }
+        }
+    }
+
+    fn measurements_empty(&self, measurements: &Self::Measurements) -> bool {
+        measurements.is_empty()
+    }
+
+    fn validate_measurements(
+        &self,
+        _measurements: &Self::Measurements,
+        sensor_config: &SensorSet,
+    ) -> Result<(), FilterError> {
+        if sensor_config.num_sensors() != 1 {
+            return Err(FilterError::InvalidInput(format!(
+                "SingleSensorLmbmStrategy requires 1 sensor, got {}",
+                sensor_config.num_sensors()
+            )));
+        }
+        Ok(())
+    }
+
+    fn name(&self) -> &'static str {
+        "SingleSensorLmbm"
+    }
+}
+
+// ============================================================================
+// MultisensorLmbmStrategy - Wraps MultisensorAssociator for multi-sensor LMBM
+// ============================================================================
+
+/// Multi-sensor LMBM association strategy.
+#[derive(Debug, Clone, Default)]
+pub struct MultisensorLmbmStrategy<
+    A: MultisensorAssociator = super::multisensor::MultisensorGibbsAssociator,
+> {
+    pub associator: A,
+}
+
+/// Posterior parameters for a single entry in the flattened likelihood tensor.
+#[derive(Clone)]
+struct MultisensorPosterior {
+    existence: f64,
+    mean: DVector<f64>,
+    covariance: DMatrix<f64>,
+}
+
+impl<A: MultisensorAssociator> MultisensorLmbmStrategy<A> {
+    /// Convert linear index to Cartesian coordinates (MATLAB-style, 1-indexed).
+    fn linear_to_cartesian(mut ell: usize, page_sizes: &[usize]) -> Vec<usize> {
+        let m = page_sizes.len();
+        let mut u = vec![0; m];
+
+        for i in 0..m {
+            let j = m - i - 1;
+            let zeta = ell / page_sizes[j];
+            let eta = ell % page_sizes[j];
+            u[j] = zeta + if eta != 0 { 1 } else { 0 };
+            ell -= page_sizes[j] * (zeta - if eta == 0 { 1 } else { 0 });
+        }
+        u
+    }
+
+    /// Convert Cartesian coordinates to linear index (MATLAB-style, 1-indexed).
+    fn cartesian_to_linear(u: &[usize], dimensions: &[usize]) -> usize {
+        let mut ell = u[0];
+        let mut pi = 1;
+
+        for i in 1..u.len() {
+            pi *= dimensions[i - 1];
+            ell += pi * (u[i] - 1);
+        }
+        ell - 1
+    }
+
+    /// Generate multi-sensor association matrices.
+    fn generate_association_matrices(
+        tracks: &[super::types::Track],
+        measurements: &MultisensorMeasurements,
+        sensors: &MultisensorConfig,
+        motion: &MotionModel,
+    ) -> (Vec<f64>, Vec<MultisensorPosterior>, Vec<usize>) {
+        let num_sensors = sensors.num_sensors();
+        let num_objects = tracks.len();
+        let x_dim = motion.x_dim();
+
+        let mut dimensions = vec![0; num_sensors + 1];
+        for s in 0..num_sensors {
+            dimensions[s] = measurements[s].len() + 1;
+        }
+        dimensions[num_sensors] = num_objects;
+
+        let num_entries: usize = dimensions.iter().product();
+
+        let mut page_sizes = vec![1; num_sensors + 1];
+        for i in 1..=num_sensors {
+            page_sizes[i] = page_sizes[i - 1] * dimensions[i - 1];
+        }
+
+        let mut log_likelihoods = vec![0.0; num_entries];
+        let mut posteriors = vec![
+            MultisensorPosterior {
+                existence: 0.0,
+                mean: DVector::zeros(x_dim),
+                covariance: DMatrix::zeros(x_dim, x_dim),
+            };
+            num_entries
+        ];
+
+        for ell in 0..num_entries {
+            let u = Self::linear_to_cartesian(ell + 1, &page_sizes);
+            let obj_idx = u[num_sensors] - 1;
+            let associations: Vec<usize> = u[0..num_sensors].iter().map(|&x| x - 1).collect();
+
+            let (log_l, posterior) = Self::compute_log_likelihood(
+                obj_idx,
+                &associations,
+                tracks,
+                measurements,
+                sensors,
+                motion,
+            );
+
+            log_likelihoods[ell] = log_l;
+            posteriors[ell] = posterior;
+        }
+
+        (log_likelihoods, posteriors, dimensions)
+    }
+
+    /// Compute log-likelihood and posterior for a single object-association pair.
+    fn compute_log_likelihood(
+        obj_idx: usize,
+        associations: &[usize],
+        tracks: &[super::types::Track],
+        measurements: &MultisensorMeasurements,
+        sensors: &MultisensorConfig,
+        motion: &MotionModel,
+    ) -> (f64, MultisensorPosterior) {
+        let track = &tracks[obj_idx];
+        let (prior_mean, prior_cov) = match (track.primary_mean(), track.primary_covariance()) {
+            (Some(m), Some(c)) => (m.clone(), c.clone()),
+            _ => {
+                return (
+                    f64::NEG_INFINITY,
+                    MultisensorPosterior {
+                        existence: 0.0,
+                        mean: DVector::zeros(motion.x_dim()),
+                        covariance: DMatrix::identity(motion.x_dim(), motion.x_dim()),
+                    },
+                );
+            }
+        };
+
+        let num_sensors = associations.len();
+        let detecting: Vec<bool> = associations.iter().map(|&a| a > 0).collect();
+        let num_detections: usize = detecting.iter().filter(|&&x| x).count();
+
+        if num_detections > 0 {
+            let z_dim = sensors.sensors[0].z_dim();
+            let z_dim_total = z_dim * num_detections;
+            let x_dim = motion.x_dim();
+
+            let mut z = DVector::zeros(z_dim_total);
+            let mut c = DMatrix::zeros(z_dim_total, x_dim);
+            let mut q_blocks = Vec::new();
+
+            let mut counter = 0;
+            for s in 0..num_sensors {
+                if detecting[s] {
+                    let sensor = &sensors.sensors[s];
+                    let meas_idx = associations[s] - 1;
+                    let start = z_dim * counter;
+
+                    z.rows_mut(start, z_dim)
+                        .copy_from(&measurements[s][meas_idx]);
+                    c.view_mut((start, 0), (z_dim, x_dim))
+                        .copy_from(&sensor.observation_matrix);
+                    q_blocks.push(sensor.measurement_noise.clone());
+                    counter += 1;
+                }
+            }
+
+            let mut q = DMatrix::zeros(z_dim_total, z_dim_total);
+            let mut offset = 0;
+            for q_block in &q_blocks {
+                q.view_mut((offset, offset), (z_dim, z_dim))
+                    .copy_from(q_block);
+                offset += z_dim;
+            }
+
+            let nu = &z - &c * &prior_mean;
+            let s_mat = &c * &prior_cov * c.transpose() + &q;
+
+            let s_inv = match robust_inverse(&s_mat) {
+                Some(inv) => inv,
+                None => {
+                    return (
+                        f64::NEG_INFINITY,
+                        MultisensorPosterior {
+                            existence: 0.0,
+                            mean: prior_mean,
+                            covariance: prior_cov,
+                        },
+                    );
+                }
+            };
+
+            let k = &prior_cov * c.transpose() * &s_inv;
+            let log_eta = log_gaussian_normalizing_constant(&s_mat, z_dim_total);
+
+            let mut log_pd = 0.0;
+            for (sensor, &is_detecting) in sensors.sensors.iter().zip(detecting.iter()) {
+                let p_d = sensor.detection_probability;
+                log_pd += if is_detecting {
+                    p_d.ln()
+                } else {
+                    (1.0 - p_d).ln()
+                };
+            }
+
+            let log_kappa: f64 = detecting
+                .iter()
+                .enumerate()
+                .filter(|(_, &d)| d)
+                .map(|(s, _)| sensors.sensors[s].clutter_density().ln())
+                .sum();
+
+            let log_l =
+                track.existence.ln() + log_pd + log_eta - 0.5 * nu.dot(&(&s_inv * &nu)) - log_kappa;
+
+            let post_mean = &prior_mean + &k * &nu;
+            let post_cov = (DMatrix::identity(x_dim, x_dim) - &k * &c) * &prior_cov;
+
+            (
+                log_l,
+                MultisensorPosterior {
+                    existence: 1.0,
+                    mean: post_mean,
+                    covariance: post_cov,
+                },
+            )
+        } else {
+            let mut prob_no_detect = 1.0;
+            for sensor in &sensors.sensors {
+                prob_no_detect *= 1.0 - sensor.detection_probability;
+            }
+
+            let r = track.existence;
+            let numerator = r * prob_no_detect;
+            let denominator = 1.0 - r + numerator;
+
+            let log_l = denominator.ln();
+            let post_r = numerator / denominator;
+
+            (
+                log_l,
+                MultisensorPosterior {
+                    existence: post_r,
+                    mean: prior_mean,
+                    covariance: prior_cov,
+                },
+            )
+        }
+    }
+
+    /// Generate posterior hypotheses from association samples.
+    fn generate_posterior_hypotheses(
+        hypotheses: &mut Vec<Hypothesis>,
+        samples: &[Vec<usize>],
+        log_likelihoods: &[f64],
+        posteriors: &[MultisensorPosterior],
+        dimensions: &[usize],
+    ) {
+        if samples.is_empty() {
+            return;
+        }
+
+        let num_sensors = dimensions.len() - 1;
+        let num_objects = dimensions[num_sensors];
+        let mut new_hypotheses = Vec::new();
+
+        for prior_hyp in hypotheses.iter() {
+            for sample in samples {
+                let mut new_hyp = prior_hyp.clone();
+                let mut log_likelihood_sum = 0.0;
+
+                for i in 0..num_objects.min(new_hyp.tracks.len()) {
+                    let mut u: Vec<usize> = Vec::with_capacity(num_sensors + 1);
+                    for s in 0..num_sensors {
+                        let v_is = sample[s * num_objects + i];
+                        u.push(v_is + 1);
+                    }
+                    u.push(i + 1);
+
+                    let ell = Self::cartesian_to_linear(&u, dimensions);
+                    log_likelihood_sum += log_likelihoods[ell];
+
+                    let posterior = &posteriors[ell];
+                    new_hyp.tracks[i].existence = posterior.existence;
+                    new_hyp.tracks[i].components.clear();
+                    new_hyp.tracks[i].components.push(GaussianComponent {
+                        weight: 1.0,
+                        mean: posterior.mean.clone(),
+                        covariance: posterior.covariance.clone(),
+                    });
+                }
+
+                new_hyp.log_weight += log_likelihood_sum;
+                new_hypotheses.push(new_hyp);
+            }
+        }
+
+        *hypotheses = new_hypotheses;
+    }
+}
+
+impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
+    type Measurements = MultisensorMeasurements;
+
+    fn associate_and_update<R: Rng>(
+        &self,
+        rng: &mut R,
+        hypotheses: &mut Vec<Hypothesis>,
+        measurements: &Self::Measurements,
+        sensor_config: &SensorSet,
+        motion: &MotionModel,
+        association_config: &AssociationConfig,
+    ) -> Result<Option<LmbmAssociationIntermediate>, FilterError> {
+        if hypotheses.is_empty() || hypotheses[0].tracks.is_empty() {
+            return Ok(None);
+        }
+
+        let tracks = &hypotheses[0].tracks;
+        let sensors = sensor_config.multi();
+
+        let (log_likelihoods, posteriors, dimensions) =
+            Self::generate_association_matrices(tracks, measurements, sensors, motion);
+
+        let result =
+            self.associator
+                .associate(rng, &log_likelihoods, &dimensions, association_config)?;
+
+        Self::generate_posterior_hypotheses(
+            hypotheses,
+            &result.samples,
+            &log_likelihoods,
+            &posteriors,
+            &dimensions,
+        );
+
+        Ok(None)
+    }
+
+    fn update_existence_no_measurements(
+        &self,
+        hypotheses: &mut Vec<Hypothesis>,
+        sensor_config: &SensorSet,
+    ) {
+        let sensors = sensor_config.multi();
+        let mut prob_no_detect = 1.0;
+        for sensor in &sensors.sensors {
+            prob_no_detect *= 1.0 - sensor.detection_probability;
+        }
+
+        for hyp in hypotheses.iter_mut() {
+            for track in &mut hyp.tracks {
+                let r = track.existence;
+                let numerator = r * prob_no_detect;
+                let denominator = 1.0 - r + numerator;
+                track.existence = numerator / denominator;
+            }
+        }
+    }
+
+    fn measurements_empty(&self, measurements: &Self::Measurements) -> bool {
+        measurements.iter().all(|s| s.is_empty())
+    }
+
+    fn validate_measurements(
+        &self,
+        measurements: &Self::Measurements,
+        sensor_config: &SensorSet,
+    ) -> Result<(), FilterError> {
+        if measurements.len() != sensor_config.num_sensors() {
+            return Err(FilterError::InvalidInput(format!(
+                "Expected {} sensor measurements, got {}",
+                sensor_config.num_sensors(),
+                measurements.len()
+            )));
+        }
+        Ok(())
+    }
+
+    fn name(&self) -> &'static str {
+        "MultisensorLmbm"
+    }
+}
+
+// ============================================================================
+// LmbmStrategy - LMBM filter update strategy
+// ============================================================================
 
 /// LMBM filter update strategy.
 ///
@@ -735,7 +1333,10 @@ pub struct LmbmStrategy<S: LmbmAssociator + Clone> {
 impl<S: LmbmAssociator + Clone> LmbmStrategy<S> {
     /// Create a new LMBM strategy with the given associator and configuration.
     pub fn new(inner: S, prune_config: LmbmPruneConfig) -> Self {
-        Self { inner, prune_config }
+        Self {
+            inner,
+            prune_config,
+        }
     }
 
     /// Create with default pruning configuration.
@@ -746,7 +1347,7 @@ impl<S: LmbmAssociator + Clone> LmbmStrategy<S> {
 
 /// Helper to predict hypotheses for LMBM.
 fn predict_hypotheses(
-    hypotheses: &mut Vec<Hypothesis>,
+    hypotheses: &mut [Hypothesis],
     motion: &MotionModel,
     birth: &BirthModel,
     timestep: usize,
@@ -757,8 +1358,6 @@ fn predict_hypotheses(
 // ============================================================================
 // LmbmStrategy for single-sensor (SingleSensorLmbmStrategy)
 // ============================================================================
-
-use super::core_lmbm::SingleSensorLmbmStrategy;
 
 impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStrategy<A>> {
     type Measurements = [DVector<f64>];
@@ -771,7 +1370,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
     }
 
     fn update<R: Rng>(
-        &self,
+        &mut self,
         rng: &mut R,
         hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
@@ -850,12 +1449,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
 // LmbmStrategy for multi-sensor (MultisensorLmbmStrategy)
 // ============================================================================
 
-use super::core_lmbm::MultisensorLmbmStrategy;
-use super::multisensor::traits::MultisensorAssociator;
-
-impl<A: MultisensorAssociator + Clone> UpdateStrategy
-    for LmbmStrategy<MultisensorLmbmStrategy<A>>
-{
+impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<MultisensorLmbmStrategy<A>> {
     type Measurements = MultisensorMeasurements;
 
     fn predict(&self, hypotheses: &mut Vec<Hypothesis>, ctx: &UpdateContext, timestep: usize) {
@@ -866,13 +1460,14 @@ impl<A: MultisensorAssociator + Clone> UpdateStrategy
     }
 
     fn update<R: Rng>(
-        &self,
+        &mut self,
         rng: &mut R,
         hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
         ctx: &UpdateContext,
     ) -> Result<UpdateIntermediate, FilterError> {
-        self.inner.validate_measurements(measurements, ctx.sensors)?;
+        self.inner
+            .validate_measurements(measurements, ctx.sensors)?;
 
         let has_measurements = !self.inner.measurements_empty(measurements);
 

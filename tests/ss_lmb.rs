@@ -1530,9 +1530,7 @@ fn test_new_api_lbp_marginals_equivalence() {
 /// Test a complete filter step against MATLAB
 #[test]
 fn test_new_api_lmb_filter_step() {
-    use multisensor_lmb_filters_rs::lmb::{
-        lmb_filter, CommonPruneConfig, Filter, LmbPruneConfig,
-    };
+    use multisensor_lmb_filters_rs::lmb::{lmb_filter, CommonPruneConfig, Filter, LmbPruneConfig};
 
     let fixture_path = "tests/fixtures/step_ss_lmb_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)

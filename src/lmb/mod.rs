@@ -43,8 +43,6 @@ pub mod types;
 
 // Filter infrastructure
 pub mod common_ops;
-pub mod core;
-pub mod core_lmbm;
 pub mod errors;
 pub mod factory;
 pub mod reporter;
@@ -106,28 +104,42 @@ pub use scheduler::{
 // Observability (Phase 5 - StepReporter)
 pub use reporter::{CompositeReporter, DebugReporter, LoggingReporter, NoOpReporter, StepReporter};
 
-
 // Update strategy (Phase 8 - Unified Filter Architecture)
 pub use strategy::{
-    CommonPruneConfig, LmbPruneConfig, LmbStrategy, LmbmPruneConfig, LmbmStrategy, UpdateContext,
-    UpdateIntermediate, UpdateStrategy,
     // Strategy type aliases
-    AaLmbStrategyLbp, GaLmbStrategyLbp, IcLmbStrategyLbp, LmbStrategyLbp, LmbmStrategyGibbs,
-    MultisensorLmbmStrategyGibbs, PuLmbStrategyLbp,
+    AaLmbStrategyLbp,
+    CommonPruneConfig,
+    GaLmbStrategyLbp,
+    IcLmbStrategyLbp,
+    LmbPruneConfig,
+    LmbStrategy,
+    LmbStrategyLbp,
+    LmbmAssociationIntermediate,
+    // LMBM associator types (for custom configurations)
+    LmbmAssociator,
+    LmbmPruneConfig,
+    LmbmStrategy,
+    LmbmStrategyGibbs,
+    MultisensorLmbmStrategy,
+    MultisensorLmbmStrategyGibbs,
+    PuLmbStrategyLbp,
+    SingleSensorLmbmStrategy,
+    UpdateContext,
+    UpdateIntermediate,
+    UpdateStrategy,
 };
-
-// Single-sensor filters (from unified cores)
-pub use core::{LmbFilter, LmbFilterCore};
-pub use core_lmbm::LmbmFilter;
-
-// Multi-sensor LMB filters (from unified core)
-pub use core::{AaLmbFilter, GaLmbFilter, IcLmbFilter, PuLmbFilter};
-
-// Multi-sensor LMBM filter (from unified core)
-pub use core_lmbm::MultisensorLmbmFilter;
 
 // Unified filter (Phase 8 - Single filter struct for all variants)
 pub use unified::UnifiedFilter;
+
+// Filter type aliases (all backed by UnifiedFilter)
+pub type LmbFilter = UnifiedFilter<LmbStrategyLbp>;
+pub type LmbmFilter = UnifiedFilter<LmbmStrategyGibbs>;
+pub type AaLmbFilter = UnifiedFilter<AaLmbStrategyLbp>;
+pub type GaLmbFilter = UnifiedFilter<GaLmbStrategyLbp>;
+pub type PuLmbFilter = UnifiedFilter<PuLmbStrategyLbp>;
+pub type IcLmbFilter = UnifiedFilter<IcLmbStrategyLbp>;
+pub type MultisensorLmbmFilter = UnifiedFilter<MultisensorLmbmStrategyGibbs>;
 
 // Fusion mergers and multi-sensor traits
 pub use multisensor::{
@@ -146,12 +158,6 @@ pub use measurements::{
 
 // Unified sensor configuration (Phase 7C - moved to config.rs)
 pub use config::{SensorSet, SensorSetIter};
-
-// Unified LMBM filter core (Phase 9)
-pub use core_lmbm::{
-    LmbmAssociationIntermediate, LmbmAssociator, LmbmFilterCore, MultisensorLmbmStrategy,
-    SingleSensorLmbmStrategy,
-};
 
 // Factory functions for common filter configurations (Phase 7C)
 pub use factory::{
