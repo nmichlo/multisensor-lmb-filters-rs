@@ -673,7 +673,136 @@ uv run pytest python/tests/ -v
 - Merged `SensorSet` into `config.rs`, deleted `LmbmSensorSet`
 - Simplified type aliases to remove generic parameters
 - Updated `bench_utils.rs` and test files to use new API
-- Constructor impl block removal deferred (factory functions provide the clean API)
+- Constructor impl block removal moved to Phase 7D
+
+---
+
+## Phase 7D: Dead Code Cleanup
+
+**Goal**: Remove ALL redundant code paths. ONE way to do each thing.
+
+**Principle**:
+- Factory functions = public API for common cases
+- `with_scheduler()` / `with_strategy()` = escape hatch for custom configs
+- DELETE everything else
+
+### 1. Delete Redundant Constructors from core.rs
+
+Delete these impl blocks (~150 LOC):
+
+| Impl Block | Method | Replaced By |
+|------------|--------|-------------|
+| `impl LmbFilterCore<LbpAssociator, SingleSensorScheduler>` | `new()` | `lmb_filter()` |
+| `impl<A: Associator> LmbFilterCore<A, SingleSensorScheduler>` | `with_associator()` | `with_scheduler()` directly |
+| `impl LmbFilterCore<LbpAssociator, SequentialScheduler>` | `new_ic()` | `ic_lmb_filter()` |
+| `impl<A: Associator> LmbFilterCore<A, SequentialScheduler>` | `with_associator_ic()` | `with_scheduler()` directly |
+| `impl<M: Merger> LmbFilterCore<LbpAssociator, ParallelScheduler<M>>` | `new_parallel()` | `aa/ga/pu_lmb_filter()` |
+| `impl<A: Associator, M: Merger> LmbFilterCore<A, ParallelScheduler<M>>` | `with_associator_parallel()` | `with_scheduler()` directly |
+
+**KEEP**:
+- [ ] `impl<A: Associator, S: UpdateScheduler> LmbFilterCore<A, S>` with `with_scheduler()`
+- [ ] `impl<A: Associator, S: UpdateScheduler> LmbFilterCore<A, S>` with `with_gm_pruning()`, `with_gm_merge_threshold()`
+
+### 2. Delete Redundant Constructors from core_lmbm.rs
+
+Delete these impl blocks (~100 LOC):
+
+| Impl Block | Method | Replaced By |
+|------------|--------|-------------|
+| `impl LmbmFilterCore<SingleSensorLmbmStrategy<GibbsAssociator>>` | `new()` | `lmbm_filter()` |
+| `impl<A: LmbmAssociator> LmbmFilterCore<SingleSensorLmbmStrategy<A>>` | `with_associator()` | `with_strategy()` directly |
+| `impl LmbmFilterCore<MultisensorLmbmStrategy<MultisensorGibbsAssociator>>` | `new_multisensor()` | `multisensor_lmbm_filter()` |
+| `impl<A: MultisensorAssociator> LmbmFilterCore<MultisensorLmbmStrategy<A>>` | `with_multisensor_associator()` | `with_strategy()` directly |
+
+**KEEP**:
+- [ ] `impl<S: LmbmStrategy> LmbmFilterCore<S>` with `with_strategy()`
+
+### 3. Delete SensorVariant (Duplicate of SensorSet)
+
+In `config.rs`:
+- [ ] Delete `SensorVariant` enum and its impl block (lines ~1236-1272)
+- [ ] Update `FilterParams` to use `SensorSet` instead of `SensorVariant`
+- [ ] Update any code that references `SensorVariant`
+
+**Analysis**: `SensorVariant` and `SensorSet` are identical:
+```rust
+// Both have exactly the same structure:
+pub enum SensorSet { Single(SensorModel), Multi(MultisensorConfig) }
+pub enum SensorVariant { Single(SensorModel), Multi(MultisensorConfig) }
+```
+- `SensorSet`: 53 usages (keep)
+- `SensorVariant`: 15 usages (delete)
+
+### 4. Delete Unused Config Builders
+
+In `config.rs`, delete these structs and impl blocks (~200 LOC):
+- [ ] `CommonConfigBuilder` - ZERO usages in tests/benches/production
+- [ ] `LmbFilterConfigBuilder` - ZERO usages
+- [ ] `LmbmFilterConfigBuilder` - ZERO usages
+- [ ] `FilterParamsBuilder` - ZERO usages
+
+### 5. Update Callers
+
+Check and update any code that uses deleted constructors:
+- [ ] `src/bench_utils.rs` - uses `LmbFilterCore::with_scheduler()` already ✓
+- [ ] `src/python/filters.rs` - verify uses factory functions or `with_scheduler()`
+- [ ] `tests/bench_fixtures.rs` - verify uses factory functions
+- [ ] `tests/ss_lmb.rs`, `tests/ss_lmbm.rs` - update if needed
+
+### 6. Clean Up Exports
+
+In `src/lmb/mod.rs`:
+- [ ] Remove `SensorVariant` from re-exports
+- [ ] Remove builder types from re-exports if they were exported
+
+### 7. Verification
+
+```bash
+cargo test --release
+cargo clippy --all-targets
+uv run pytest python/tests/ -v
+```
+
+### 8. Success Criteria
+
+- [ ] ≤2 constructor impl blocks in `core.rs` (down from 8+)
+- [ ] ≤1 constructor impl block in `core_lmbm.rs` (down from 5+)
+- [ ] `SensorVariant` deleted (~40 LOC)
+- [ ] Unused builders deleted (~200 LOC)
+- [ ] All tests pass unchanged
+- [ ] ONE obvious way to create each filter type
+
+### 9. API After Cleanup
+
+```rust
+// === PUBLIC API (Factory Functions) ===
+use multisensor_lmb_filters_rs::lmb::{lmb_filter, aa_lmb_filter, lmbm_filter, ...};
+
+let filter = lmb_filter(motion, sensor, birth, assoc_config);
+let filter = aa_lmb_filter(motion, sensors, birth, assoc_config, max_hyp);
+let filter = lmbm_filter(motion, sensor, birth, assoc_config, lmbm_config);
+
+// === ESCAPE HATCH (Custom Associators) ===
+use multisensor_lmb_filters_rs::lmb::{LmbFilterCore, LmbmFilterCore};
+
+let filter: LmbFilterCore<MyAssociator, SingleSensorScheduler> =
+    LmbFilterCore::with_scheduler(motion, sensor.into(), birth, assoc, MyAssociator, scheduler);
+
+let filter: LmbmFilterCore<SingleSensorLmbmStrategy<MyAssociator>> =
+    LmbmFilterCore::with_strategy(motion, sensor.into(), birth, assoc, lmbm, strategy);
+```
+
+### 10. Files Summary
+
+| File | Changes | LOC Impact |
+|------|---------|------------|
+| `src/lmb/core.rs` | Delete 6 constructor impl blocks | ~-150 LOC |
+| `src/lmb/core_lmbm.rs` | Delete 4 constructor impl blocks | ~-100 LOC |
+| `src/lmb/config.rs` | Delete `SensorVariant`, delete unused builders | ~-240 LOC |
+| `src/lmb/mod.rs` | Update exports | minimal |
+| `tests/*.rs` | Update any callers of deleted constructors | minimal |
+
+**Total estimated deletion**: ~490 LOC
 
 ---
 
@@ -948,6 +1077,14 @@ uv run pytest python/tests/ -v
 | `src/lmb/mod.rs` | **MODIFIED** ✅ | Removed singlesensor module |
 | `src/lmb/multisensor/mod.rs` | **MODIFIED** ✅ | Removed lmbm module |
 
+### Phase 7D (Pending)
+| File | Action | Impact |
+|------|--------|--------|
+| `src/lmb/core.rs` | Delete 6 constructor impl blocks | ~-150 LOC |
+| `src/lmb/core_lmbm.rs` | Delete 4 constructor impl blocks | ~-100 LOC |
+| `src/lmb/config.rs` | Delete `SensorVariant`, delete unused builders | ~-240 LOC |
+| `src/lmb/mod.rs` | Update exports | minimal |
+
 ### Future Phases
 | File | Action | Impact |
 |------|--------|--------|
@@ -955,6 +1092,7 @@ uv run pytest python/tests/ -v
 | `python/tests/test_equivalence.py` | **REFACTOR** | -1200 LOC via parameterization |
 
 **Net LOC change so far**: Deleted 2919 LOC of old filters (Phase 7A: 1285 + Phase 7B: 1634)
+**After Phase 7D**: ~3409 LOC deleted total
 
 ---
 
@@ -971,6 +1109,9 @@ Phase 7B (LMBM Cleanup)     ─► ✅ COMPLETE (deleted 1634 LOC, using core_lm
          │
          ▼
 Phase 7C (API Simplify)     ─► ✅ COMPLETE (factory.rs, merged SensorSet, simplified aliases)
+         │
+         ▼
+Phase 7D (Dead Code)        ─► Delete redundant constructors, SensorVariant, unused builders (~490 LOC)
          │
          ▼
 Phase 8 (Infrastructure)    ─► Wire up MeasurementSource, StepReporter into Filter
@@ -992,17 +1133,19 @@ Phase 12 (NORFAIR)          ─► (Future) Add NorfairAlgorithm, integrate norf
 
 ## Success Metrics
 
-1. **Unified Architecture**: `FilterAlgorithm` trait with `Filter<A>` wrapper
+1. **Unified Architecture**: `LmbFilterCore<A, S>` and `LmbmFilterCore<S>` with factory functions
 2. **No Tolerance Changes**: All tests at 1e-10
-3. **Single Algorithm per Type**: `LmbAlgorithm`, `LmbmAlgorithm` (future: `NorfairAlgorithm`)
-4. **No Old Code**: singlesensor/*.rs, multisensor/lmb.rs, multisensor/lmbm.rs DELETED
-5. **Test Reduction**: `test_equivalence.py` < 800 LOC
-6. **Extensibility**:
-   - Custom trackers: Implement `FilterAlgorithm` trait
+3. **Single Algorithm per Type**: One core implementation per filter family
+4. **No Old Code**: singlesensor/*.rs, multisensor/lmb.rs, multisensor/lmbm.rs DELETED ✅
+5. **ONE Way to Do Each Thing**: Factory functions for common cases, `with_scheduler()`/`with_strategy()` for custom
+6. **No Duplicate Types**: `SensorVariant` deleted, unused builders deleted
+7. **Test Reduction**: `test_equivalence.py` < 800 LOC
+8. **Extensibility**:
+   - Custom trackers: Implement `FilterAlgorithm` trait (future)
    - Custom motion/sensor: Implement behavior traits
    - Custom association: Implement `Associator` trait
-7. **Infrastructure Integrated**: MeasurementSource, StepReporter wired into `Filter<A>`
-8. **Future-Ready**: Clear path for NORFAIR/SORT/ByteTrack integration
+9. **Infrastructure Integrated**: MeasurementSource, StepReporter wired into filters
+10. **Future-Ready**: Clear path for NORFAIR/SORT/ByteTrack integration
 
 ---
 
