@@ -428,6 +428,271 @@ uv run pytest python/tests/ -v
 
 ---
 
+## Phase 7C: API Simplification
+
+**Goal**: Flatten constructor chains, remove unnecessary generics from public API, merge duplicated types.
+
+### Problem Analysis
+
+The explore agent identified these issues:
+
+| Issue | Location | Impact |
+|-------|----------|--------|
+| Generic type aliases | `core.rs:1117-1143` | `LmbFilter<A = LbpAssociator>` exposes implementation details |
+| Constructor proliferation | `core.rs` (15 impl blocks) | 6 constructors all funnel to `with_scheduler()` |
+| Duplicated enums | `core.rs`, `core_lmbm.rs` | `SensorSet` duplicated as `LmbmSensorSet` |
+| Deep call chains | `core_lmbm.rs` | 4-level indirection: `new()` → `with_associator()` → `with_scheduler()` → internal |
+
+### 1. Create `factory.rs` for All Filter Constructors
+
+**New file**: `src/lmb/factory.rs`
+
+```rust
+//! Factory functions for creating LMB and LMBM filters.
+//!
+//! These functions provide simple, one-call construction for common filter configurations.
+//! For custom associators or schedulers, use `LmbFilterCore::with_scheduler()` directly.
+
+use crate::lmb::core::{LmbFilterCore, LmbFilter, IcLmbFilter, AaLmbFilter, GaLmbFilter, PuLmbFilter};
+use crate::lmb::core_lmbm::{LmbmFilterCore, LmbmFilter, MultisensorLmbmFilter};
+use crate::lmb::config::{MotionModel, SensorModel, MultisensorConfig, BirthModel, AssociationConfig};
+// ... imports
+
+/// Create a single-sensor LMB filter with default LBP associator.
+pub fn lmb_filter(
+    motion: MotionModel,
+    sensor: SensorModel,
+    birth: BirthModel,
+    association: AssociationConfig,
+) -> LmbFilter {
+    LmbFilterCore::with_scheduler(
+        motion,
+        sensor.into(),
+        birth,
+        association,
+        LbpAssociator,
+        SingleSensorScheduler::new(),
+    )
+}
+
+/// Create an IC-LMB (Iterated Corrector) multi-sensor filter.
+pub fn ic_lmb_filter(
+    motion: MotionModel,
+    sensors: MultisensorConfig,
+    birth: BirthModel,
+    association: AssociationConfig,
+) -> IcLmbFilter {
+    LmbFilterCore::with_scheduler(
+        motion,
+        sensors.into(),
+        birth,
+        association,
+        LbpAssociator,
+        SequentialScheduler::new(),
+    )
+}
+
+/// Create an AA-LMB (Arithmetic Average) multi-sensor filter.
+pub fn aa_lmb_filter(
+    motion: MotionModel,
+    sensors: MultisensorConfig,
+    birth: BirthModel,
+    association: AssociationConfig,
+    max_hypotheses: usize,
+) -> AaLmbFilter {
+    let merger = ArithmeticAverageMerger::uniform(sensors.num_sensors(), max_hypotheses);
+    LmbFilterCore::with_scheduler(
+        motion,
+        sensors.into(),
+        birth,
+        association,
+        LbpAssociator,
+        ParallelScheduler::new(merger),
+    )
+}
+
+/// Create a GA-LMB (Geometric Average) multi-sensor filter.
+pub fn ga_lmb_filter(
+    motion: MotionModel,
+    sensors: MultisensorConfig,
+    birth: BirthModel,
+    association: AssociationConfig,
+) -> GaLmbFilter {
+    let merger = GeometricAverageMerger::uniform(sensors.num_sensors());
+    LmbFilterCore::with_scheduler(
+        motion,
+        sensors.into(),
+        birth,
+        association,
+        LbpAssociator,
+        ParallelScheduler::new(merger),
+    )
+}
+
+/// Create a PU-LMB (Parallel Update) multi-sensor filter.
+pub fn pu_lmb_filter(
+    motion: MotionModel,
+    sensors: MultisensorConfig,
+    birth: BirthModel,
+    association: AssociationConfig,
+) -> PuLmbFilter {
+    let merger = ParallelUpdateMerger::new(Vec::new());
+    LmbFilterCore::with_scheduler(
+        motion,
+        sensors.into(),
+        birth,
+        association,
+        LbpAssociator,
+        ParallelScheduler::new(merger),
+    )
+}
+
+/// Create a single-sensor LMBM filter with default Gibbs associator.
+pub fn lmbm_filter(
+    motion: MotionModel,
+    sensor: SensorModel,
+    birth: BirthModel,
+    lmbm_config: LmbmConfig,
+) -> LmbmFilter { ... }
+
+/// Create a multi-sensor LMBM filter.
+pub fn multisensor_lmbm_filter(
+    motion: MotionModel,
+    sensors: MultisensorConfig,
+    birth: BirthModel,
+    lmbm_config: LmbmConfig,
+) -> MultisensorLmbmFilter { ... }
+```
+
+- [ ] Create `src/lmb/factory.rs` with all 7 factory functions
+- [ ] Export from `src/lmb/mod.rs`
+
+### 2. Merge Duplicated SensorSet Enums
+
+**Current**: Two nearly identical enums
+```rust
+// core.rs
+pub enum SensorSet { Single(SensorModel), Multi(MultisensorConfig) }
+
+// core_lmbm.rs
+pub enum LmbmSensorSet { Single(SensorModel), Multi(MultisensorConfig) }
+```
+
+**After**: Single shared enum in `config.rs`
+```rust
+// config.rs
+pub enum SensorSet {
+    Single(SensorModel),
+    Multi(MultisensorConfig),
+}
+```
+
+- [ ] Move `SensorSet` to `config.rs`
+- [ ] Delete `LmbmSensorSet` from `core_lmbm.rs`
+- [ ] Update both cores to use shared `SensorSet`
+
+### 3. Simplify Type Aliases (Remove Generics from Public API)
+
+**Current**: Generics leak into public API
+```rust
+pub type LmbFilter<A = LbpAssociator> = LmbFilterCore<A, SingleSensorScheduler>;
+```
+
+**After**: Concrete types for common cases
+```rust
+// No generics visible to users
+pub type LmbFilter = LmbFilterCore<LbpAssociator, SingleSensorScheduler>;
+pub type IcLmbFilter = LmbFilterCore<LbpAssociator, SequentialScheduler>;
+pub type AaLmbFilter = LmbFilterCore<LbpAssociator, ParallelScheduler<ArithmeticAverageMerger>>;
+pub type GaLmbFilter = LmbFilterCore<LbpAssociator, ParallelScheduler<GeometricAverageMerger>>;
+pub type PuLmbFilter = LmbFilterCore<LbpAssociator, ParallelScheduler<ParallelUpdateMerger>>;
+
+// For custom associators - use LmbFilterCore<A, S> directly
+```
+
+- [ ] Remove `<A = LbpAssociator>` from all type aliases in `core.rs`
+- [ ] Remove generic parameters from type aliases in `core_lmbm.rs`
+
+### 4. Remove Constructor Impl Blocks from Core Files
+
+**Current** (`core.rs`): 15 impl blocks, 6 specialized constructors
+```rust
+impl LmbFilterCore<LbpAssociator, SingleSensorScheduler> {
+    pub fn new(...) -> Self { Self::with_scheduler(...) }
+}
+impl<A: Associator> LmbFilterCore<A, SingleSensorScheduler> {
+    pub fn with_associator(...) -> Self { Self::with_scheduler(...) }
+}
+// ... 4 more constructor impl blocks
+```
+
+**After**: Keep only essential impl blocks
+```rust
+// Generic implementation - the one escape hatch
+impl<A: Associator, S: UpdateScheduler> LmbFilterCore<A, S> {
+    pub fn with_scheduler(...) -> Self { ... }  // Keep this for custom configs
+    // ... shared methods
+}
+
+// Per-scheduler step() implementations (required for different Measurements types)
+impl<A: Associator> LmbFilterCore<A, SingleSensorScheduler> { ... }
+impl<A: Associator> LmbFilterCore<A, SequentialScheduler> { ... }
+impl<A: Associator, M: Merger> LmbFilterCore<A, ParallelScheduler<M>> { ... }
+```
+
+- [ ] Remove `new()`, `new_ic()`, `new_parallel()` from `core.rs`
+- [ ] Remove `with_associator()`, `with_associator_ic()`, `with_associator_parallel()` from `core.rs`
+- [ ] Keep only `with_scheduler()` as escape hatch
+- [ ] Apply same cleanup to `core_lmbm.rs`
+
+### 5. Files Summary
+
+| File | Action |
+|------|--------|
+| `src/lmb/factory.rs` | **NEW** - All 7 factory functions |
+| `src/lmb/config.rs` | Add shared `SensorSet` enum |
+| `src/lmb/core.rs` | Remove constructor impl blocks, simplify type aliases |
+| `src/lmb/core_lmbm.rs` | Remove `LmbmSensorSet`, remove constructor impl blocks |
+| `src/lmb/mod.rs` | Export `factory::*` functions |
+| `src/python/filters.rs` | Update to use factory functions |
+| `tests/bench_fixtures.rs` | Update to use factory functions |
+
+### 6. API Before/After
+
+```rust
+// BEFORE (verbose, exposes internals)
+let filter: LmbFilter<LbpAssociator> = LmbFilter::new(motion, sensor, birth, config);
+let filter: AaLmbFilter<LbpAssociator> = AaLmbFilter::new_parallel(
+    motion, sensors, birth, config,
+    ParallelScheduler::new(ArithmeticAverageMerger::uniform(2, 100))
+);
+
+// AFTER (simple factory functions)
+use multisensor_lmb_filters_rs::lmb::{lmb_filter, aa_lmb_filter};
+
+let filter = lmb_filter(motion, sensor, birth, config);
+let filter = aa_lmb_filter(motion, sensors, birth, config, 100);
+
+// Custom associator (escape hatch - explicit about complexity)
+let filter: LmbFilterCore<MyAssociator, SingleSensorScheduler> =
+    LmbFilterCore::with_scheduler(motion, sensor.into(), birth, config, MyAssociator, SingleSensorScheduler::new());
+```
+
+### 7. Verification
+```bash
+cargo test --release
+uv run pytest python/tests/ -v
+```
+
+### 8. Success Criteria
+- [ ] New `factory.rs` with 7 factory functions
+- [ ] Zero generic parameters visible in standard type aliases
+- [ ] Single `SensorSet` enum (no duplication)
+- [ ] ≤4 impl blocks per core file (down from 15/10)
+- [ ] All tests pass unchanged
+
+---
+
 ## Phase 8: Infrastructure Integration
 
 **Goal**: Wire up orphaned infrastructure (MeasurementSource, StepReporter, etc.) into filter cores.
@@ -717,6 +982,9 @@ Phase 7A (LMB Cleanup)      ─► ✅ COMPLETE (deleted 1285 LOC, using core.rs
          │
          ▼
 Phase 7B (LMBM Cleanup)     ─► DELETE old singlesensor/lmbm.rs, multisensor/lmbm.rs
+         │
+         ▼
+Phase 7C (API Simplify)     ─► factory.rs, merge SensorSet, remove constructor bloat
          │
          ▼
 Phase 8 (Infrastructure)    ─► Wire up MeasurementSource, StepReporter into Filter
