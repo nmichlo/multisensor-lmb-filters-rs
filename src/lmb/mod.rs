@@ -45,6 +45,7 @@ pub mod types;
 // Filter infrastructure
 pub mod builder;
 pub mod common_ops;
+pub mod core;
 pub mod errors;
 pub mod reporter;
 pub mod scheduler;
@@ -127,6 +128,9 @@ pub use crate::common::rng::{SimpleRng, Uniform01};
 pub use measurements::{
     MeasurementSource, SingleSensorMeasurements, SliceOfSlicesMeasurements, VecOfVecsMeasurements,
 };
+
+// Unified filter core (Phase 8)
+pub use core::{LmbFilterCore, SensorSet, SensorSetIter};
 
 // ============================================================================
 // Default Filter Constants
