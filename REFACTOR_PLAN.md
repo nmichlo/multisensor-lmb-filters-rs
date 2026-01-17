@@ -978,66 +978,192 @@ for track in output:
 
 ---
 
-## Phase 8: Infrastructure Integration
+## Phase 8: Full LMB/LMBM Unification
 
-**Goal**: Wire up orphaned infrastructure (MeasurementSource, StepReporter, etc.) into filter cores.
+**Goal**: Delete both `core.rs` and `core_lmbm.rs`. Replace with a single `UnifiedFilter<S: UpdateStrategy>` that handles LMB, LMBM, and future algorithms (NORFAIR, SORT) through strategy parameterization.
 
-### 1. MeasurementSource Integration
-- [ ] Update `LmbFilterCore::step()` to accept `impl MeasurementSource` instead of raw slices
-- [ ] Update `LmbmFilterCore::step()` similarly
-- [ ] Add conversion impls so existing call sites work
+**Key Insight**: The "single component per track in LMBM" is an **updater constraint**, not a structural requirement. `Track` already supports `SmallVec<[GaussianComponent; 4]>`. We can represent:
+- **LMB**: Single hypothesis with multi-component tracks
+- **LMBM**: Multiple hypotheses with single-component tracks
 
-### 2. StepReporter Integration
-- [ ] Add `reporter: Option<&mut dyn StepReporter>` to `step()` / `step_detailed()` methods
-- [ ] Call reporter hooks at appropriate points:
-  - `on_prediction()` after prediction step
-  - `on_birth()` after birth injection
-  - `on_association()` after data association
-  - `on_sensor_update()` after each sensor update
-  - `on_fusion()` after track fusion (multi-sensor)
-  - `on_pruning()` after track pruning
+### 8.1: Rename Hypothesis Struct
 
-### 3. Config Type Integration
-- [ ] Update filter constructors to accept `LmbFilterConfig` / `LmbmFilterConfig`
-- [ ] Remove or deprecate old `FilterParams` usage
+**File**: `src/lmb/types.rs`
 
-### 4. Verification
+- [ ] Rename `LmbmHypothesis` → `Hypothesis`
+- [ ] Add `lmb()` constructor for single-hypothesis LMB state
+- [ ] Update all usages (grep for `LmbmHypothesis`)
+
+### 8.2: Create UpdateStrategy Trait
+
+**File**: `src/lmb/strategy.rs` (NEW)
+
+```rust
+pub trait UpdateStrategy: Send + Sync {
+    type Measurements;
+    fn predict(&self, hypotheses: &mut Vec<Hypothesis>, motion: &MotionModel, birth: &BirthModel, ts: usize);
+    fn update<R: Rng>(&self, rng: &mut R, hypotheses: &mut Vec<Hypothesis>, meas: &Self::Measurements, ctx: &UpdateContext) -> Result<UpdateIntermediate, FilterError>;
+    fn prune(&self, hypotheses: &mut Vec<Hypothesis>, trajectories: &mut Vec<Trajectory>, config: &PruneConfig);
+    fn extract(&self, hypotheses: &[Hypothesis], ts: usize) -> StateEstimate;
+    fn name(&self) -> &'static str;
+    fn is_hypothesis_based(&self) -> bool;
+}
+```
+
+- [ ] Create `src/lmb/strategy.rs`
+- [ ] Define `UpdateStrategy` trait
+- [ ] Define `UpdateContext`, `PruneConfig`, `UpdateIntermediate`
+- [ ] Export from `mod.rs`
+
+### 8.3: Implement LmbStrategy
+
+**File**: `src/lmb/strategy.rs`
+
+```rust
+pub struct LmbStrategy<A: Associator, S: UpdateScheduler> {
+    associator: A,
+    scheduler: S,
+    updater: MarginalUpdater,
+}
+```
+
+**Key behaviors**:
+- `predict()`: Calls `predict_tracks()` on `hypotheses[0].tracks`
+- `update()`: Delegates to scheduler, uses `MarginalUpdater`
+- `prune()`: GM component pruning + track gating (NOT hypothesis pruning)
+- `extract()`: MAP cardinality from single hypothesis
+- Invariant: `hypotheses.len() == 1` always
+
+- [ ] Implement for `SingleSensorScheduler`
+- [ ] Implement for `SequentialScheduler`
+- [ ] Implement for `ParallelScheduler<M>`
+
+### 8.4: Implement LmbmStrategy
+
+**File**: `src/lmb/strategy.rs`
+
+```rust
+pub struct LmbmStrategy<A: LmbmAssociator> {
+    associator: A,
+    use_eap: bool,
+}
+```
+
+**Key behaviors**:
+- `predict()`: Calls `predict_tracks()` on each hypothesis
+- `update()`: Delegates to `LmbmAssociator`, which branches hypotheses
+- `prune()`: Hypothesis weight normalization + gating + track pruning
+- `extract()`: Weighted cardinality across hypotheses (MAP or EAP)
+
+- [ ] Implement for single-sensor (`SingleSensorLmbmStrategy`)
+- [ ] Implement for multi-sensor (`MultisensorLmbmStrategy`)
+
+### 8.5: Create UnifiedFilter Struct
+
+**File**: `src/lmb/unified.rs` (NEW)
+
+```rust
+pub struct UnifiedFilter<S: UpdateStrategy> {
+    motion: MotionModel,
+    sensors: SensorSet,
+    birth: BirthModel,
+    association_config: AssociationConfig,
+    hypotheses: Vec<Hypothesis>,
+    trajectories: Vec<Trajectory>,
+    prune_config: PruneConfig,
+    strategy: S,
+}
+```
+
+- [ ] Create `src/lmb/unified.rs`
+- [ ] Implement `UnifiedFilter` struct
+- [ ] Implement `Filter` trait
+- [ ] Add `step_detailed()` for fixture validation
+- [ ] Export from `mod.rs`
+
+### 8.6: Update Factory Functions
+
+**File**: `src/lmb/factory.rs`
+
+- [ ] Update all 7 factory functions to return `UnifiedFilter<...>`
+- [ ] Update type aliases in `mod.rs`
+
+### 8.7: Update Python Bindings
+
+**File**: `src/python/filters.rs`
+
+- [ ] Update `PyFilterLmb` to use `UnifiedFilter<LmbStrategy<...>>`
+- [ ] Update all other filter types
+- [ ] Verify macros still work
+- [ ] Test Python API
+
+### 8.8: Delete Old Cores
+
+- [ ] Delete `src/lmb/core.rs` (~900 LOC)
+- [ ] Delete `src/lmb/core_lmbm.rs` (~1200 LOC)
+- [ ] Update `mod.rs` imports
+
+### 8.9: Clean Up common_ops.rs
+
+**DELETE** (replaced by strategy methods):
+- `predict_all_hypotheses()` - inlined in strategy
+- `update_hypothesis_trajectories()` - just a loop
+- `init_hypothesis_birth_trajectories()` - just a loop
+
+**KEEP**: All component-level operations, gating functions, extraction functions
+
+- [ ] Delete redundant functions
+- [ ] Update any remaining callers
+
+### Type Aliases (Final)
+
+```rust
+// LMB variants
+pub type LmbFilter = UnifiedFilter<LmbStrategy<LbpAssociator, SingleSensorScheduler>>;
+pub type IcLmbFilter = UnifiedFilter<LmbStrategy<LbpAssociator, SequentialScheduler>>;
+pub type AaLmbFilter = UnifiedFilter<LmbStrategy<LbpAssociator, ParallelScheduler<ArithmeticAverageMerger>>>;
+pub type GaLmbFilter = UnifiedFilter<LmbStrategy<LbpAssociator, ParallelScheduler<GeometricAverageMerger>>>;
+pub type PuLmbFilter = UnifiedFilter<LmbStrategy<LbpAssociator, ParallelScheduler<ParallelUpdateMerger>>>;
+
+// LMBM variants
+pub type LmbmFilter = UnifiedFilter<LmbmStrategy<SingleSensorLmbmAssociator<GibbsAssociator>>>;
+pub type MultisensorLmbmFilter = UnifiedFilter<LmbmStrategy<MultisensorLmbmAssociator<MultisensorGibbsAssociator>>>;
+```
+
+### Files Summary
+
+| File | Action | Impact |
+|------|--------|--------|
+| `src/lmb/types.rs` | Modify | Rename `LmbmHypothesis` → `Hypothesis` |
+| `src/lmb/strategy.rs` | **NEW** | `UpdateStrategy` trait + implementations |
+| `src/lmb/unified.rs` | **NEW** | `UnifiedFilter<S>` struct |
+| `src/lmb/core.rs` | **DELETE** | ~900 LOC removed |
+| `src/lmb/core_lmbm.rs` | **DELETE** | ~1200 LOC removed |
+| `src/lmb/factory.rs` | Modify | Use `UnifiedFilter` |
+| `src/lmb/common_ops.rs` | Modify | Delete 3 redundant functions |
+| `src/lmb/mod.rs` | Modify | Update exports |
+| `src/python/filters.rs` | Modify | Update wrapper types |
+
+**Net LOC change**: ~-1500 LOC (delete 2100, add ~600 for unified code)
+
+### Verification
+
+After each sub-phase:
 ```bash
 cargo test --release
-uv run pytest python/tests/ -v
+cargo clippy --all-targets
+```
+
+After Phase 8.8:
+```bash
+uv run pytest python/tests/ -v  # All 87 Python tests pass at 1e-10 tolerance
 ```
 
 ---
 
-## Phase 9: Python Bindings Update
+## Phase 9: (Merged into Phase 8)
 
-**Goal**: Update Python bindings to use unified cores.
-
-### 1. Update Filter Imports
-- [ ] `src/python/filters.rs` - Change:
-  ```rust
-  // FROM (old):
-  use crate::lmb::singlesensor::lmb::LmbFilter;
-  use crate::lmb::multisensor::lmb::MultisensorLmbFilter;
-  use crate::lmb::singlesensor::lmbm::LmbmFilter;
-  use crate::lmb::multisensor::lmbm::MultisensorLmbmFilter;
-
-  // TO (new):
-  use crate::lmb::core::{LmbFilterCore, LmbFilter, IcLmbFilter, AaLmbFilter, GaLmbFilter, PuLmbFilter};
-  use crate::lmb::core_lmbm::{LmbmFilterCore, LmbmFilter, MultisensorLmbmFilter};
-  ```
-
-### 2. Update PyFilter Structs
-- [ ] `PyFilterLmb` wraps `LmbFilterCore<DynamicAssociator, SingleSensorScheduler>`
-- [ ] `PyFilterAaLmb` wraps `LmbFilterCore<DynamicAssociator, ParallelScheduler<ArithmeticAverageMerger>>`
-- [ ] Similar for GA, PU, IC variants
-- [ ] `PyFilterLmbm` wraps `LmbmFilterCore<SingleSensorLmbmStrategy<DynamicAssociator>>`
-- [ ] `PyFilterMultisensorLmbm` wraps `LmbmFilterCore<MultisensorLmbmStrategy<...>>`
-
-### 3. Verification
-```bash
-uv run pytest python/tests/ -v  # All 87 tests must pass
-```
+**Note**: Python bindings update is now Phase 8.7. This phase is no longer needed as a separate step.
 
 ---
 
@@ -1046,36 +1172,38 @@ uv run pytest python/tests/ -v  # All 87 tests must pass
 **Goal**: Remove deprecated types, consolidate exports, clean up public API.
 
 ### 1. Remove Deprecated Types
-- [ ] Audit `FilterParams` usage - remove if unused externally
-- [ ] Remove old `SensorVariant` if replaced by `SensorSet`
-- [ ] Remove backward-compat shims added in earlier phases
+- [ ] Remove `FilterParams` if unused
+- [ ] Remove any backward-compat type aliases (e.g., `LmbmHypothesis` alias if added)
+- [ ] Remove unused config types
 
 ### 2. Consolidate Config Types
-- [ ] Decide: Keep both `FilterThresholds` and `LmbFilterConfig`, or merge?
-- [ ] Decide: Keep both `LmbmConfig` and `LmbmFilterConfig`, or merge?
+- [ ] Merge `FilterThresholds` into `PruneConfig` or delete
+- [ ] Merge `LmbmConfig` fields into `PruneConfig`
+- [ ] Single source of truth for all filter parameters
 
 ### 3. Clean Up mod.rs Exports
 Final `src/lmb/mod.rs` should export:
 ```rust
-// Core filter implementations
-pub use core::{LmbFilterCore, LmbFilter, IcLmbFilter, AaLmbFilter, GaLmbFilter, PuLmbFilter, SensorSet};
-pub use core_lmbm::{LmbmFilterCore, LmbmFilter, MultisensorLmbmFilter, LmbmSensorSet};
+// Unified filter
+pub use unified::{UnifiedFilter, Hypothesis};
+pub use strategy::{UpdateStrategy, LmbStrategy, LmbmStrategy, PruneConfig};
+
+// Type aliases
+pub use unified::{LmbFilter, IcLmbFilter, AaLmbFilter, GaLmbFilter, PuLmbFilter};
+pub use unified::{LmbmFilter, MultisensorLmbmFilter};
 
 // Traits
 pub use traits::{Filter, Associator, Updater, Merger};
 pub use scheduler::UpdateScheduler;
-pub use reporter::StepReporter;
 
 // Configuration
-pub use config::{MotionModel, SensorModel, BirthModel, AssociationConfig, ...};
+pub use config::{MotionModel, SensorModel, SensorSet, BirthModel, AssociationConfig};
 
-// Infrastructure
-pub use measurements::MeasurementSource;
-pub use reporter::{NoOpReporter, DebugReporter, LoggingReporter, CompositeReporter};
-pub use scheduler::{SingleSensorScheduler, SequentialScheduler, ParallelScheduler, DynamicScheduler};
+// Schedulers
+pub use scheduler::{SingleSensorScheduler, SequentialScheduler, ParallelScheduler};
 
 // Fusion mergers
-pub use multisensor::fusion::{ArithmeticAverageMerger, GeometricAverageMerger, ParallelUpdateMerger, IteratedCorrectorMerger};
+pub use multisensor::fusion::{ArithmeticAverageMerger, GeometricAverageMerger, ParallelUpdateMerger};
 
 // Errors
 pub use errors::{FilterError, AssociationError};
@@ -1130,69 +1258,63 @@ def filter_case(request):
 
 ## Phase 12: NORFAIR Integration (Future)
 
-**Goal**: Integrate norfair-rs as `NorfairAlgorithm` implementing `FilterAlgorithm` trait.
+**Goal**: Integrate norfair-rs as `NorfairStrategy` implementing `UpdateStrategy` trait.
 
 ### 1. Files to CREATE
-- [ ] `src/filter/norfair.rs` - `NorfairAlgorithm<D: Distance>` implementation
-- [ ] `src/filter/norfair/distance.rs` - Distance trait and implementations
-- [ ] `src/filter/norfair/tracked_object.rs` - TrackedObject type
+- [ ] `src/lmb/norfair.rs` - `NorfairStrategy<D: Distance>` implementation
+- [ ] `src/lmb/norfair/distance.rs` - Distance trait and implementations
 
 ### 2. Implementation Details
 ```rust
-pub struct NorfairAlgorithm<D: Distance = EuclideanDistance> {
-    tracks: Vec<TrackedObject>,
+pub struct NorfairStrategy<D: Distance = EuclideanDistance> {
     distance: D,
     hit_counter_config: HitCounterConfig,
 }
 
-impl<D: Distance> FilterAlgorithm for NorfairAlgorithm<D> {
-    type State = TrackedObject;
+impl<D: Distance> UpdateStrategy for NorfairStrategy<D> {
     type Measurements = Vec<Detection>;
-    type DetailedOutput = NorfairDetailedOutput;
 
-    fn predict(&mut self, motion: &dyn MotionModelBehavior, timestep: usize) {
-        // Kalman predict for each track
+    fn predict(&self, hypotheses: &mut Vec<Hypothesis>, motion: &MotionModel, _birth: &BirthModel, ts: usize) {
+        // NORFAIR: single hypothesis, Kalman predict for each track
+        // Birth is handled in update (from unmatched detections), not here
+        for track in &mut hypotheses[0].tracks {
+            // Kalman predict
+        }
     }
 
-    fn inject_birth(&mut self, _birth: &BirthModel, _timestep: usize) {
-        // NORFAIR creates new tracks from unmatched detections, not from birth model
-    }
-
-    fn associate_and_update<R: Rng>(
-        &mut self,
-        _rng: &mut R,
-        measurements: &Self::Measurements,
-        _sensors: &SensorSet,
-    ) -> Result<(), FilterError> {
+    fn update<R: Rng>(&self, _rng: &mut R, hypotheses: &mut Vec<Hypothesis>, meas: &Self::Measurements, ctx: &UpdateContext) -> Result<UpdateIntermediate, FilterError> {
+        let tracks = &mut hypotheses[0].tracks;
         // Greedy/Hungarian matching by distance
         // Update matched tracks (Kalman update)
         // Increment/decrement hit counters
-        // Create new tracks from unmatched detections
+        // Create new tracks from unmatched detections (birth)
+        Ok(UpdateIntermediate::default())
     }
 
-    fn normalize_and_gate(&mut self, _config: &GatingConfig) {
+    fn prune(&self, hypotheses: &mut Vec<Hypothesis>, trajectories: &mut Vec<Trajectory>, config: &PruneConfig) {
         // Remove dead tracks (hit_counter < 0)
     }
 
-    fn extract_estimate(&self, timestamp: usize) -> StateEstimate {
+    fn extract(&self, hypotheses: &[Hypothesis], ts: usize) -> StateEstimate {
         // Return confirmed tracks (hit_counter > init_threshold)
     }
 
-    fn extract_detailed(&self) -> Self::DetailedOutput { ... }
+    fn name(&self) -> &'static str { "NORFAIR" }
+    fn is_hypothesis_based(&self) -> bool { false }
 }
 ```
 
 ### 3. Type Aliases
 ```rust
-pub type NorfairFilter<D = EuclideanDistance> = Filter<NorfairAlgorithm<D>>;
-pub type SortFilter = Filter<SortAlgorithm>;  // Future
-pub type ByteTrackFilter = Filter<ByteTrackAlgorithm>;  // Future
+pub type NorfairFilter<D = EuclideanDistance> = UnifiedFilter<NorfairStrategy<D>>;
+pub type SortFilter = UnifiedFilter<SortStrategy>;  // Future
+pub type ByteTrackFilter = UnifiedFilter<ByteTrackStrategy>;  // Future
 ```
 
 ### 4. NORFAIR-RS Migration Path
-- Extract core tracking logic from norfair-rs into `NorfairAlgorithm`
-- Adapt to use shared `MotionModelBehavior` trait (optional - can use internal Kalman)
-- Keep existing norfair-rs API as compatibility layer wrapping `Filter<NorfairAlgorithm>`
+- Extract core tracking logic from norfair-rs into `NorfairStrategy`
+- Adapt to use shared `MotionModel` (optional - can use internal Kalman)
+- Keep existing norfair-rs API as compatibility layer wrapping `UnifiedFilter<NorfairStrategy>`
 - Share distance functions with LMB/LMBM where applicable
 
 ### 5. Key Differences from LMB/LMBM
@@ -1267,15 +1389,28 @@ uv run pytest python/tests/ -v
 | `python/tests/test_equivalence.py` | Update to new API | minimal |
 | `python/tests/conftest.py` | Update fixture creation | minimal |
 
+### Phase 8 (Pending) - Full Unification
+| File | Action | Impact |
+|------|--------|--------|
+| `src/lmb/types.rs` | Rename `LmbmHypothesis` → `Hypothesis` | minimal |
+| `src/lmb/strategy.rs` | **NEW** | `UpdateStrategy` trait + implementations |
+| `src/lmb/unified.rs` | **NEW** | `UnifiedFilter<S>` struct |
+| `src/lmb/core.rs` | **DELETE** | ~-900 LOC |
+| `src/lmb/core_lmbm.rs` | **DELETE** | ~-1200 LOC |
+| `src/lmb/factory.rs` | Modify | Use `UnifiedFilter` |
+| `src/lmb/common_ops.rs` | Modify | Delete 3 redundant functions |
+| `src/python/filters.rs` | Modify | Update wrapper types |
+
 ### Future Phases
 | File | Action | Impact |
 |------|--------|--------|
-| `src/filter/norfair.rs` | **NEW** (Phase 12) | NorfairAlgorithm (future) |
+| `src/lmb/norfair.rs` | **NEW** (Phase 12) | NorfairStrategy (future) |
 | `python/tests/test_equivalence.py` | **REFACTOR** (Phase 11) | -1200 LOC via parameterization |
 
 **Net LOC change so far**: Deleted 2919 LOC of old filters (Phase 7A: 1285 + Phase 7B: 1634)
 **After Phase 7D**: ~3409 LOC deleted total
 **After Phase 7E**: ~3909 LOC deleted total, Python API: 21 types → 12 types
+**After Phase 8**: ~5409 LOC deleted total (core.rs + core_lmbm.rs removed, unified code added)
 
 ---
 
@@ -1300,10 +1435,10 @@ Phase 7D (Dead Code)        ─► Delete redundant constructors, SensorVariant,
 Phase 7E (Python API)       ─► Consolidate 7 filter classes → 2, simplify config types
          │
          ▼
-Phase 8 (Infrastructure)    ─► Wire up MeasurementSource, StepReporter into Filter
+Phase 8 (Full Unification)  ─► Delete core.rs + core_lmbm.rs, create UnifiedFilter<S: UpdateStrategy>
          │
          ▼
-Phase 9 (Python Bindings)   ─► Already updated in Phase 7A ✅
+Phase 9 (Merged into 8)     ─► Python bindings update is now Phase 8.7
          │
          ▼
 Phase 10 (API Cleanup)      ─► Remove deprecated types, clean exports
@@ -1312,27 +1447,26 @@ Phase 10 (API Cleanup)      ─► Remove deprecated types, clean exports
 Phase 11 (Python Tests)     ─► Parameterize tests
          │
          ▼
-Phase 12 (NORFAIR)          ─► (Future) Add NorfairAlgorithm, integrate norfair-rs
+Phase 12 (NORFAIR)          ─► (Future) Implement NorfairStrategy : UpdateStrategy
 ```
 
 ---
 
 ## Success Metrics
 
-1. **Unified Architecture**: `LmbFilterCore<A, S>` and `LmbmFilterCore<S>` with factory functions
+1. **Unified Architecture**: Single `UnifiedFilter<S: UpdateStrategy>` for ALL filter types
 2. **No Tolerance Changes**: All tests at 1e-10
-3. **Single Algorithm per Type**: One core implementation per filter family
-4. **No Old Code**: singlesensor/*.rs, multisensor/lmb.rs, multisensor/lmbm.rs DELETED ✅
-5. **ONE Way to Do Each Thing**: Factory functions for common cases, `with_scheduler()`/`with_strategy()` for custom
-6. **No Duplicate Types**: `SensorVariant` deleted, unused builders deleted
+3. **Single Filter Implementation**: One `UnifiedFilter` struct, strategy determines behavior
+4. **No Old Code**: core.rs, core_lmbm.rs, singlesensor/*.rs, multisensor/lmb.rs, multisensor/lmbm.rs ALL DELETED
+5. **ONE Way to Do Each Thing**: Factory functions for common cases, `UnifiedFilter::with_strategy()` for custom
+6. **No Duplicate Types**: `SensorVariant` deleted, unused builders deleted, `LmbmHypothesis` renamed to `Hypothesis`
 7. **Test Reduction**: `test_equivalence.py` < 800 LOC
 8. **Extensibility**:
-   - Custom trackers: Implement `FilterAlgorithm` trait (future)
+   - Custom trackers: Implement `UpdateStrategy` trait (NORFAIR, SORT, ByteTrack)
    - Custom motion/sensor: Implement behavior traits
    - Custom association: Implement `Associator` trait
-9. **Infrastructure Integrated**: MeasurementSource, StepReporter wired into filters
-10. **Future-Ready**: Clear path for NORFAIR/SORT/ByteTrack integration
-11. **Python API Simplified**:
+9. **Future-Ready**: Clear path for NORFAIR/SORT/ByteTrack via `UpdateStrategy` trait
+10. **Python API Simplified**:
     - 2 filter classes (`LmbFilter`, `LmbmFilter`) - old 7 classes DELETED
     - 12 public types total (down from 21)
     - Internal `_` types not exported in `__init__.py`
