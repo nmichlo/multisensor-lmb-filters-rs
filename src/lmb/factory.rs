@@ -210,7 +210,9 @@ pub fn lmbm_filter(
     association: AssociationConfig,
     lmbm_config: LmbmConfig,
 ) -> LmbmFilter {
-    let strategy = SingleSensorLmbmStrategy::new(GibbsAssociator);
+    let strategy = SingleSensorLmbmStrategy {
+        associator: GibbsAssociator,
+    };
     LmbmFilterCore::with_strategy(
         motion,
         sensor.into(),
@@ -240,7 +242,9 @@ pub fn multisensor_lmbm_filter(
     association: AssociationConfig,
     lmbm_config: LmbmConfig,
 ) -> MultisensorLmbmFilter {
-    let strategy = MultisensorLmbmStrategy::new(MultisensorGibbsAssociator);
+    let strategy = MultisensorLmbmStrategy {
+        associator: MultisensorGibbsAssociator,
+    };
     LmbmFilterCore::with_strategy(
         motion,
         sensors.into(),

@@ -140,15 +140,10 @@ pub struct LmbmAssociationIntermediate {
 /// Uses the standard 2D cost matrix approach with sampled hard assignments.
 #[derive(Debug, Clone, Default)]
 pub struct SingleSensorLmbmStrategy<A: Associator = GibbsAssociator> {
-    associator: A,
+    pub(crate) associator: A,
 }
 
 impl<A: Associator> SingleSensorLmbmStrategy<A> {
-    /// Create a new single-sensor strategy with the given associator.
-    pub fn new(associator: A) -> Self {
-        Self { associator }
-    }
-
     /// Build log-likelihood matrix for computing hypothesis weights.
     ///
     /// The matrix is (n × (m+1)) where:
@@ -327,7 +322,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
 /// Uses the Cartesian product tensor approach with joint association samples.
 #[derive(Debug, Clone, Default)]
 pub struct MultisensorLmbmStrategy<A: MultisensorAssociator = MultisensorGibbsAssociator> {
-    associator: A,
+    pub(crate) associator: A,
 }
 
 /// Posterior parameters for a single entry in the flattened likelihood tensor.
@@ -339,11 +334,6 @@ struct MultisensorPosterior {
 }
 
 impl<A: MultisensorAssociator> MultisensorLmbmStrategy<A> {
-    /// Create a new multi-sensor strategy with the given associator.
-    pub fn new(associator: A) -> Self {
-        Self { associator }
-    }
-
     /// Convert linear index to Cartesian coordinates (MATLAB-style, 1-indexed).
     fn linear_to_cartesian(mut ell: usize, page_sizes: &[usize]) -> Vec<usize> {
         let m = page_sizes.len();

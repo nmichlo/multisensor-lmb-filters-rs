@@ -352,7 +352,9 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         // Single-sensor LMBM (using LmbmFilterCore for dynamic associator)
         "LMBM-Gibbs" => {
             let assoc = AssociationConfig::gibbs(1000);
-            let strategy = SingleSensorLmbmStrategy::new(DynamicAssociator::from_config(&assoc));
+            let strategy = SingleSensorLmbmStrategy {
+                associator: DynamicAssociator::from_config(&assoc),
+            };
             Ok(AnyFilter::Lmbm(LmbmFilterCore::with_strategy(
                 prep.motion.clone(),
                 prep.sensor.clone().into(),
@@ -364,7 +366,9 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         }
         "LMBM-Murty" => {
             let assoc = AssociationConfig::murty(25);
-            let strategy = SingleSensorLmbmStrategy::new(DynamicAssociator::from_config(&assoc));
+            let strategy = SingleSensorLmbmStrategy {
+                associator: DynamicAssociator::from_config(&assoc),
+            };
             Ok(AnyFilter::Lmbm(LmbmFilterCore::with_strategy(
                 prep.motion.clone(),
                 prep.sensor.clone().into(),

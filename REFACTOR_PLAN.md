@@ -806,175 +806,12 @@ let filter: LmbmFilterCore<SingleSensorLmbmStrategy<MyAssociator>> =
 
 ---
 
-## Phase 7E: Python API Simplification
+## Phase 7E: (Merged into Phase 8.7)
 
-**Goal**: Reduce Python API complexity. Fewer types, cleaner interface, less cognitive load.
+**Note**: Python API simplification is now part of Phase 8.7. This avoids rewriting
+Python bindings twice (once for API simplification, once for UnifiedFilter migration).
 
-**Principle**: NO BACKWARDS COMPAT. Delete old code. Clean API is the priority.
-
-**Problem Analysis**:
-
-Current Python API exposes:
-- **7 filter classes**: `FilterLmb`, `FilterLmbm`, `FilterIcLmb`, `FilterAaLmb`, `FilterGaLmb`, `FilterPuLmb`, `FilterMultisensorLmbm`
-- **8 internal types** (underscore-prefixed): `_TrackData`, `_PosteriorParameters`, `_AssociationMatrices`, `_AssociationResult`, `_SensorUpdateOutput`, `_CardinalityEstimate`, `_StepOutput`, `_LmbmHypothesis`
-- **6 config classes**: `MotionModel`, `SensorModel`, `SensorConfigMulti`, `AssociatorConfig`, `FilterThresholds`, `FilterLmbmConfig`
-
-This is ~21 public types. Target: ~12 types.
-
-### 1. Replace 7 Filter Classes with 2
-
-**DELETE** (7 classes):
-- `FilterLmb`
-- `FilterIcLmb`
-- `FilterAaLmb`
-- `FilterGaLmb`
-- `FilterPuLmb`
-- `FilterLmbm`
-- `FilterMultisensorLmbm`
-
-**CREATE** (2 classes):
-```python
-# LMB family - scheduler selects variant
-LmbFilter(motion, sensors, birth, assoc,
-          scheduler="single",  # "single" | "ic" | "aa" | "ga" | "pu"
-          existence_threshold=0.1,
-          gm_weight_threshold=1e-4,
-          max_gm_components=100,
-          gm_merge_threshold=4.0,
-          min_trajectory_length=3)
-
-# LMBM family
-LmbmFilter(motion, sensors, birth, assoc,
-           multisensor=False,
-           existence_threshold=0.1,
-           max_hypotheses=100,
-           hypothesis_weight_threshold=1e-6,
-           use_eap=False)
-```
-
-- [ ] Create `LmbFilter` with `scheduler` parameter dispatching to correct Rust type
-- [ ] Create `LmbmFilter` with `multisensor` parameter
-- [ ] **DELETE** all 7 old filter classes from `filters.rs`
-- [ ] **DELETE** `FilterThresholds` class
-- [ ] **DELETE** `FilterLmbmConfig` class
-
-### 2. Delete Unused Config Classes
-
-**DELETE**:
-- [ ] `FilterThresholds` - merged into filter constructor kwargs
-- [ ] `FilterLmbmConfig` - merged into filter constructor kwargs
-
-**KEEP**:
-- `MotionModel` - needed
-- `SensorModel` - needed
-- `SensorConfigMulti` - needed for multi-sensor
-- `AssociatorConfig` - needed
-
-### 3. Internal Types - Remove from Public API
-
-**DO NOT EXPORT** in `__init__.py`:
-- `_TrackData`
-- `_PosteriorParameters`
-- `_AssociationMatrices`
-- `_AssociationResult`
-- `_SensorUpdateOutput`
-- `_CardinalityEstimate`
-- `_StepOutput`
-- `_LmbmHypothesis`
-
-These stay in `filters.rs` for test use but are not part of public API.
-Tests import them explicitly: `from multisensor_lmb_filters_rs.multisensor_lmb_filters_rs import _StepOutput`
-
-### 4. Final Public API
-
-```python
-# __init__.py - COMPLETE public API (12 types)
-from .multisensor_lmb_filters_rs import (
-    # Filters (2)
-    LmbFilter,
-    LmbmFilter,
-
-    # Models (3)
-    MotionModel,
-    SensorModel,
-    SensorConfigMulti,
-
-    # Config (1)
-    AssociatorConfig,
-
-    # Birth (2)
-    BirthModel,
-    BirthLocation,
-
-    # Output (2)
-    StateEstimate,
-    TrackEstimate,
-
-    # Types (1)
-    TrackLabel,
-
-    # Utility (1)
-    GaussianComponent,
-)
-```
-
-### 5. Update All Tests
-
-- [ ] Update `test_equivalence.py` - replace all `FilterLmb` → `LmbFilter`, etc.
-- [ ] Update `conftest.py` - update fixture creation
-- [ ] Update any other test files
-
-### 6. Files to Modify
-
-| File | Action |
-|------|--------|
-| `src/python/filters.rs` | DELETE 7 old classes, ADD 2 new classes |
-| `src/python/models.rs` | DELETE `FilterThresholds`, `FilterLmbmConfig` |
-| `src/python/mod.rs` | Update class registration |
-| `python/multisensor_lmb_filters_rs/__init__.py` | Clean exports (12 types only) |
-| `python/tests/test_equivalence.py` | Update to new API |
-| `python/tests/conftest.py` | Update fixtures |
-
-### 7. Verification
-
-```bash
-uv run pytest python/tests/ -v
-```
-
-### 8. Success Criteria
-
-- [ ] 2 filter classes (down from 7)
-- [ ] 12 public types total (down from ~21)
-- [ ] 0 config classes for thresholds (merged into constructors)
-- [ ] Internal `_` types not in `__init__.py`
-- [ ] All tests pass
-
-### 9. Example Usage After Cleanup
-
-```python
-from multisensor_lmb_filters_rs import (
-    LmbFilter, LmbmFilter,
-    MotionModel, SensorModel, SensorConfigMulti,
-    AssociatorConfig, BirthModel, BirthLocation,
-)
-
-# Single-sensor LMB (default scheduler="single")
-filter = LmbFilter(motion, sensor, birth, AssociatorConfig.lbp())
-
-# Multi-sensor AA-LMB
-filter = LmbFilter(motion, sensors, birth, AssociatorConfig.lbp(), scheduler="aa")
-
-# Single-sensor LMBM (default multisensor=False)
-filter = LmbmFilter(motion, sensor, birth, AssociatorConfig.gibbs())
-
-# Multi-sensor LMBM
-filter = LmbmFilter(motion, sensors, birth, AssociatorConfig.gibbs(), multisensor=True)
-
-# All filters have same interface
-output = filter.step(measurements, timestep)
-for track in output:
-    print(track.label, track.mean)
-```
+See Phase 8.7 for the combined scope.
 
 ---
 
@@ -1088,14 +925,53 @@ pub struct UnifiedFilter<S: UpdateStrategy> {
 - [ ] Update all 7 factory functions to return `UnifiedFilter<...>`
 - [ ] Update type aliases in `mod.rs`
 
-### 8.7: Update Python Bindings
+### 8.7: Update Python Bindings (Includes Former Phase 7E)
 
-**File**: `src/python/filters.rs`
+**Goal**: Update Python bindings for UnifiedFilter AND simplify the Python API.
 
-- [ ] Update `PyFilterLmb` to use `UnifiedFilter<LmbStrategy<...>>`
-- [ ] Update all other filter types
-- [ ] Verify macros still work
-- [ ] Test Python API
+This phase combines the Rust type migration with Python API simplification to avoid
+touching the Python bindings twice.
+
+#### Rust-side (src/python/filters.rs)
+
+- [ ] DELETE all 7 old filter classes: `FilterLmb`, `FilterLmbm`, `FilterIcLmb`, `FilterAaLmb`, `FilterGaLmb`, `FilterPuLmb`, `FilterMultisensorLmbm`
+- [ ] CREATE 2 new classes wrapping `UnifiedFilter<...>`:
+  ```python
+  LmbFilter(motion, sensors, birth, assoc,
+            scheduler="single",  # "single" | "ic" | "aa" | "ga" | "pu"
+            existence_threshold=0.1,
+            gm_weight_threshold=1e-4,
+            max_gm_components=100,
+            gm_merge_threshold=4.0,
+            min_trajectory_length=3)
+
+  LmbmFilter(motion, sensors, birth, assoc,
+             multisensor=False,
+             existence_threshold=0.1,
+             max_hypotheses=100,
+             hypothesis_weight_threshold=1e-6,
+             use_eap=False)
+  ```
+- [ ] DELETE `FilterThresholds` class (merge into constructor kwargs)
+- [ ] DELETE `FilterLmbmConfig` class (merge into constructor kwargs)
+
+#### Python-side (python/multisensor_lmb_filters_rs/__init__.py)
+
+- [ ] Update exports to 12 public types:
+  - Filters (2): `LmbFilter`, `LmbmFilter`
+  - Models (3): `MotionModel`, `SensorModel`, `SensorConfigMulti`
+  - Config (1): `AssociatorConfig`
+  - Birth (2): `BirthModel`, `BirthLocation`
+  - Output (2): `StateEstimate`, `TrackEstimate`
+  - Types (1): `TrackLabel`
+  - Utility (1): `GaussianComponent`
+- [ ] Internal `_` types NOT exported (but still available for tests via direct import)
+
+#### Tests
+
+- [ ] Update `test_equivalence.py` - replace `FilterLmb` → `LmbFilter(scheduler="single")`, etc.
+- [ ] Update `conftest.py` - update fixture creation
+- [ ] Verify all 87 Python tests pass at 1e-10 tolerance
 
 ### 8.8: Delete Old Cores
 
@@ -1379,17 +1255,7 @@ uv run pytest python/tests/ -v
 | `src/lmb/config.rs` | Delete `SensorVariant`, delete unused builders | ~-240 LOC |
 | `src/lmb/mod.rs` | Update exports | minimal |
 
-### Phase 7E (Pending)
-| File | Action | Impact |
-|------|--------|--------|
-| `src/python/filters.rs` | DELETE 7 old classes, ADD 2 new classes | ~-400 LOC net |
-| `src/python/models.rs` | DELETE `FilterThresholds`, `FilterLmbmConfig` | ~-100 LOC |
-| `src/python/mod.rs` | Update class registration (remove 9 types) | minimal |
-| `python/multisensor_lmb_filters_rs/__init__.py` | Clean exports (12 types only) | minimal |
-| `python/tests/test_equivalence.py` | Update to new API | minimal |
-| `python/tests/conftest.py` | Update fixture creation | minimal |
-
-### Phase 8 (Pending) - Full Unification
+### Phase 8 (Pending) - Full Unification + Python API Simplification
 | File | Action | Impact |
 |------|--------|--------|
 | `src/lmb/types.rs` | Rename `LmbmHypothesis` → `Hypothesis` | minimal |
@@ -1399,7 +1265,10 @@ uv run pytest python/tests/ -v
 | `src/lmb/core_lmbm.rs` | **DELETE** | ~-1200 LOC |
 | `src/lmb/factory.rs` | Modify | Use `UnifiedFilter` |
 | `src/lmb/common_ops.rs` | Modify | Delete 3 redundant functions |
-| `src/python/filters.rs` | Modify | Update wrapper types |
+| `src/python/filters.rs` | DELETE 7 classes, ADD 2 | ~-400 LOC net (Phase 8.7) |
+| `src/python/models.rs` | DELETE `FilterThresholds`, `FilterLmbmConfig` | ~-100 LOC (Phase 8.7) |
+| `python/multisensor_lmb_filters_rs/__init__.py` | Clean exports (12 types) | minimal (Phase 8.7) |
+| `python/tests/test_equivalence.py` | Update to new API | minimal (Phase 8.7) |
 
 ### Future Phases
 | File | Action | Impact |
@@ -1409,8 +1278,7 @@ uv run pytest python/tests/ -v
 
 **Net LOC change so far**: Deleted 2919 LOC of old filters (Phase 7A: 1285 + Phase 7B: 1634)
 **After Phase 7D**: ~3409 LOC deleted total
-**After Phase 7E**: ~3909 LOC deleted total, Python API: 21 types → 12 types
-**After Phase 8**: ~5409 LOC deleted total (core.rs + core_lmbm.rs removed, unified code added)
+**After Phase 8**: ~5909 LOC deleted total (core.rs + core_lmbm.rs + Python simplification), Python API: 21 types → 12 types
 
 ---
 
@@ -1432,14 +1300,12 @@ Phase 7C (API Simplify)     ─► ✅ COMPLETE (factory.rs, merged SensorSet, s
 Phase 7D (Dead Code)        ─► Delete redundant constructors, SensorVariant, unused builders (~490 LOC)
          │
          ▼
-Phase 7E (Python API)       ─► Consolidate 7 filter classes → 2, simplify config types
-         │
-         ▼
 Phase 8 (Full Unification)  ─► Delete core.rs + core_lmbm.rs, create UnifiedFilter<S: UpdateStrategy>
          │
-         ▼
-Phase 9 (Merged into 8)     ─► Python bindings update is now Phase 8.7
-         │
+         ├─► 8.7 (Python Bindings + API Simplification):
+         │       - Wrap UnifiedFilter<...>
+         │       - 7→2 filter classes (LmbFilter, LmbmFilter)
+         │       - 12 public types
          ▼
 Phase 10 (API Cleanup)      ─► Remove deprecated types, clean exports
          │
@@ -1466,7 +1332,7 @@ Phase 12 (NORFAIR)          ─► (Future) Implement NorfairStrategy : UpdateSt
    - Custom motion/sensor: Implement behavior traits
    - Custom association: Implement `Associator` trait
 9. **Future-Ready**: Clear path for NORFAIR/SORT/ByteTrack via `UpdateStrategy` trait
-10. **Python API Simplified**:
+10. **Python API Simplified** (Phase 8.7):
     - 2 filter classes (`LmbFilter`, `LmbmFilter`) - old 7 classes DELETED
     - 12 public types total (down from 21)
     - Internal `_` types not exported in `__init__.py`

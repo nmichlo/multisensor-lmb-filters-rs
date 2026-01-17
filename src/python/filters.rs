@@ -713,7 +713,7 @@ impl PyFilterLmbm {
 
         // Create the appropriate dynamic associator based on the config
         let associator = DynamicAssociator::from_config(&assoc);
-        let strategy = SingleSensorLmbmStrategy::new(associator);
+        let strategy = SingleSensorLmbmStrategy { associator };
 
         let mut inner = LmbmFilterCore::with_strategy(
             motion.inner.clone(),
@@ -1032,7 +1032,9 @@ impl PyFilterMultisensorLmbm {
         let lmbm = lmbm_config.map(|c| c.inner.clone()).unwrap_or_default();
 
         // Note: thresholds not used for LMBM filter (no builder method for it)
-        let strategy = MultisensorLmbmStrategy::new(MultisensorGibbsAssociator);
+        let strategy = MultisensorLmbmStrategy {
+            associator: MultisensorGibbsAssociator,
+        };
         let inner = LmbmFilterCore::with_strategy(
             motion.inner.clone(),
             sensors.inner.clone().into(),
