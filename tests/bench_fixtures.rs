@@ -8,13 +8,14 @@ use multisensor_lmb_filters_rs::lmb::config::{
     AssociationConfig, BirthLocation, BirthModel, LmbmConfig, MotionModel, MultisensorConfig,
     SensorModel,
 };
-use multisensor_lmb_filters_rs::lmb::multisensor::lmb::{
-    ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger, MultisensorLmbFilter,
-    ParallelUpdateMerger,
+use multisensor_lmb_filters_rs::lmb::core::{
+    AaLmbFilter, GaLmbFilter, IcLmbFilter, LmbFilter, PuLmbFilter,
 };
-use multisensor_lmb_filters_rs::lmb::multisensor::lmbm::MultisensorLmbmFilter;
-use multisensor_lmb_filters_rs::lmb::singlesensor::lmb::LmbFilter;
-use multisensor_lmb_filters_rs::lmb::singlesensor::lmbm::LmbmFilter;
+use multisensor_lmb_filters_rs::lmb::core_lmbm::{LmbmFilter, MultisensorLmbmFilter};
+use multisensor_lmb_filters_rs::lmb::multisensor::{
+    ArithmeticAverageMerger, GeometricAverageMerger, ParallelUpdateMerger,
+};
+use multisensor_lmb_filters_rs::lmb::scheduler::ParallelScheduler;
 use multisensor_lmb_filters_rs::lmb::traits::{Filter, LbpAssociator};
 use multisensor_lmb_filters_rs::lmb::FilterBuilder;
 
@@ -132,10 +133,10 @@ struct ScenarioStep {
 enum AnyFilter {
     Lmb(LmbFilter),
     Lmbm(LmbmFilter),
-    AaLmb(MultisensorLmbFilter<LbpAssociator, ArithmeticAverageMerger>),
-    GaLmb(MultisensorLmbFilter<LbpAssociator, GeometricAverageMerger>),
-    PuLmb(MultisensorLmbFilter<LbpAssociator, ParallelUpdateMerger>),
-    IcLmb(MultisensorLmbFilter<LbpAssociator, IteratedCorrectorMerger>),
+    AaLmb(AaLmbFilter<LbpAssociator>),
+    GaLmb(GaLmbFilter<LbpAssociator>),
+    PuLmb(PuLmbFilter<LbpAssociator>),
+    IcLmb(IcLmbFilter<LbpAssociator>),
     MsLmbm(MultisensorLmbmFilter),
 }
 
@@ -208,7 +209,8 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
         "AA-LMB" => {
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
             let merger = ArithmeticAverageMerger::uniform(fixture.num_sensors, t.max_components);
-            let filter = MultisensorLmbFilter::new(motion, sensors, birth, assoc, merger)
+            let scheduler = ParallelScheduler::new(merger);
+            let filter = AaLmbFilter::new_parallel(motion, sensors, birth, assoc, scheduler)
                 .with_gm_pruning(t.gm_weight, t.max_components)
                 .with_existence_threshold(t.existence);
             (AnyFilter::AaLmb(filter), true)
@@ -216,7 +218,8 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
         "GA-LMB" => {
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
             let merger = GeometricAverageMerger::uniform(fixture.num_sensors);
-            let filter = MultisensorLmbFilter::new(motion, sensors, birth, assoc, merger)
+            let scheduler = ParallelScheduler::new(merger);
+            let filter = GaLmbFilter::new_parallel(motion, sensors, birth, assoc, scheduler)
                 .with_gm_pruning(t.gm_weight, t.max_components)
                 .with_existence_threshold(t.existence);
             (AnyFilter::GaLmb(filter), true)
@@ -224,15 +227,15 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
         "PU-LMB" => {
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
             let merger = ParallelUpdateMerger::new(Vec::new());
-            let filter = MultisensorLmbFilter::new(motion, sensors, birth, assoc, merger)
+            let scheduler = ParallelScheduler::new(merger);
+            let filter = PuLmbFilter::new_parallel(motion, sensors, birth, assoc, scheduler)
                 .with_gm_pruning(t.gm_weight, t.max_components)
                 .with_existence_threshold(t.existence);
             (AnyFilter::PuLmb(filter), true)
         }
         "IC-LMB" => {
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
-            let merger = IteratedCorrectorMerger::new();
-            let filter = MultisensorLmbFilter::new(motion, sensors, birth, assoc, merger)
+            let filter = IcLmbFilter::new_ic(motion, sensors, birth, assoc)
                 .with_gm_pruning(t.gm_weight, t.max_components)
                 .with_existence_threshold(t.existence);
             (AnyFilter::IcLmb(filter), true)
@@ -240,9 +243,14 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
         "MS-LMBM" => {
             // MS-LMBM uses hypothesis-level pruning, not GM pruning
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
-            let filter =
-                MultisensorLmbmFilter::new(motion, sensors, birth, assoc, lmbm_config.clone())
-                    .with_existence_threshold(t.existence);
+            let filter = MultisensorLmbmFilter::new_multisensor(
+                motion,
+                sensors,
+                birth,
+                assoc,
+                lmbm_config.clone(),
+            )
+            .with_existence_threshold(t.existence);
             (AnyFilter::MsLmbm(filter), true)
         }
         other => panic!("Unknown filter type: {}", other),
@@ -336,13 +344,15 @@ fn run_and_compare(fixture: &Fixture, scenario: &Scenario) -> Vec<String> {
     compare(&results, fixture)
 }
 
-fn run_multi<M: multisensor_lmb_filters_rs::lmb::traits::Merger>(
-    filter: &mut MultisensorLmbFilter<LbpAssociator, M>,
+fn run_multi<F>(
+    filter: &mut F,
     rng: &mut impl rand::Rng,
     scenario: &Scenario,
     num_steps: usize,
     results: &mut Vec<StepResult>,
-) {
+) where
+    F: Filter<Measurements = Vec<Vec<DVector<f64>>>>,
+{
     for t in 0..num_steps {
         let meas: Vec<Vec<DVector<f64>>> = scenario.steps[t]
             .sensor_readings

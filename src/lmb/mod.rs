@@ -9,7 +9,6 @@
 //!
 //! # Multi-Sensor Filters
 //!
-//! - [`MultisensorLmbFilter`] - Multi-sensor LMB with configurable fusion strategies
 //! - [`AaLmbFilter`] - Arithmetic Average fusion (fast, simple)
 //! - [`GaLmbFilter`] - Geometric Average fusion (conservative covariance)
 //! - [`PuLmbFilter`] - Parallel Update fusion (optimal for independent sensors)
@@ -111,15 +110,21 @@ pub use reporter::{CompositeReporter, DebugReporter, LoggingReporter, NoOpReport
 // Builder traits
 pub use builder::{FilterBuilder, LmbFilterBuilder};
 
-// Single-sensor filters
-pub use singlesensor::{LmbFilter, LmbmFilter};
+// Single-sensor filters (from unified cores)
+pub use core::{LmbFilter, LmbFilterCore};
+pub use core_lmbm::LmbmFilter;
 
-// Multi-sensor filters and types
+// Multi-sensor LMB filters (from unified core)
+pub use core::{AaLmbFilter, GaLmbFilter, IcLmbFilter, PuLmbFilter};
+
+// Multi-sensor LMBM filter (from unified core)
+pub use core_lmbm::MultisensorLmbmFilter;
+
+// Fusion mergers and multi-sensor traits
 pub use multisensor::{
-    AaLmbFilter, ArithmeticAverageMerger, GaLmbFilter, GeometricAverageMerger, IcLmbFilter,
-    IteratedCorrectorMerger, MultisensorAssociationResult, MultisensorAssociator,
-    MultisensorGibbsAssociator, MultisensorLmbFilter, MultisensorLmbmFilter,
-    MultisensorMeasurements, ParallelUpdateMerger, PuLmbFilter,
+    ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger,
+    MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator,
+    MultisensorMeasurements, ParallelUpdateMerger,
 };
 
 // Utilities (re-exported from common)
@@ -131,7 +136,7 @@ pub use measurements::{
 };
 
 // Unified filter core (Phase 8)
-pub use core::{LmbFilterCore, SensorSet, SensorSetIter};
+pub use core::{SensorSet, SensorSetIter};
 
 // Unified LMBM filter core (Phase 9)
 pub use core_lmbm::{

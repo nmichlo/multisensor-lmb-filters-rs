@@ -4,15 +4,16 @@
 //!
 //! # Multi-sensor LMB
 //!
-//! - [`MultisensorLmbFilter`] - Generic multi-sensor LMB with configurable fusion
-//! - [`AaLmbFilter`] - Arithmetic Average fusion
-//! - [`GaLmbFilter`] - Geometric Average fusion
-//! - [`PuLmbFilter`] - Parallel Update fusion
-//! - [`IcLmbFilter`] - Iterated Corrector fusion
+//! Multi-sensor LMB filters are now in `core.rs` - use type aliases:
+//! - [`AaLmbFilter`][super::core::AaLmbFilter] - Arithmetic Average fusion
+//! - [`GaLmbFilter`][super::core::GaLmbFilter] - Geometric Average fusion
+//! - [`PuLmbFilter`][super::core::PuLmbFilter] - Parallel Update fusion
+//! - [`IcLmbFilter`][super::core::IcLmbFilter] - Iterated Corrector fusion
 //!
 //! # Multi-sensor LMBM
 //!
-//! - [`MultisensorLmbmFilter`] - Multi-sensor LMBM with joint association
+//! Multi-sensor LMBM filter is now in `core_lmbm.rs`:
+//! - [`MultisensorLmbmFilter`][super::core_lmbm::MultisensorLmbmFilter]
 //!
 //! # Fusion Strategies
 //!
@@ -21,8 +22,9 @@
 //! - [`ParallelUpdateMerger`] - Information-form fusion
 //! - [`IteratedCorrectorMerger`] - Sequential sensor updates
 
+use nalgebra::DVector;
+
 pub mod fusion;
-pub mod lmb;
 pub mod lmbm;
 pub mod traits;
 
@@ -31,14 +33,8 @@ pub use fusion::{
     ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger, ParallelUpdateMerger,
 };
 
-// Re-export from lmb.rs
-pub use lmb::{
-    AaLmbFilter, GaLmbFilter, IcLmbFilter, MultisensorLmbFilter, MultisensorMeasurements,
-    PuLmbFilter,
-};
-
-// Re-export from lmbm.rs
-pub use lmbm::MultisensorLmbmFilter;
-
 // Re-export from traits.rs
 pub use traits::{MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator};
+
+/// Multi-sensor measurements: one measurement set per sensor.
+pub type MultisensorMeasurements = Vec<Vec<DVector<f64>>>;

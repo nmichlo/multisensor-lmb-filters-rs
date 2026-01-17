@@ -61,7 +61,7 @@ pub mod python;
 ///
 /// This is the main module containing all LMB-family implementations:
 /// - Single-sensor: `LmbFilter`, `LmbmFilter`
-/// - Multi-sensor: `MultisensorLmbFilter`, `MultisensorLmbmFilter`
+/// - Multi-sensor: `AaLmbFilter`, `GaLmbFilter`, `PuLmbFilter`, `IcLmbFilter`, `MultisensorLmbmFilter`
 /// - Fusion strategies: `ArithmeticAverageMerger`, `GeometricAverageMerger`, etc.
 pub mod lmb;
 
@@ -106,8 +106,8 @@ pub use lmb::{LmbFilter, LmbmFilter};
 // Multi-sensor filters
 pub use lmb::{
     AaLmbFilter, ArithmeticAverageMerger, GaLmbFilter, GeometricAverageMerger, IcLmbFilter,
-    IteratedCorrectorMerger, MultisensorLmbFilter, MultisensorLmbmFilter, MultisensorMeasurements,
-    ParallelUpdateMerger, PuLmbFilter,
+    IteratedCorrectorMerger, MultisensorLmbmFilter, MultisensorMeasurements, ParallelUpdateMerger,
+    PuLmbFilter,
 };
 
 // Multi-sensor association

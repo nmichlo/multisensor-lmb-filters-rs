@@ -184,11 +184,11 @@ pub fn preprocess(scenario: &ScenarioJson) -> PreprocessedScenario {
 pub enum AnyFilter {
     Lmb(LmbFilter<DynamicAssociator>),
     Lmbm(LmbmFilter<DynamicAssociator>),
-    AaLmb(MultisensorLmbFilter<LbpAssociator, ArithmeticAverageMerger>),
-    IcLmb(MultisensorLmbFilter<LbpAssociator, IteratedCorrectorMerger>),
-    PuLmb(MultisensorLmbFilter<LbpAssociator, ParallelUpdateMerger>),
-    GaLmb(MultisensorLmbFilter<LbpAssociator, GeometricAverageMerger>),
-    MsLmbm(MultisensorLmbmFilter<MultisensorGibbsAssociator>),
+    AaLmb(AaLmbFilter<LbpAssociator>),
+    IcLmb(IcLmbFilter<LbpAssociator>),
+    PuLmb(PuLmbFilter<LbpAssociator>),
+    GaLmb(GaLmbFilter<LbpAssociator>),
+    MsLmbm(MultisensorLmbmFilter),
 }
 
 impl AnyFilter {
@@ -304,7 +304,7 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         "LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
             Ok(AnyFilter::Lmb(
-                LmbFilter::with_associator_type(
+                LmbFilter::with_associator(
                     prep.motion.clone(),
                     prep.sensor.clone(),
                     prep.birth.clone(),
@@ -318,7 +318,7 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         "LMB-Gibbs" => {
             let assoc = AssociationConfig::gibbs(1000);
             Ok(AnyFilter::Lmb(
-                LmbFilter::with_associator_type(
+                LmbFilter::with_associator(
                     prep.motion.clone(),
                     prep.sensor.clone(),
                     prep.birth.clone(),
@@ -332,7 +332,7 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         "LMB-Murty" => {
             let assoc = AssociationConfig::murty(25);
             Ok(AnyFilter::Lmb(
-                LmbFilter::with_associator_type(
+                LmbFilter::with_associator(
                     prep.motion.clone(),
                     prep.sensor.clone(),
                     prep.birth.clone(),
@@ -347,7 +347,7 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         // Single-sensor LMBM
         "LMBM-Gibbs" => {
             let assoc = AssociationConfig::gibbs(1000);
-            Ok(AnyFilter::Lmbm(LmbmFilter::with_associator_type(
+            Ok(AnyFilter::Lmbm(LmbmFilter::with_associator(
                 prep.motion.clone(),
                 prep.sensor.clone(),
                 prep.birth.clone(),
@@ -358,7 +358,7 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         }
         "LMBM-Murty" => {
             let assoc = AssociationConfig::murty(25);
-            Ok(AnyFilter::Lmbm(LmbmFilter::with_associator_type(
+            Ok(AnyFilter::Lmbm(LmbmFilter::with_associator(
                 prep.motion.clone(),
                 prep.sensor.clone(),
                 prep.birth.clone(),
@@ -368,16 +368,18 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
             )))
         }
 
-        // Multi-sensor LMB variants
+        // Multi-sensor LMB variants (using unified core)
         "AA-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
+            let merger = ArithmeticAverageMerger::uniform(prep.num_sensors, MAX_GM_COMPONENTS);
+            let scheduler = ParallelScheduler::new(merger);
             Ok(AnyFilter::AaLmb(
-                MultisensorLmbFilter::new(
+                AaLmbFilter::new_parallel(
                     prep.motion.clone(),
                     prep.sensors_config.clone(),
                     prep.birth.clone(),
                     assoc,
-                    ArithmeticAverageMerger::uniform(prep.num_sensors, MAX_GM_COMPONENTS),
+                    scheduler,
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
@@ -386,12 +388,11 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         "IC-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
             Ok(AnyFilter::IcLmb(
-                MultisensorLmbFilter::new(
+                IcLmbFilter::new_ic(
                     prep.motion.clone(),
                     prep.sensors_config.clone(),
                     prep.birth.clone(),
                     assoc,
-                    IteratedCorrectorMerger::new(),
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
@@ -399,13 +400,15 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         }
         "PU-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
+            let merger = ParallelUpdateMerger::new(Vec::new());
+            let scheduler = ParallelScheduler::new(merger);
             Ok(AnyFilter::PuLmb(
-                MultisensorLmbFilter::new(
+                PuLmbFilter::new_parallel(
                     prep.motion.clone(),
                     prep.sensors_config.clone(),
                     prep.birth.clone(),
                     assoc,
-                    ParallelUpdateMerger::new(Vec::new()),
+                    scheduler,
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
@@ -413,32 +416,31 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         }
         "GA-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
+            let merger = GeometricAverageMerger::uniform(prep.num_sensors);
+            let scheduler = ParallelScheduler::new(merger);
             Ok(AnyFilter::GaLmb(
-                MultisensorLmbFilter::new(
+                GaLmbFilter::new_parallel(
                     prep.motion.clone(),
                     prep.sensors_config.clone(),
                     prep.birth.clone(),
                     assoc,
-                    GeometricAverageMerger::uniform(prep.num_sensors),
+                    scheduler,
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
             ))
         }
 
-        // Multi-sensor LMBM
+        // Multi-sensor LMBM (using unified core)
         "MS-LMBM-Gibbs" => {
             let assoc = AssociationConfig::gibbs(1000);
-            Ok(AnyFilter::MsLmbm(
-                MultisensorLmbmFilter::with_associator_type(
-                    prep.motion.clone(),
-                    prep.sensors_config.clone(),
-                    prep.birth.clone(),
-                    assoc,
-                    LMBM_CONFIG,
-                    MultisensorGibbsAssociator,
-                ),
-            ))
+            Ok(AnyFilter::MsLmbm(MultisensorLmbmFilter::new_multisensor(
+                prep.motion.clone(),
+                prep.sensors_config.clone(),
+                prep.birth.clone(),
+                assoc,
+                LMBM_CONFIG,
+            )))
         }
 
         _ => Err(format!(

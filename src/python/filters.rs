@@ -7,14 +7,13 @@ use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 
 use crate::lmb::config::{AssociationConfig, DataAssociationMethod, FilterThresholds, LmbmConfig};
+use crate::lmb::core::{AaLmbFilter, GaLmbFilter, IcLmbFilter, LmbFilter, PuLmbFilter};
+use crate::lmb::core_lmbm::{LmbmFilter, MultisensorLmbmFilter};
 use crate::lmb::errors::FilterError;
 use crate::lmb::multisensor::fusion::{
-    ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger, ParallelUpdateMerger,
+    ArithmeticAverageMerger, GeometricAverageMerger, ParallelUpdateMerger,
 };
-use crate::lmb::multisensor::lmb::MultisensorLmbFilter;
-use crate::lmb::multisensor::lmbm::MultisensorLmbmFilter;
-use crate::lmb::singlesensor::lmb::LmbFilter;
-use crate::lmb::singlesensor::lmbm::LmbmFilter;
+use crate::lmb::scheduler::ParallelScheduler;
 use crate::lmb::traits::Filter;
 use crate::lmb::types::{StepDetailedOutput, Track};
 use crate::lmb::{DynamicAssociator, LbpAssociator};
@@ -642,7 +641,7 @@ impl PyFilterLmb {
         // Create the appropriate dynamic associator based on the config
         let associator = DynamicAssociator::from_config(&assoc);
 
-        let inner = LmbFilter::with_associator_type(
+        let inner = LmbFilter::with_associator(
             motion.inner.clone(),
             sensor.inner.clone(),
             birth.inner.clone(),
@@ -710,7 +709,7 @@ impl PyFilterLmbm {
         // Create the appropriate dynamic associator based on the config
         let associator = DynamicAssociator::from_config(&assoc);
 
-        let mut inner = LmbmFilter::with_associator_type(
+        let mut inner = LmbmFilter::with_associator(
             motion.inner.clone(),
             sensor.inner.clone(),
             birth.inner.clone(),
@@ -764,7 +763,7 @@ impl_get_config!(PyFilterLmbm);
 
 #[pyclass(name = "FilterAaLmb")]
 pub struct PyFilterAaLmb {
-    inner: MultisensorLmbFilter<LbpAssociator, ArithmeticAverageMerger>,
+    inner: AaLmbFilter<LbpAssociator>,
     rng: SimpleRng,
 }
 
@@ -785,13 +784,14 @@ impl PyFilterAaLmb {
 
         let num_sensors = sensors.inner.num_sensors();
         let merger = ArithmeticAverageMerger::uniform(num_sensors, thresh.max_gm_components);
+        let scheduler = ParallelScheduler::new(merger);
 
-        let inner = MultisensorLmbFilter::new(
+        let inner = AaLmbFilter::new_parallel(
             motion.inner.clone(),
             sensors.inner.clone(),
             birth.inner.clone(),
             assoc,
-            merger,
+            scheduler,
         )
         .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
         .with_gm_merge_threshold(thresh.gm_merge_threshold);
@@ -823,7 +823,7 @@ impl_get_config!(PyFilterAaLmb);
 
 #[pyclass(name = "FilterGaLmb")]
 pub struct PyFilterGaLmb {
-    inner: MultisensorLmbFilter<LbpAssociator, GeometricAverageMerger>,
+    inner: GaLmbFilter<LbpAssociator>,
     rng: SimpleRng,
 }
 
@@ -844,13 +844,14 @@ impl PyFilterGaLmb {
 
         let num_sensors = sensors.inner.num_sensors();
         let merger = GeometricAverageMerger::uniform(num_sensors);
+        let scheduler = ParallelScheduler::new(merger);
 
-        let inner = MultisensorLmbFilter::new(
+        let inner = GaLmbFilter::new_parallel(
             motion.inner.clone(),
             sensors.inner.clone(),
             birth.inner.clone(),
             assoc,
-            merger,
+            scheduler,
         )
         .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
         .with_gm_merge_threshold(thresh.gm_merge_threshold);
@@ -882,7 +883,7 @@ impl_get_config!(PyFilterGaLmb);
 
 #[pyclass(name = "FilterPuLmb")]
 pub struct PyFilterPuLmb {
-    inner: MultisensorLmbFilter<LbpAssociator, ParallelUpdateMerger>,
+    inner: PuLmbFilter<LbpAssociator>,
     rng: SimpleRng,
 }
 
@@ -903,13 +904,14 @@ impl PyFilterPuLmb {
 
         // PU merger needs prior tracks - start with empty
         let merger = ParallelUpdateMerger::new(Vec::new());
+        let scheduler = ParallelScheduler::new(merger);
 
-        let inner = MultisensorLmbFilter::new(
+        let inner = PuLmbFilter::new_parallel(
             motion.inner.clone(),
             sensors.inner.clone(),
             birth.inner.clone(),
             assoc,
-            merger,
+            scheduler,
         )
         .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
         .with_gm_merge_threshold(thresh.gm_merge_threshold);
@@ -941,7 +943,7 @@ impl_get_config!(PyFilterPuLmb);
 
 #[pyclass(name = "FilterIcLmb")]
 pub struct PyFilterIcLmb {
-    inner: MultisensorLmbFilter<LbpAssociator, IteratedCorrectorMerger>,
+    inner: IcLmbFilter<LbpAssociator>,
     rng: SimpleRng,
 }
 
@@ -960,14 +962,11 @@ impl PyFilterIcLmb {
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
         let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
 
-        let merger = IteratedCorrectorMerger::new();
-
-        let inner = MultisensorLmbFilter::new(
+        let inner = IcLmbFilter::new_ic(
             motion.inner.clone(),
             sensors.inner.clone(),
             birth.inner.clone(),
             assoc,
-            merger,
         )
         .with_gm_pruning(thresh.gm_weight_threshold, thresh.max_gm_components)
         .with_gm_merge_threshold(thresh.gm_merge_threshold);
@@ -1022,7 +1021,7 @@ impl PyFilterMultisensorLmbm {
         let lmbm = lmbm_config.map(|c| c.inner.clone()).unwrap_or_default();
 
         // Note: thresholds not used for LMBM filter (no builder method for it)
-        let inner = MultisensorLmbmFilter::new(
+        let inner = MultisensorLmbmFilter::new_multisensor(
             motion.inner.clone(),
             sensors.inner.clone(),
             birth.inner.clone(),

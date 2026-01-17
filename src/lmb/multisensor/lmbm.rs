@@ -29,8 +29,8 @@ use super::super::errors::FilterError;
 use super::super::output::{StateEstimate, Trajectory};
 use super::super::traits::Filter;
 use super::super::types::{GaussianComponent, LmbmHypothesis, StepDetailedOutput, Track};
-use super::lmb::MultisensorMeasurements;
 use super::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
+use super::MultisensorMeasurements;
 
 /// Multi-sensor LMBM filter.
 ///

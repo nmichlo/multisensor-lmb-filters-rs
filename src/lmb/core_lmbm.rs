@@ -33,8 +33,8 @@ use super::config::{
     MultisensorConfig, SensorModel,
 };
 use super::errors::FilterError;
-use super::multisensor::lmb::MultisensorMeasurements;
 use super::multisensor::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
+use super::multisensor::MultisensorMeasurements;
 use super::output::{StateEstimate, Trajectory};
 use super::traits::{
     AssociationResult, Associator, Filter, GibbsAssociator, HardAssignmentUpdater, Updater,
