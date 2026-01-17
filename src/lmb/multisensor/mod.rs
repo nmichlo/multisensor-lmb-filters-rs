@@ -25,7 +25,6 @@
 use nalgebra::DVector;
 
 pub mod fusion;
-pub mod lmbm;
 pub mod traits;
 
 // Re-export fusion strategies

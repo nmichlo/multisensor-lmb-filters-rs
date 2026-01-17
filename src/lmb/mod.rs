@@ -53,7 +53,6 @@ pub mod traits;
 
 // Filter implementations
 pub mod multisensor;
-pub mod singlesensor;
 
 // Utilities
 pub mod cardinality;
