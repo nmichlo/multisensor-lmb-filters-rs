@@ -859,53 +859,165 @@ pub struct UnifiedFilter<S: UpdateStrategy> {
 - [ ] Update all 7 factory functions to return `UnifiedFilter<...>`
 - [ ] Update type aliases in `mod.rs`
 
-### 8.7: Update Python Bindings (Includes Former Phase 7E)
+### 8.7: Update Python Bindings (Strategy Object Pattern)
 
-**Goal**: Update Python bindings for UnifiedFilter AND simplify the Python API.
+**Goal**: Update Python bindings for UnifiedFilter using the Strategy Object Pattern.
 
-This phase combines the Rust type migration with Python API simplification to avoid
-touching the Python bindings twice.
+This design mirrors the Rust architecture exactly: `Filter` is a runner, `Strategy` defines behavior.
 
-#### Rust-side (src/python/filters.rs)
+#### Why Strategy Objects (Not 2 Filter Classes)
 
-- [ ] DELETE all 7 old filter classes: `FilterLmb`, `FilterLmbm`, `FilterIcLmb`, `FilterAaLmb`, `FilterGaLmb`, `FilterPuLmb`, `FilterMultisensorLmbm`
-- [ ] CREATE 2 new classes wrapping `UnifiedFilter<...>`:
-  ```python
-  LmbFilter(motion, sensors, birth, assoc,
-            scheduler="single",  # "single" | "ic" | "aa" | "ga" | "pu"
-            existence_threshold=0.1,
-            gm_weight_threshold=1e-4,
-            max_gm_components=100,
-            gm_merge_threshold=4.0,
-            min_trajectory_length=3)
+| Problem | 2-Class Design | Strategy Pattern |
+|---------|----------------|------------------|
+| `LmbFilter(scheduler="aa", max_hypotheses=100)` | Silently ignores irrelevant param | **Impossible** - `max_hypotheses` doesn't exist on `LmbStrategy` |
+| Adding `NorfairStrategy` later | Requires new `NorfairFilter` class | Just add `NorfairStrategy`, `Filter` unchanged |
+| IDE autocomplete | Shows all params for both algorithms | Only shows params for chosen strategy |
+| Architecture mirror | Partial | **Exact** - Python `Filter(strategy)` = Rust `UnifiedFilter<S>` |
 
-  LmbmFilter(motion, sensors, birth, assoc,
-             multisensor=False,
-             existence_threshold=0.1,
-             max_hypotheses=100,
-             hypothesis_weight_threshold=1e-6,
-             use_eap=False)
-  ```
-- [ ] DELETE `FilterThresholds` class (merge into constructor kwargs)
-- [ ] DELETE `FilterLmbmConfig` class (merge into constructor kwargs)
+#### New Python API
+
+```python
+from multisensor_lmb_filters_rs import Filter, LmbStrategy, LmbmStrategy
+
+# --- STRATEGY CLASSES (algorithm-specific config) ---
+
+LmbStrategy(
+    scheduler="single",  # "single" | "ic" | "aa" | "ga" | "pu"
+    existence_threshold=0.5,
+    gm_weight_threshold=1e-4,
+    max_gm_components=100,
+    gm_merge_threshold=float('inf'),
+    min_trajectory_length=3,
+)
+
+LmbmStrategy(
+    multisensor=False,
+    existence_threshold=0.001,
+    max_hypotheses=1000,
+    hypothesis_weight_threshold=1e-6,
+    use_eap=False,
+)
+
+# --- UNIFIED FILTER CLASS ---
+
+Filter(
+    motion: MotionModel,
+    sensors: SensorModel | SensorConfigMulti,
+    birth: BirthModel,
+    association: AssociatorConfig,
+    strategy: LmbStrategy | LmbmStrategy,
+    seed: int = None,  # Optional RNG seed
+)
+```
+
+#### Usage Examples
+
+```python
+# Single-sensor LMB (simplest)
+tracker = Filter(motion, sensor, birth, assoc, LmbStrategy())
+
+# IC-LMB (sequential multi-sensor)
+tracker = Filter(motion, sensors, birth, assoc, LmbStrategy(scheduler="ic"))
+
+# AA-LMB (parallel multi-sensor with custom GM pruning)
+tracker = Filter(motion, sensors, birth, assoc, LmbStrategy(scheduler="aa", max_gm_components=200))
+
+# Single-sensor LMBM
+tracker = Filter(motion, sensor, birth, assoc, LmbmStrategy())
+
+# Multi-sensor LMBM
+tracker = Filter(motion, sensors, birth, assoc, LmbmStrategy(multisensor=True, max_hypotheses=500))
+```
+
+#### Rust-side Implementation (src/python/filters.rs)
+
+**DELETE** (7 old filter classes):
+- `PyFilterLmb`, `PyFilterLmbm`, `PyFilterIcLmb`, `PyFilterAaLmb`, `PyFilterGaLmb`, `PyFilterPuLmb`, `PyFilterMultisensorLmbm`
+
+**DELETE** (old config classes):
+- `PyFilterThresholds`, `PyFilterLmbmConfig`
+
+**CREATE** (3 new classes):
+
+```rust
+// Strategy classes - hold algorithm-specific config
+#[pyclass(name = "LmbStrategy")]
+pub struct PyLmbStrategy {
+    scheduler: String,  // "single" | "ic" | "aa" | "ga" | "pu"
+    existence_threshold: f64,
+    gm_weight_threshold: f64,
+    max_gm_components: usize,
+    gm_merge_threshold: f64,
+    min_trajectory_length: usize,
+}
+
+#[pyclass(name = "LmbmStrategy")]
+pub struct PyLmbmStrategy {
+    multisensor: bool,
+    existence_threshold: f64,
+    max_hypotheses: usize,
+    hypothesis_weight_threshold: f64,
+    use_eap: bool,
+}
+
+// Unified filter - dispatches to correct Rust generic instantiation
+#[pyclass(name = "Filter")]
+pub struct PyFilter {
+    inner: FilterDispatch,  // enum of all UnifiedFilter<...> instantiations
+}
+
+enum FilterDispatch {
+    LmbSingle(UnifiedFilter<LmbStrategy<LbpAssociator, SingleSensorScheduler>>),
+    LmbIc(UnifiedFilter<LmbStrategy<LbpAssociator, SequentialScheduler>>),
+    LmbAa(UnifiedFilter<LmbStrategy<LbpAssociator, ParallelScheduler<ArithmeticAverageMerger>>>),
+    LmbGa(UnifiedFilter<LmbStrategy<LbpAssociator, ParallelScheduler<GeometricAverageMerger>>>),
+    LmbPu(UnifiedFilter<LmbStrategy<LbpAssociator, ParallelScheduler<ParallelUpdateMerger>>>),
+    LmbmSingle(UnifiedFilter<LmbmStrategy<SingleSensorLmbmStrategy<GibbsAssociator>>>),
+    LmbmMulti(UnifiedFilter<LmbmStrategy<MultisensorLmbmStrategy<MultisensorGibbsAssociator>>>),
+}
+```
 
 #### Python-side (python/multisensor_lmb_filters_rs/__init__.py)
 
-- [ ] Update exports to 12 public types:
-  - Filters (2): `LmbFilter`, `LmbmFilter`
-  - Models (3): `MotionModel`, `SensorModel`, `SensorConfigMulti`
-  - Config (1): `AssociatorConfig`
-  - Birth (2): `BirthModel`, `BirthLocation`
-  - Output (2): `StateEstimate`, `TrackEstimate`
-  - Types (1): `TrackLabel`
-  - Utility (1): `GaussianComponent`
-- [ ] Internal `_` types NOT exported (but still available for tests via direct import)
+**Public API (14 types):**
+- Filter (1): `Filter`
+- Strategies (2): `LmbStrategy`, `LmbmStrategy`
+- Models (3): `MotionModel`, `SensorModel`, `SensorConfigMulti`
+- Config (1): `AssociatorConfig`
+- Birth (2): `BirthModel`, `BirthLocation`
+- Output (2): `StateEstimate`, `TrackEstimate`
+- Core Types (2): `TrackLabel`, `GaussianComponent`
+- Other (1): `__version__`
+
+**Internal types (remain for testing, `_` prefixed):**
+- `_TrackData`, `_LmbmHypothesis`, `_StepOutput`
+- `_AssociationMatrices`, `_AssociationResult`, `_PosteriorParameters`
+- `_CardinalityEstimate`, `_SensorUpdateOutput`
 
 #### Tests
 
-- [ ] Update `test_equivalence.py` - replace `FilterLmb` → `LmbFilter(scheduler="single")`, etc.
-- [ ] Update `conftest.py` - update fixture creation
+- [ ] Update `test_equivalence.py`:
+  ```python
+  # Before
+  filter = FilterLmb(motion, sensor, birth, assoc, thresholds)
+
+  # After
+  filter = Filter(motion, sensor, birth, assoc, LmbStrategy())
+  ```
+- [ ] Update `conftest.py` - update fixture creation helpers
 - [ ] Verify all 87 Python tests pass at 1e-10 tolerance
+
+#### Migration Mapping
+
+| Old API | New API |
+|---------|---------|
+| `FilterLmb(m, s, b, a, t)` | `Filter(m, s, b, a, LmbStrategy(...))` |
+| `FilterLmbm(m, s, b, a, t, lc)` | `Filter(m, s, b, a, LmbmStrategy(...))` |
+| `FilterIcLmb(m, s, b, a, t)` | `Filter(m, s, b, a, LmbStrategy(scheduler="ic", ...))` |
+| `FilterAaLmb(m, s, b, a, t)` | `Filter(m, s, b, a, LmbStrategy(scheduler="aa", ...))` |
+| `FilterGaLmb(m, s, b, a, t)` | `Filter(m, s, b, a, LmbStrategy(scheduler="ga", ...))` |
+| `FilterPuLmb(m, s, b, a, t)` | `Filter(m, s, b, a, LmbStrategy(scheduler="pu", ...))` |
+| `FilterMultisensorLmbm(m, s, b, a, t, lc)` | `Filter(m, s, b, a, LmbmStrategy(multisensor=True, ...))` |
 
 ### 8.8: Delete Old Cores
 
@@ -1201,10 +1313,10 @@ uv run pytest python/tests/ -v
 | `src/lmb/core_lmbm.rs` | **DELETE** | ~-1200 LOC |
 | `src/lmb/factory.rs` | Modify | Use `UnifiedFilter` |
 | `src/lmb/common_ops.rs` | Modify | Delete 3 redundant functions |
-| `src/python/filters.rs` | DELETE 7 classes, ADD 2 | ~-400 LOC net (Phase 8.7) |
+| `src/python/filters.rs` | DELETE 7 filter classes + 2 config classes, ADD 3 (Filter, LmbStrategy, LmbmStrategy) | ~-400 LOC net (Phase 8.7) |
 | `src/python/models.rs` | DELETE `FilterThresholds`, `FilterLmbmConfig` | ~-100 LOC (Phase 8.7) |
-| `python/multisensor_lmb_filters_rs/__init__.py` | Clean exports (12 types) | minimal (Phase 8.7) |
-| `python/tests/test_equivalence.py` | Update to new API | minimal (Phase 8.7) |
+| `python/multisensor_lmb_filters_rs/__init__.py` | Clean exports (14 types) | minimal (Phase 8.7) |
+| `python/tests/test_equivalence.py` | Update to Strategy Object Pattern API | minimal (Phase 8.7) |
 
 ### Future Phases
 | File | Action | Impact |
@@ -1213,7 +1325,7 @@ uv run pytest python/tests/ -v
 | `python/tests/test_equivalence.py` | **REFACTOR** (Phase 11) | -1200 LOC via parameterization |
 
 **Net LOC change so far**: Deleted ~3419 LOC (Phase 7A: 1285 + Phase 7B: 1634 + Phase 7D: ~500)
-**After Phase 8**: ~5919 LOC deleted total (core.rs + core_lmbm.rs + Python simplification), Python API: 21 types → 12 types
+**After Phase 8**: ~5919 LOC deleted total (core.rs + core_lmbm.rs + Python simplification), Python API: 21 types → 14 types (Strategy Object Pattern)
 
 ---
 
@@ -1239,8 +1351,8 @@ Phase 8 (Full Unification)  ─► Delete core.rs + core_lmbm.rs, create Unified
          │
          ├─► 8.7 (Python Bindings + API Simplification):
          │       - Wrap UnifiedFilter<...>
-         │       - 7→2 filter classes (LmbFilter, LmbmFilter)
-         │       - 12 public types
+         │       - 7 filter classes → 1 Filter + 2 Strategies (LmbStrategy, LmbmStrategy)
+         │       - 14 public types (Strategy Object Pattern)
          ▼
 Phase 10 (API Cleanup)      ─► Remove deprecated types, clean exports
          │
@@ -1267,11 +1379,13 @@ Phase 12 (NORFAIR)          ─► (Future) Implement NorfairStrategy : UpdateSt
    - Custom motion/sensor: Implement behavior traits
    - Custom association: Implement `Associator` trait
 9. **Future-Ready**: Clear path for NORFAIR/SORT/ByteTrack via `UpdateStrategy` trait
-10. **Python API Simplified** (Phase 8.7):
-    - 2 filter classes (`LmbFilter`, `LmbmFilter`) - old 7 classes DELETED
-    - 12 public types total (down from 21)
+10. **Python API Simplified** (Phase 8.7 - Strategy Object Pattern):
+    - 1 unified `Filter` class + 2 strategy classes (`LmbStrategy`, `LmbmStrategy`)
+    - Old 7 filter classes DELETED, old 2 config classes DELETED
+    - 14 public types total (down from 21)
     - Internal `_` types not exported in `__init__.py`
-    - `FilterThresholds`, `FilterLmbmConfig` DELETED - merged into constructor kwargs
+    - Type-safe: `LmbStrategy` only accepts LMB params, `LmbmStrategy` only accepts LMBM params
+    - Future-proof: Adding `NorfairStrategy` doesn't require changing `Filter` class
 
 ---
 
