@@ -6,6 +6,34 @@ This plan addresses major code duplication (~60% overlap between single/multi-se
 
 ---
 
+## Core Principles
+
+**These principles are NON-NEGOTIABLE for this refactor:**
+
+1. **Delete old code, don't keep for backward compat**
+   - This is a complete rewrite, not a migration
+   - Old implementations (singlesensor/*.rs, multisensor/lmb.rs, multisensor/lmbm.rs) MUST be deleted
+   - Type aliases maintain API compatibility where sensible, but old code is gone
+
+2. **If tests fail, fix the implementation, not the test**
+   - Numeric equivalence at 1e-10 tolerance
+   - MATLAB fixtures are ground truth
+   - Never relax tolerance to make tests pass
+
+3. **One implementation per filter type**
+   - `LmbFilterCore` is THE LMB implementation (single AND multi-sensor)
+   - `LmbmFilterCore` is THE LMBM implementation (single AND multi-sensor)
+   - No parallel old/new implementations coexisting
+
+4. **Extensibility through traits, not inheritance**
+   - `Associator` trait for custom association algorithms
+   - `Merger` trait for custom fusion strategies
+   - `UpdateScheduler` trait for custom sensor processing
+   - `StepReporter` trait for custom observability
+   - `MotionModelBehavior` / `SensorModelBehavior` for custom models
+
+---
+
 ## Current State Analysis
 
 ### Codebase Statistics
@@ -41,7 +69,7 @@ This plan addresses major code duplication (~60% overlap between single/multi-se
 
 ---
 
-## Phase 0: Plan Setup
+## Phase 0: Plan Setup ✅
 
 **Goal**: Write the refactor plan to the repo and establish tracking.
 
@@ -77,29 +105,10 @@ This plan addresses major code duplication (~60% overlap between single/multi-se
 - All wrappers use GATs for zero-copy iteration
 - Includes `From` conversions for ergonomic use
 - 9 unit tests verifying zero-copy guarantee and correct behavior
+- **NOTE**: Integration into filter cores deferred to Phase 8
 
-### Implementation Design
-
-```rust
-/// Zero-copy measurement abstraction using iterators
-pub trait MeasurementSource {
-    type SensorIter<'a>: Iterator<Item = Self::MeasIter<'a>> where Self: 'a;
-    type MeasIter<'a>: Iterator<Item = &'a DVector<f64>> where Self: 'a;
-
-    fn num_sensors(&self) -> usize;
-    fn sensors(&self) -> Self::SensorIter<'_>;
-}
-
-// Concrete implementations for common cases
-impl<'a> MeasurementSource for &'a [DVector<f64>] { /* single sensor */ }
-impl<'a> MeasurementSource for &'a [Vec<DVector<f64>>] { /* multi-sensor */ }
-impl<'a> MeasurementSource for &'a [&'a [DVector<f64>]] { /* slice of slices */ }
-```
-
-**Rationale**: Avoids forcing `Vec<Vec<...>>` allocation on users with zero-copy data sources.
-
-### Files to Modify
-- `src/lmb/measurements.rs` - **NEW**
+### Files Modified
+- `src/lmb/measurements.rs` - **NEW** (~700 LOC)
 - `src/lmb/mod.rs` - Export new types
 
 ---
@@ -112,61 +121,19 @@ impl<'a> MeasurementSource for &'a [&'a [DVector<f64>]] { /* slice of slices */ 
 - [x] Create `CommonConfig` struct for shared settings
 - [x] Create `LmbFilterConfig` struct with `common: CommonConfig` + GM-specific fields
 - [x] Create `LmbmFilterConfig` struct with `common: CommonConfig` + hypothesis-specific fields
-- [x] Create builders for each config type (`CommonConfigBuilder`, `LmbFilterConfigBuilder`, `LmbmFilterConfigBuilder`)
-- [ ] Update filter constructors to use appropriate config type (deferred to Phase 8-9 unification)
+- [x] Create builders for each config type
 
 ### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
 - [x] Add 10 unit tests for new config types
 - [x] Verify all tests pass at 1e-10 tolerance with `cargo test --release`
 - [x] Confirm NO numeric outputs changed
 
-### 3. Update Plan & TODOs
-- [x] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [x] Document any deviations or learnings
-- [x] Verify phase is complete before proceeding
-
 ### Completion Notes
 - Created `CommonConfig`, `LmbFilterConfig`, `LmbmFilterConfig` with builder patterns
-- Existing `FilterThresholds` and `LmbmConfig` kept for backward compatibility
-- Filter constructor updates deferred to Phase 8-9 when filters are unified
-- Type safety demonstrated: LmbFilterConfig has GM fields, LmbmFilterConfig has hypothesis fields
-- Added `to_legacy_lmbm_config()` for backward compatibility conversion
+- **NOTE**: Filter constructor updates deferred to Phase 7A/7B cleanup
 
-### Implementation Design
-
-```rust
-/// Common configuration shared by all filters
-#[derive(Clone, Debug)]
-pub struct CommonConfig {
-    pub existence_threshold: f64,
-    pub min_trajectory_length: usize,
-    pub max_trajectory_length: usize,
-}
-
-/// LMB-specific configuration (Gaussian mixture)
-#[derive(Clone, Debug)]
-pub struct LmbConfig {
-    pub common: CommonConfig,
-    pub gm_weight_threshold: f64,
-    pub max_gm_components: usize,
-    pub gm_merge_threshold: f64,
-}
-
-/// LMBM-specific configuration (hypothesis mixture)
-#[derive(Clone, Debug)]
-pub struct LmbmConfig {
-    pub common: CommonConfig,
-    pub max_hypotheses: usize,
-    pub hypothesis_weight_threshold: f64,
-    pub use_eap: bool,
-}
-```
-
-**Rationale**: You physically cannot set `max_hypotheses` on an LMB filter - the field doesn't exist.
-
-### Files to Modify
-- `src/lmb/config.rs` - Split into `CommonConfig`, `LmbConfig`, `LmbmConfig`
-- `src/lmb/builder.rs` - Separate builders per config type
+### Files Modified
+- `src/lmb/config.rs` - Added new config types (~400 LOC)
 
 ---
 
@@ -178,59 +145,15 @@ pub struct LmbmConfig {
 - [x] Create `MotionModelBehavior` trait
 - [x] Create `SensorModelBehavior` trait
 - [x] Implement traits for existing `MotionModel` and `SensorModel` structs
-- [x] Keep existing struct constructors working (backward compat)
 - [x] Add `Box<dyn MotionModelBehavior>` support for custom models
 
-### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [x] Add 8 unit tests for trait behavior (predict_state, predict_covariance, accessors, etc.)
-- [x] Add 2 trait object tests verifying Box<dyn ...> support
-- [x] Verify all tests pass with `cargo test --release`
-- [x] Confirm NO numeric outputs changed
-
-### 3. Update Plan & TODOs
-- [x] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [x] Document any deviations or learnings
-- [x] Verify phase is complete before proceeding
-
 ### Completion Notes
-- Created `MotionModelBehavior` trait with methods: `predict_state`, `predict_covariance`, `survival_probability`, `x_dim`, `transition_matrix` (optional), `process_noise` (optional)
-- Created `SensorModelBehavior` trait with methods: `predict_measurement`, `measurement_jacobian`, `measurement_noise`, `detection_probability`, `clutter_rate`, `observation_volume`, `clutter_density` (default impl), `z_dim`, `x_dim`, `observation_matrix` (optional)
-- Implemented traits for existing `MotionModel` and `SensorModel` structs
-- Optional methods return `Some(&DMatrix)` for linear models, `None` for nonlinear (future extension)
-- Both traits require `Send + Sync` for thread safety with trait objects
-- Excluded `as_serializable()` method from plan - can be added later if needed
-- All 21 config tests pass (including 10 new Phase 3 tests)
+- Created both traits with full method signatures
+- Implemented for existing structs
+- **NOTE**: Filter integration deferred to Phase 7A/7B cleanup
 
-### Implementation Design
-
-```rust
-/// Trait for motion models - OPEN for downstream extension
-pub trait MotionModelBehavior: Send + Sync {
-    fn predict_state(&self, state: &DVector<f64>) -> DVector<f64>;
-    fn predict_covariance(&self, cov: &DMatrix<f64>) -> DMatrix<f64>;
-    fn survival_probability(&self) -> f64;
-    fn state_dim(&self) -> usize;
-
-    /// Optional: Enable serialization for concrete types
-    fn as_serializable(&self) -> Option<&dyn erased_serde::Serialize> { None }
-}
-
-/// Existing linear motion model implements the trait
-#[derive(Clone, Debug)]
-pub struct LinearMotionModel {
-    pub transition_matrix: DMatrix<f64>,
-    pub process_noise: DMatrix<f64>,
-    pub survival_probability: f64,
-}
-
-impl MotionModelBehavior for LinearMotionModel { /* ... */ }
-```
-
-**Rationale**: Trait objects allow downstream extension without modifying upstream crate. Serialization is opt-in via `as_serializable()` for types that support it.
-
-### Files to Modify
-- `src/lmb/config.rs` - Add traits, implement for existing structs
-- `src/lmb/mod.rs` - Export traits
+### Files Modified
+- `src/lmb/config.rs` - Added trait definitions
 
 ---
 
@@ -241,66 +164,16 @@ impl MotionModelBehavior for LinearMotionModel { /* ... */ }
 ### 1. Implementation Tasks
 - [x] Create `src/lmb/scheduler.rs` with `UpdateScheduler` trait
 - [x] Implement `ParallelScheduler<M: Merger>` for AA/GA/PU fusion
-- [x] Implement `SequentialScheduler` for IC fusion and single-sensor
+- [x] Implement `SequentialScheduler` for IC fusion
 - [x] Implement `SingleSensorScheduler` for single-sensor filters
 - [x] Implement `DynamicScheduler` enum for Python bindings
-- [x] Add `MultisensorCapable` and `FusionCapable` marker traits
-- [x] Export from `src/lmb/mod.rs`
-
-### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [x] Add 12 unit tests for scheduler implementations
-- [x] Add 5 doc tests for scheduler types
-- [x] Verify all tests pass with `cargo test --release`
-- [x] Confirm NO numeric outputs changed
-
-### 3. Update Plan & TODOs
-- [x] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [x] Document any deviations or learnings
-- [x] Verify phase is complete before proceeding
 
 ### Completion Notes
-- Created `UpdateScheduler` trait with `name()`, `is_sequential()`, and `expected_sensors()` methods
-- Implemented 4 scheduler types: `SequentialScheduler`, `SingleSensorScheduler`, `ParallelScheduler<M>`, `DynamicScheduler`
-- Added `MultisensorCapable` marker trait for schedulers supporting multi-sensor configs
-- Added `FusionCapable` marker trait for parallel schedulers with merger access
-- Type aliases: `LmbScheduler = SingleSensorScheduler`, `IcLmbScheduler = SequentialScheduler`
-- Simplified trait design: removed `execute_update()` method (deferred to Phase 8 filter unification)
-- Merger constructors use correct API: `uniform(num_sensors, max_components)` not `new()`
-- Integration with filters deferred to Phase 8-9 (standalone abstraction for now)
+- Created all scheduler types
+- **NOTE**: Integration into filter cores deferred to Phase 7A/7B cleanup
 
-### Implementation Design
-
-```rust
-/// Controls how sensors are processed during update - OPEN for extension
-pub trait UpdateScheduler<A: Associator>: Send + Sync {
-    fn execute_update<M: MeasurementSource, R: rand::Rng>(
-        &self,
-        tracks: &mut Vec<Track>,
-        measurements: &M,
-        sensors: &SensorSet,
-        associator: &A,
-        updater: &MarginalUpdater,
-        config: &LmbConfig,
-        rng: &mut R,
-        deadline: Option<Instant>,
-        reporter: Option<&mut dyn StepReporter>,
-    ) -> Result<(), FilterError>;
-}
-
-/// Parallel: Update all sensors independently, then fuse
-pub struct ParallelScheduler<M: Merger> {
-    merger: M,
-}
-
-/// Sequential: Output of sensor A is input to sensor B (Iterated Corrector)
-pub struct SequentialScheduler;
-```
-
-**Rationale**: No `is_sequential()` boolean flag. The scheduler owns the iteration logic.
-
-### Files to Modify
-- `src/lmb/scheduler.rs` - **NEW**
-- `src/lmb/fusion.rs` - Simplify to just `Merger` trait
+### Files Modified
+- `src/lmb/scheduler.rs` - **NEW** (~600 LOC)
 
 ---
 
@@ -314,51 +187,13 @@ pub struct SequentialScheduler;
 - [x] Implement `DebugReporter` (collects all events)
 - [x] Implement `LoggingReporter` (log crate integration)
 - [x] Implement `CompositeReporter<A, B>` (combine reporters)
-- [ ] Add reporter hooks to internal filter methods (deferred to Phase 8-9)
-- [x] Export from `src/lmb/mod.rs`
-
-### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [x] Add 8 unit tests for reporter implementations
-- [x] Add 5 doc tests for reporter types
-- [x] Verify all existing tests pass with `cargo test --release`
-- [x] Confirm NO numeric outputs changed
-
-### 3. Update Plan & TODOs
-- [x] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [x] Document any deviations or learnings
-- [x] Verify phase is complete before proceeding
 
 ### Completion Notes
-- Created `StepReporter` trait with 9 callback methods (all with default empty implementations)
-- `NoOpReporter`: Zero-cost reporter for production use
-- `DebugReporter`: Captures all events for post-hoc analysis
-- `LoggingReporter`: Emits log messages at configurable verbosity levels
-- `CompositeReporter<A, B>`: Forwards events to two child reporters
-- Reporter hook integration deferred to Phase 8-9 when filters are unified
-- All callbacks receive references to avoid cloning overhead
-- Reporters NOT required to be Send+Sync (use &mut self for callbacks)
+- Created all reporter types with 9 callback methods
+- **NOTE**: Hook integration into filters deferred to Phase 8
 
-### Implementation Design
-
-```rust
-/// Zero-cost observability for debugging and research - OPEN for extension
-pub trait StepReporter {
-    fn on_prediction(&mut self, tracks: &[Track]) {}
-    fn on_birth(&mut self, new_tracks: &[Track]) {}
-    fn on_association(&mut self, sensor_idx: usize, matrices: &AssociationMatrices) {}
-    fn on_sensor_update(&mut self, sensor_idx: usize, tracks: &[Track]) {}
-    fn on_fusion(&mut self, tracks: &[Track]) {}
-    fn on_pruning(&mut self, removed: &[Track], kept: &[Track]) {}
-}
-
-pub struct NoOpReporter;
-impl StepReporter for NoOpReporter {}
-```
-
-**Rationale**: Researchers need intermediate data without return type explosion.
-
-### Files to Modify
-- `src/lmb/reporter.rs` - **NEW**
+### Files Modified
+- `src/lmb/reporter.rs` - **NEW** (~600 LOC)
 
 ---
 
@@ -368,163 +203,43 @@ impl StepReporter for NoOpReporter {}
 
 ### 1. Implementation Tasks
 - [x] Add `robust_cholesky()` to `src/common/linalg.rs`
-- [x] Add `robust_inverse()` to `src/common/linalg.rs` (already existed with Cholesky→LU→SVD fallback)
 - [x] Create `LinalgWarning` enum for recoverable failures
 - [x] Create `CholeskyResult` enum distinguishing standard vs regularized decomposition
-- [x] Add `robust_cholesky_with_params()` for custom regularization settings
-- [N/A] Update `src/components/update.rs` - file is about existence updates, not Kalman updates
-- [x] Add comments about logging regularization events (users can enable via tracing)
-
-### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [x] Add 7 tests for robust Cholesky edge cases (near-singular matrices, regularization detection)
-- [x] Verify all 170 lib tests pass with `cargo test --release`
-- [x] Verify all 12 doc tests pass
-- [x] Confirm NO numeric outputs changed
-
-### 3. Update Plan & TODOs
-- [x] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [x] Document any deviations or learnings
-- [x] Verify phase is complete before proceeding
 
 ### Completion Notes
 - `robust_cholesky()` auto-regularizes with exponentially increasing epsilon on failure
-- `CholeskyResult` enum allows callers to detect when regularization was needed
-- `CholeskyResult::into_cholesky()` and `.cholesky()` provide ergonomic access
-- Constants: `CHOLESKY_REGULARIZATION_FACTOR=1e-6`, `MAX_ATTEMPTS=3`, `GROWTH=10.0`
-- `LinalgWarning` enum with variants: `Regularized`, `FellBackToLu`, `FellBackToSvd`, `Failed`
-- The existing `robust_inverse()` and `robust_solve()` already had good fallback chains
-- `src/components/update.rs` is focused on existence probability formulas, not matrix operations
+- **NOTE**: Integration into Kalman updates deferred to Phase 8
 
-### Implementation Design
-
-```rust
-/// Robust Cholesky that auto-regularizes on failure
-pub fn robust_cholesky(matrix: &DMatrix<f64>) -> Result<Cholesky<f64, Dyn>, LinalgWarning> {
-    // First attempt: standard Cholesky
-    if let Some(chol) = matrix.clone().cholesky() {
-        return Ok(chol);
-    }
-
-    // Second attempt: add small regularization to diagonal
-    let mut regularized = matrix.clone();
-    let eps = 1e-6 * matrix.diagonal().abs().max();
-    for i in 0..regularized.nrows() {
-        regularized[(i, i)] += eps;
-    }
-
-    if let Some(chol) = regularized.cholesky() {
-        return Err(LinalgWarning::Regularized { chol, epsilon: eps });
-    }
-
-    Err(LinalgWarning::Failed)
-}
-```
-
-**Rationale**: In production, covariance matrices become non-positive-definite. Filter must survive.
-
-### Files to Modify
-- `src/common/linalg.rs` - Add robust functions
-- `src/components/update.rs` - Use robust functions
+### Files Modified
+- `src/common/linalg.rs` - Added robust functions (~200 LOC)
 
 ---
 
-## Phase 7: Time-Budgeted Association
+## Phase 7A: LMB Integration (Delete Old, Use Core)
 
-**Goal**: Real-time safety for latency-sensitive applications.
+**Goal**: Make `LmbFilterCore` the ONLY LMB implementation. Delete all old code.
 
-### 1. Implementation Tasks
-- [ ] Add `deadline: Option<Instant>` parameter to `Associator::associate()`
-- [ ] Update `LbpAssociator` to respect deadline
-- [ ] Update `GibbsAssociator` to respect deadline (early exit)
-- [ ] Update `MurtyAssociator` to respect deadline (early exit)
-- [ ] Add `step_with_deadline()` method to filters
+### 1. Files to DELETE (MANDATORY)
+- [ ] `src/lmb/singlesensor/lmb.rs` (~549 LOC) - **DELETE ENTIRELY**
+- [ ] `src/lmb/multisensor/lmb.rs` (~736 LOC) - **DELETE ENTIRELY**
 
-### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [ ] Add test verifying early exit on deadline
-- [ ] Verify all existing tests pass with `cargo test --release` (None deadline = no change)
-- [ ] Confirm NO numeric outputs changed
+### 2. Files to MODIFY
+- [ ] `src/lmb/singlesensor/mod.rs` - Remove `pub mod lmb;` and `pub use lmb::LmbFilter;`
+- [ ] `src/lmb/multisensor/mod.rs` - Remove LMB exports, keep fusion/traits for now
+- [ ] `src/lmb/mod.rs` - Change exports to use core module:
+  ```rust
+  // REMOVE these lines:
+  pub use singlesensor::LmbFilter;
+  pub use multisensor::{AaLmbFilter, GaLmbFilter, IcLmbFilter, MultisensorLmbFilter, PuLmbFilter};
 
-### 3. Update Plan & TODOs
-- [ ] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [ ] Document any deviations or learnings
-- [ ] Verify phase is complete before proceeding
+  // ADD these lines (type aliases from core.rs):
+  pub use core::{LmbFilter, IcLmbFilter, AaLmbFilter, GaLmbFilter, PuLmbFilter};
+  ```
+- [ ] `src/python/filters.rs` - Update imports to use `LmbFilterCore` variants
 
-### Implementation Design
-
+### 3. Type Alias Strategy
+The following type aliases in `core.rs` maintain API compatibility:
 ```rust
-pub trait Associator: Send + Sync {
-    fn associate<R: rand::Rng>(
-        &self,
-        matrices: &AssociationMatrices,
-        config: &AssociationConfig,
-        rng: &mut R,
-        deadline: Option<Instant>,  // NEW: Optional time budget
-    ) -> Result<AssociationResult, AssociationError>;
-
-    fn name(&self) -> &'static str;
-}
-```
-
-**Rationale**: When complexity explodes, missing a deadline is worse than a degraded estimate.
-
-### Files to Modify
-- `src/lmb/traits.rs` - Add `deadline` parameter
-- All associator implementations
-
----
-
-## Phase 8: Core Filter Unification ✅
-
-**Goal**: Extract common algorithm into generic `LmbFilterCore`.
-
-### 1. Implementation Tasks
-- [x] Create `src/lmb/core.rs` with `LmbFilterCore<A, S>` struct
-- [x] Implement `step()` and `step_detailed()` methods for all scheduler types
-- [x] Create type aliases: `LmbFilter`, `IcLmbFilter`, `AaLmbFilter`, `GaLmbFilter`, `PuLmbFilter`
-- [x] Create `SensorSet` enum for unified single/multi-sensor configuration
-- [x] Keep existing `singlesensor/lmb.rs` and `multisensor/lmb.rs` for backward compatibility
-
-### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [x] Added 14 unit tests for core module
-- [x] Verify all LMB tests pass at 1e-10 tolerance with `cargo test --release` - ✅ 184 tests pass
-- [x] Confirm NO numeric outputs changed - ✅ Python tests: 86 passed, 1 skipped
-
-### 3. Update Plan & TODOs
-- [x] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [x] Document any deviations or learnings
-- [x] Verify phase is complete before proceeding
-
-### Completion Notes
-- Created `LmbFilterCore<A, S>` parameterized by associator and scheduler
-- Used standalone `update_single_sensor()` helper function to avoid borrow checker issues
-- Type aliases provide clean API for different filter variants
-- Existing filter implementations remain unchanged for backward compatibility
-- The core module demonstrates the unified architecture without breaking existing code
-
-### Implementation Design
-
-```rust
-/// Generic LMB filter core - parameterized by Associator and UpdateScheduler
-pub struct LmbFilterCore<A: Associator = LbpAssociator, S: UpdateScheduler = SingleSensorScheduler> {
-    motion: MotionModel,
-    sensors: SensorSet,
-    birth: BirthModel,
-    association_config: AssociationConfig,
-    tracks: Vec<Track>,
-    trajectories: Vec<Trajectory>,
-    // ... config fields ...
-    associator: A,
-    scheduler: S,
-    updater: MarginalUpdater,
-}
-
-/// Unified sensor configuration
-pub enum SensorSet {
-    Single(SensorModel),
-    Multi(MultisensorConfig),
-}
-
-// Type aliases for backward compatibility
 pub type LmbFilter<A = LbpAssociator> = LmbFilterCore<A, SingleSensorScheduler>;
 pub type IcLmbFilter<A = LbpAssociator> = LmbFilterCore<A, SequentialScheduler>;
 pub type AaLmbFilter<A = LbpAssociator> = LmbFilterCore<A, ParallelScheduler<ArithmeticAverageMerger>>;
@@ -532,134 +247,169 @@ pub type GaLmbFilter<A = LbpAssociator> = LmbFilterCore<A, ParallelScheduler<Geo
 pub type PuLmbFilter<A = LbpAssociator> = LmbFilterCore<A, ParallelScheduler<ParallelUpdateMerger>>;
 ```
 
-### Files Modified
-- `src/lmb/core.rs` - **NEW** (~1100 LOC)
-- `src/lmb/mod.rs` - Added exports for core module
+### 4. Breaking Changes (Accepted)
+- `MultisensorLmbFilter<A, M>` type is REMOVED - use specific type alias instead
+- Constructor signatures may differ - update call sites
+
+### 5. Verification
+```bash
+cargo test --release        # Must pass
+uv run pytest python/tests/ -v  # Must pass with same numeric results
+```
+
+### 6. Update Plan & TODOs
+- [ ] Mark completed tasks in `./REFACTOR_PLAN.md`
+- [ ] Verify phase is complete before proceeding
 
 ---
 
-## Phase 9: LMBM Filter Unification ✅
+## Phase 7B: LMBM Integration (Delete Old, Use Core)
 
-**Goal**: Same pattern for LMBM filters.
+**Goal**: Make `LmbmFilterCore` the ONLY LMBM implementation. Delete all old code.
 
-### 1. Implementation Tasks
-- [x] Create `src/lmb/core_lmbm.rs` with `LmbmFilterCore<S>` struct
-- [x] Create type aliases: `LmbmFilter`, `MultisensorLmbmFilter`
-- [x] Created `LmbmAssociator` trait to abstract over single/multi-sensor patterns
-- [x] Created `LmbmSensorSet` enum for unified sensor configuration
-- [x] Keep existing `singlesensor/lmbm.rs` and `multisensor/lmbm.rs` for backward compatibility
+### 1. Files to DELETE (MANDATORY)
+- [ ] `src/lmb/singlesensor/lmbm.rs` (~733 LOC) - **DELETE ENTIRELY**
+- [ ] `src/lmb/multisensor/lmbm.rs` (~901 LOC) - **DELETE ENTIRELY**
+- [ ] `src/lmb/singlesensor/` - **DELETE ENTIRE DIRECTORY** (should be empty after this)
 
-### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [x] Added 12 unit tests for core_lmbm module
-- [x] Verify all LMBM tests pass at 1e-10 tolerance with `cargo test --release` - ✅ 184+ tests pass
-- [x] Confirm NO numeric outputs changed - ✅ Python tests: 86 passed, 1 skipped
+### 2. Files to MODIFY
+- [ ] `src/lmb/mod.rs` - Remove singlesensor module, update LMBM exports:
+  ```rust
+  // REMOVE:
+  pub mod singlesensor;
+  pub use singlesensor::LmbmFilter;
+  pub use multisensor::MultisensorLmbmFilter;
 
-### 3. Update Plan & TODOs
-- [x] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [x] Document any deviations or learnings
-- [x] Verify phase is complete before proceeding
+  // ADD (type aliases from core_lmbm.rs):
+  pub use core_lmbm::{LmbmFilter, MultisensorLmbmFilter};
+  ```
+- [ ] `src/lmb/multisensor/mod.rs` - Remove `pub mod lmbm;` and LMBM exports
+- [ ] `src/python/filters.rs` - Update imports to use `LmbmFilterCore` variants
 
-### Completion Notes
-- Created `LmbmFilterCore<S>` parameterized by `LmbmAssociator` strategy
-- Unlike LMB (where both single/multi-sensor use same `Associator` trait), LMBM has fundamentally
-  different association patterns:
-  - Single-sensor: 2D cost matrix → sampled assignments
-  - Multi-sensor: N-dimensional Cartesian product tensor → joint samples
-- Created `LmbmAssociator` trait that abstracts at a higher level, combining association AND
-  posterior generation into one operation
-- Two strategy implementations:
-  - `SingleSensorLmbmStrategy<A: Associator>` - wraps single-sensor associators
-  - `MultisensorLmbmStrategy<A: MultisensorAssociator>` - wraps multi-sensor associators
-- `LmbmSensorSet` enum parallels `SensorSet` from LMB core
-- Existing filter implementations remain unchanged for backward compatibility
-
-### Implementation Design
-
+### 3. Type Alias Strategy
 ```rust
-/// Unified LMBM association trait - abstracts over different association patterns
-pub trait LmbmAssociator: Send + Sync {
-    type Measurements;
-
-    fn associate_and_update<R: rand::Rng>(
-        &self,
-        rng: &mut R,
-        hypotheses: &mut Vec<LmbmHypothesis>,
-        measurements: &Self::Measurements,
-        sensor_config: &LmbmSensorSet,
-        motion: &MotionModel,
-        association_config: &AssociationConfig,
-    ) -> Result<Option<LmbmAssociationIntermediate>, FilterError>;
-}
-
-/// Generic LMBM filter core - parameterized by association strategy
-pub struct LmbmFilterCore<S: LmbmAssociator> {
-    motion: MotionModel,
-    sensors: LmbmSensorSet,
-    birth: BirthModel,
-    strategy: S,
-    lmbm_config: LmbmConfig,
-    hypotheses: Vec<LmbmHypothesis>,
-    trajectories: Vec<Trajectory>,
-}
-
-// Type aliases
 pub type LmbmFilter<A = GibbsAssociator> = LmbmFilterCore<SingleSensorLmbmStrategy<A>>;
 pub type MultisensorLmbmFilter<A = MultisensorGibbsAssociator> = LmbmFilterCore<MultisensorLmbmStrategy<A>>;
 ```
 
-### Files Modified
-- `src/lmb/core_lmbm.rs` - **NEW** (~1200 LOC)
-- `src/lmb/mod.rs` - Added exports for core_lmbm module
+### 4. Verification
+```bash
+cargo test --release
+uv run pytest python/tests/ -v
+```
+
+### 5. Update Plan & TODOs
+- [ ] Mark completed tasks in `./REFACTOR_PLAN.md`
+- [ ] Verify phase is complete before proceeding
 
 ---
 
-## Phase 10: PyO3 Wrapper Macro
+## Phase 8: Infrastructure Integration
 
-**Goal**: Generate Python wrappers without manual boilerplate.
+**Goal**: Wire up orphaned infrastructure (MeasurementSource, StepReporter, etc.) into filter cores.
 
-### 1. Implementation Tasks
-- [ ] Create `src/python/macros.rs` with `py_filter_wrapper!` macro
-- [ ] Replace manual wrappers in `src/python/filters.rs` with macro invocations
-- [ ] Update Python config types for split `LmbConfig`/`LmbmConfig`
+### 1. MeasurementSource Integration
+- [ ] Update `LmbFilterCore::step()` to accept `impl MeasurementSource` instead of raw slices
+- [ ] Update `LmbmFilterCore::step()` similarly
+- [ ] Add conversion impls so existing call sites work
 
-### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [ ] Verify all Python tests pass with `uv run pytest tests/ -v`
-- [ ] Confirm NO numeric outputs changed
+### 2. StepReporter Integration
+- [ ] Add `reporter: Option<&mut dyn StepReporter>` to `step()` / `step_detailed()` methods
+- [ ] Call reporter hooks at appropriate points:
+  - `on_prediction()` after prediction step
+  - `on_birth()` after birth injection
+  - `on_association()` after data association
+  - `on_sensor_update()` after each sensor update
+  - `on_fusion()` after track fusion (multi-sensor)
+  - `on_pruning()` after track pruning
 
-### 3. Update Plan & TODOs
-- [ ] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [ ] Document any deviations or learnings
-- [ ] Verify phase is complete before proceeding
+### 3. Config Type Integration
+- [ ] Update filter constructors to accept `LmbFilterConfig` / `LmbmFilterConfig`
+- [ ] Remove or deprecate old `FilterParams` usage
 
-### Implementation Design
-
-```rust
-macro_rules! py_filter_wrapper {
-    ($py_name:ident, $rust_type:ty, $config_type:ty) => {
-        #[pyclass(name = stringify!($py_name))]
-        pub struct $py_name {
-            inner: $rust_type,
-        }
-
-        #[pymethods]
-        impl $py_name {
-            #[new]
-            fn new(...) -> PyResult<Self> { ... }
-            fn step(&mut self, ...) -> PyResult<PyStateEstimate> { ... }
-            fn step_detailed(&mut self, ...) -> PyResult<PyStepOutput> { ... }
-        }
-    };
-}
-
-// Generate all wrappers
-py_filter_wrapper!(FilterLmb, LmbFilter<DynamicAssociator>, PyLmbConfig);
-py_filter_wrapper!(FilterLmbm, LmbmFilter<DynamicAssociator>, PyLmbmConfig);
-// ... etc
+### 4. Verification
+```bash
+cargo test --release
+uv run pytest python/tests/ -v
 ```
 
-### Files to Modify
-- `src/python/macros.rs` - **NEW**
-- `src/python/filters.rs` - Replace with macro invocations
+---
+
+## Phase 9: Python Bindings Update
+
+**Goal**: Update Python bindings to use unified cores.
+
+### 1. Update Filter Imports
+- [ ] `src/python/filters.rs` - Change:
+  ```rust
+  // FROM (old):
+  use crate::lmb::singlesensor::lmb::LmbFilter;
+  use crate::lmb::multisensor::lmb::MultisensorLmbFilter;
+  use crate::lmb::singlesensor::lmbm::LmbmFilter;
+  use crate::lmb::multisensor::lmbm::MultisensorLmbmFilter;
+
+  // TO (new):
+  use crate::lmb::core::{LmbFilterCore, LmbFilter, IcLmbFilter, AaLmbFilter, GaLmbFilter, PuLmbFilter};
+  use crate::lmb::core_lmbm::{LmbmFilterCore, LmbmFilter, MultisensorLmbmFilter};
+  ```
+
+### 2. Update PyFilter Structs
+- [ ] `PyFilterLmb` wraps `LmbFilterCore<DynamicAssociator, SingleSensorScheduler>`
+- [ ] `PyFilterAaLmb` wraps `LmbFilterCore<DynamicAssociator, ParallelScheduler<ArithmeticAverageMerger>>`
+- [ ] Similar for GA, PU, IC variants
+- [ ] `PyFilterLmbm` wraps `LmbmFilterCore<SingleSensorLmbmStrategy<DynamicAssociator>>`
+- [ ] `PyFilterMultisensorLmbm` wraps `LmbmFilterCore<MultisensorLmbmStrategy<...>>`
+
+### 3. Verification
+```bash
+uv run pytest python/tests/ -v  # All 87 tests must pass
+```
+
+---
+
+## Phase 10: API Cleanup
+
+**Goal**: Remove deprecated types, consolidate exports, clean up public API.
+
+### 1. Remove Deprecated Types
+- [ ] Audit `FilterParams` usage - remove if unused externally
+- [ ] Remove old `SensorVariant` if replaced by `SensorSet`
+- [ ] Remove backward-compat shims added in earlier phases
+
+### 2. Consolidate Config Types
+- [ ] Decide: Keep both `FilterThresholds` and `LmbFilterConfig`, or merge?
+- [ ] Decide: Keep both `LmbmConfig` and `LmbmFilterConfig`, or merge?
+
+### 3. Clean Up mod.rs Exports
+Final `src/lmb/mod.rs` should export:
+```rust
+// Core filter implementations
+pub use core::{LmbFilterCore, LmbFilter, IcLmbFilter, AaLmbFilter, GaLmbFilter, PuLmbFilter, SensorSet};
+pub use core_lmbm::{LmbmFilterCore, LmbmFilter, MultisensorLmbmFilter, LmbmSensorSet};
+
+// Traits
+pub use traits::{Filter, Associator, Updater, Merger};
+pub use scheduler::UpdateScheduler;
+pub use reporter::StepReporter;
+
+// Configuration
+pub use config::{MotionModel, SensorModel, BirthModel, AssociationConfig, ...};
+
+// Infrastructure
+pub use measurements::MeasurementSource;
+pub use reporter::{NoOpReporter, DebugReporter, LoggingReporter, CompositeReporter};
+pub use scheduler::{SingleSensorScheduler, SequentialScheduler, ParallelScheduler, DynamicScheduler};
+
+// Fusion mergers
+pub use multisensor::fusion::{ArithmeticAverageMerger, GeometricAverageMerger, ParallelUpdateMerger, IteratedCorrectorMerger};
+
+// Errors
+pub use errors::{FilterError, AssociationError};
+```
+
+### 4. Update Documentation
+- [ ] Update module-level docs in `mod.rs`
+- [ ] Update `lib.rs` examples to use new API
 
 ---
 
@@ -673,30 +423,23 @@ py_filter_wrapper!(FilterLmbm, LmbmFilter<DynamicAssociator>, PyLmbmConfig);
 - [ ] Remove duplicated sensor 0/1 tests (use `@pytest.mark.parametrize`)
 - [ ] Consolidate fixture loading functions in `conftest.py`
 
-### 2. Update Tests (API ONLY - NO BEHAVIOR/NUMERIC CHANGES)
-- [ ] Verify all tests still cover same code paths
-- [ ] Verify 1e-10 tolerance unchanged with `uv run pytest tests/ -v`
-- [ ] Confirm NO numeric outputs changed
-
-### 3. Update Plan & TODOs
-- [ ] Mark completed tasks in `./REFACTOR_PLAN.md`
-- [ ] Mark entire refactor complete
-
-### Implementation Design
+### 2. Implementation Design
 
 ```python
 @dataclass
 class FilterTestCase:
     filter_class: type
-    config_class: type
     fixture_prefix: str
     is_multisensor: bool
-    sensors_to_test: List[int]
 
 FILTER_TEST_CASES = [
-    FilterTestCase(FilterLmb, LmbConfig, "lmb", False, [0]),
-    FilterTestCase(FilterIcLmb, LmbConfig, "ic_lmb", True, [0, 1]),
-    # ... all 7 filters
+    FilterTestCase(FilterLmb, "lmb", False),
+    FilterTestCase(FilterLmbm, "lmbm", False),
+    FilterTestCase(FilterIcLmb, "ic_lmb", True),
+    FilterTestCase(FilterAaLmb, "aa_lmb", True),
+    FilterTestCase(FilterGaLmb, "ga_lmb", True),
+    FilterTestCase(FilterPuLmb, "pu_lmb", True),
+    FilterTestCase(FilterMultisensorLmbm, "multisensor_lmbm", True),
 ]
 
 @pytest.fixture(params=FILTER_TEST_CASES, ids=lambda c: c.fixture_prefix)
@@ -704,9 +447,10 @@ def filter_case(request):
     return request.param
 ```
 
-### Files to Modify
-- `python/tests/test_equivalence.py` - Parameterize (1875 -> ~600 LOC)
-- `python/tests/conftest.py` - Add unified fixtures
+### 3. Verification
+- [ ] Verify all tests still cover same code paths
+- [ ] Verify 1e-10 tolerance unchanged
+- [ ] Confirm NO numeric outputs changed
 
 ---
 
@@ -725,7 +469,7 @@ cargo test --release
 
 # After each phase:
 cargo test --release
-cd python && uv run pytest tests/ -v
+uv run pytest python/tests/ -v
 ```
 
 ---
@@ -734,17 +478,54 @@ cd python && uv run pytest tests/ -v
 
 | File | Action | Impact |
 |------|--------|--------|
-| `src/lmb/core.rs` | **NEW** | Unified LMB filter (~400 LOC) |
-| `src/lmb/core_lmbm.rs` | **NEW** | Unified LMBM filter (~350 LOC) |
-| `src/lmb/measurements.rs` | **NEW** | Zero-copy measurement input (~80 LOC) |
-| `src/lmb/scheduler.rs` | **NEW** | Update scheduler trait (~200 LOC) |
-| `src/lmb/reporter.rs` | **NEW** | Observability hooks (~50 LOC) |
-| `src/lmb/config.rs` | Refactor | Split into `LmbConfig`, `LmbmConfig` |
-| `src/common/linalg.rs` | Extend | Add robust math functions |
-| `src/python/macros.rs` | **NEW** | PyO3 wrapper generation |
-| `src/lmb/singlesensor/lmb.rs` | Refactor | ~80% reduction (type alias) |
-| `src/lmb/multisensor/lmb.rs` | Refactor | ~80% reduction (type alias) |
-| `python/tests/test_equivalence.py` | Refactor | ~60% reduction |
+| `src/lmb/singlesensor/lmb.rs` | **DELETE** | -549 LOC |
+| `src/lmb/singlesensor/lmbm.rs` | **DELETE** | -733 LOC |
+| `src/lmb/singlesensor/mod.rs` | **DELETE** | Directory removed |
+| `src/lmb/multisensor/lmb.rs` | **DELETE** | -736 LOC |
+| `src/lmb/multisensor/lmbm.rs` | **DELETE** | -901 LOC |
+| `src/lmb/core.rs` | **KEEP** | Primary LMB impl (~1400 LOC) |
+| `src/lmb/core_lmbm.rs` | **KEEP** | Primary LMBM impl (~1600 LOC) |
+| `src/lmb/mod.rs` | **MODIFY** | Update exports |
+| `src/python/filters.rs` | **MODIFY** | Use new cores |
+| `python/tests/test_equivalence.py` | **REFACTOR** | -1200 LOC via parameterization |
+
+**Net LOC change**: Delete ~2919 LOC of old filters, keep ~3000 LOC unified cores = **~40% reduction** in filter code
+
+---
+
+## Implementation Order
+
+```
+Phase 0-6 (Foundation)      ─► ✅ COMPLETE (infrastructure created)
+         │
+         ▼
+Phase 7A (LMB Cleanup)      ─┐
+Phase 7B (LMBM Cleanup)     ─┼─► DELETE OLD CODE
+         │                  ─┘
+         ▼
+Phase 8 (Infrastructure)    ─► Wire up MeasurementSource, StepReporter
+         │
+         ▼
+Phase 9 (Python Bindings)   ─► Update to use unified cores
+         │
+         ▼
+Phase 10 (API Cleanup)      ─► Remove deprecated types
+         │
+         ▼
+Phase 11 (Python Tests)     ─► Parameterize tests
+```
+
+---
+
+## Success Metrics
+
+1. **Code Reduction**: ~40% reduction in `src/lmb/` filter code
+2. **No Tolerance Changes**: All tests at 1e-10
+3. **Single Implementation**: One `LmbFilterCore`, one `LmbmFilterCore`
+4. **No Old Code**: singlesensor/lmb.rs, multisensor/lmb.rs, etc. DELETED
+5. **Test Reduction**: `test_equivalence.py` < 800 LOC
+6. **Extensibility**: Downstream can add custom motion/sensor models
+7. **Infrastructure Integrated**: MeasurementSource, StepReporter actually used
 
 ---
 
@@ -756,73 +537,6 @@ cd python && uv run pytest tests/ -v
 | **JPDA Associator** | Easy | Easy | Just add new `Associator` impl |
 | **PMBM** | Medium | Easy | New hypothesis management |
 | **Full GLMB** | Medium | Easy | Extend hypothesis tracking |
-| **Appearance** | Hard | Medium | Track extension + distance metrics |
 | **IMM** | Blocked | Easy | Downstream implements `MotionModelBehavior` |
-| **Extended Target** | Hard | Medium | New association structure |
-| **TBD** | Very Hard | Hard | Different likelihood model |
 | **Custom Motion** | Blocked | Easy | Downstream implements `MotionModelBehavior` |
 | **Custom Sensor** | Blocked | Easy | Downstream implements `SensorModelBehavior` |
-
----
-
-## Success Metrics
-
-1. **Code Reduction**: ~40% reduction in `src/lmb/` LOC
-2. **No Tolerance Changes**: All tests at 1e-10
-3. **API Stability**: Python bindings unchanged (or only additive)
-4. **Performance**: No benchmark regression
-5. **Test Reduction**: `test_equivalence.py` < 800 LOC
-6. **Extensibility**: Downstream can add custom motion/sensor models
-7. **Real-time Ready**: Deadline-aware association
-
----
-
-## Implementation Order
-
-```
-Phase 0 (Plan Setup)        ─► Write ./REFACTOR_PLAN.md
-         │
-         ▼
-Phase 1 (Measurements)      ─┐
-Phase 2 (Config Split)      ─┼─► Foundation
-Phase 3 (Model Traits)      ─┘
-         │
-         ▼
-Phase 4 (UpdateScheduler)   ─┐
-Phase 5 (StepReporter)      ─┼─► Architecture
-Phase 6 (Robust Math)       ─┤
-Phase 7 (Time Budgets)      ─┘
-         │
-         ▼
-Phase 8 (LMB Core)          ─┐
-Phase 9 (LMBM Core)         ─┼─► Filter Unification
-         │                  ─┘
-         ▼
-Phase 10 (PyO3 Macros)      ─► Python Integration
-         │
-         ▼
-Phase 11 (Python Tests)     ─► Cleanup
-```
-
----
-
-## Critique Response Log
-
-### Addressed Critiques
-
-| Critique | Resolution | Phase |
-|----------|------------|-------|
-| **God Config** | Split into `LmbConfig`, `LmbmConfig` with composition | Phase 2 |
-| **`is_sequential()` leak** | Replaced with `UpdateScheduler` trait that owns the loop | Phase 4 |
-| **Observability** | Added `StepReporter` trait with zero-cost no-op default | Phase 5 |
-| **PyO3 boilerplate** | Macro-based wrapper generation | Phase 10 |
-| **Numerical fragility** | Robust self-healing math functions | Phase 6 |
-| **Vec<Vec> allocations** | Iterator-based zero-copy input | Phase 1 |
-| **Time budgets** | Deadline parameter on `Associator::associate` | Phase 7 |
-
-### Considered But Accepted Tradeoffs
-
-| Critique | Decision | Reasoning |
-|----------|----------|-----------|
-| **Identity runtime check** | Keep `assert_eq!(tracks.len(), 1)` | For single-sensor, this check runs once per step (~μs cost). Code clarity benefit outweighs negligible performance cost. |
-| **Serialization** | Use trait objects, NOT enum dispatch | **Extensibility trumps serializability.** Downstream users MUST be able to add custom motion/sensor models without modifying upstream. Serialization can be opt-in via `as_serializable()` method for types that support it. |
