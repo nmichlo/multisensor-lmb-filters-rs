@@ -30,7 +30,7 @@ use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
 use super::builder::FilterBuilder;
 use super::config::{
     AssociationConfig, BirthModel, FilterConfigSnapshot, LmbmConfig, MotionModel,
-    MultisensorConfig, SensorModel,
+    MultisensorConfig, SensorModel, SensorSet,
 };
 use super::errors::FilterError;
 use super::multisensor::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
@@ -43,81 +43,6 @@ use super::types::{GaussianComponent, LmbmHypothesis, StepDetailedOutput, Track}
 
 /// Log-likelihood floor to prevent underflow when computing ln(x) for very small x.
 const LOG_UNDERFLOW: f64 = -700.0;
-
-// ============================================================================
-// LmbmSensorSet - Unified sensor configuration for LMBM
-// ============================================================================
-
-/// Unified sensor configuration for LMBM filters.
-///
-/// Similar to [`SensorSet`] for LMB, but specifically for LMBM filters.
-///
-/// [`SensorSet`]: super::core::SensorSet
-#[derive(Debug, Clone)]
-pub enum LmbmSensorSet {
-    /// Single sensor configuration.
-    Single(SensorModel),
-    /// Multi-sensor configuration.
-    Multi(MultisensorConfig),
-}
-
-impl LmbmSensorSet {
-    /// Returns the number of sensors.
-    pub fn num_sensors(&self) -> usize {
-        match self {
-            LmbmSensorSet::Single(_) => 1,
-            LmbmSensorSet::Multi(config) => config.num_sensors(),
-        }
-    }
-
-    /// Returns the measurement dimension (assumes same for all sensors).
-    pub fn z_dim(&self) -> usize {
-        match self {
-            LmbmSensorSet::Single(sensor) => sensor.z_dim(),
-            LmbmSensorSet::Multi(config) => config.z_dim(),
-        }
-    }
-
-    /// Returns the single sensor model (panics if multi-sensor).
-    pub fn single(&self) -> &SensorModel {
-        match self {
-            LmbmSensorSet::Single(sensor) => sensor,
-            LmbmSensorSet::Multi(_) => panic!("Expected single sensor, got multi-sensor config"),
-        }
-    }
-
-    /// Returns the multi-sensor config (panics if single-sensor).
-    pub fn multi(&self) -> &MultisensorConfig {
-        match self {
-            LmbmSensorSet::Single(_) => panic!("Expected multi-sensor config, got single sensor"),
-            LmbmSensorSet::Multi(config) => config,
-        }
-    }
-
-    /// Returns detection probabilities for all sensors.
-    pub fn detection_probabilities(&self) -> Vec<f64> {
-        match self {
-            LmbmSensorSet::Single(sensor) => vec![sensor.detection_probability],
-            LmbmSensorSet::Multi(config) => config
-                .sensors
-                .iter()
-                .map(|s| s.detection_probability)
-                .collect(),
-        }
-    }
-}
-
-impl From<SensorModel> for LmbmSensorSet {
-    fn from(sensor: SensorModel) -> Self {
-        LmbmSensorSet::Single(sensor)
-    }
-}
-
-impl From<MultisensorConfig> for LmbmSensorSet {
-    fn from(config: MultisensorConfig) -> Self {
-        LmbmSensorSet::Multi(config)
-    }
-}
 
 // ============================================================================
 // LmbmAssociator trait - Unified association for LMBM filters
@@ -168,7 +93,7 @@ pub trait LmbmAssociator: Send + Sync {
         rng: &mut R,
         hypotheses: &mut Vec<LmbmHypothesis>,
         measurements: &Self::Measurements,
-        sensor_config: &LmbmSensorSet,
+        sensor_config: &SensorSet,
         motion: &MotionModel,
         association_config: &AssociationConfig,
     ) -> Result<Option<LmbmAssociationIntermediate>, FilterError>;
@@ -177,7 +102,7 @@ pub trait LmbmAssociator: Send + Sync {
     fn update_existence_no_measurements(
         &self,
         hypotheses: &mut Vec<LmbmHypothesis>,
-        sensor_config: &LmbmSensorSet,
+        sensor_config: &SensorSet,
     );
 
     /// Check if measurements are empty.
@@ -187,7 +112,7 @@ pub trait LmbmAssociator: Send + Sync {
     fn validate_measurements(
         &self,
         measurements: &Self::Measurements,
-        sensor_config: &LmbmSensorSet,
+        sensor_config: &SensorSet,
     ) -> Result<(), FilterError>;
 
     /// Algorithm name for logging and debugging.
@@ -327,7 +252,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
         rng: &mut R,
         hypotheses: &mut Vec<LmbmHypothesis>,
         measurements: &Self::Measurements,
-        sensor_config: &LmbmSensorSet,
+        sensor_config: &SensorSet,
         _motion: &MotionModel,
         association_config: &AssociationConfig,
     ) -> Result<Option<LmbmAssociationIntermediate>, FilterError> {
@@ -358,7 +283,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
     fn update_existence_no_measurements(
         &self,
         hypotheses: &mut Vec<LmbmHypothesis>,
-        sensor_config: &LmbmSensorSet,
+        sensor_config: &SensorSet,
     ) {
         let p_d = sensor_config.single().detection_probability;
         for hyp in hypotheses.iter_mut() {
@@ -376,7 +301,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
     fn validate_measurements(
         &self,
         _measurements: &Self::Measurements,
-        sensor_config: &LmbmSensorSet,
+        sensor_config: &SensorSet,
     ) -> Result<(), FilterError> {
         if sensor_config.num_sensors() != 1 {
             return Err(FilterError::InvalidInput(format!(
@@ -700,7 +625,7 @@ impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
         rng: &mut R,
         hypotheses: &mut Vec<LmbmHypothesis>,
         measurements: &Self::Measurements,
-        sensor_config: &LmbmSensorSet,
+        sensor_config: &SensorSet,
         motion: &MotionModel,
         association_config: &AssociationConfig,
     ) -> Result<Option<LmbmAssociationIntermediate>, FilterError> {
@@ -733,7 +658,7 @@ impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
     fn update_existence_no_measurements(
         &self,
         hypotheses: &mut Vec<LmbmHypothesis>,
-        sensor_config: &LmbmSensorSet,
+        sensor_config: &SensorSet,
     ) {
         let detection_probs = sensor_config.detection_probabilities();
         for hyp in hypotheses.iter_mut() {
@@ -754,7 +679,7 @@ impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
     fn validate_measurements(
         &self,
         measurements: &Self::Measurements,
-        sensor_config: &LmbmSensorSet,
+        sensor_config: &SensorSet,
     ) -> Result<(), FilterError> {
         let expected = sensor_config.num_sensors();
         if measurements.len() != expected {
@@ -800,7 +725,7 @@ pub struct LmbmFilterCore<S: LmbmAssociator> {
     /// Motion model (dynamics, survival probability)
     motion: MotionModel,
     /// Sensor configuration
-    sensors: LmbmSensorSet,
+    sensors: SensorSet,
     /// Birth model (where new objects can appear)
     birth: BirthModel,
     /// Association algorithm configuration
@@ -920,7 +845,7 @@ impl<S: LmbmAssociator> LmbmFilterCore<S> {
     /// Create a filter with explicit strategy.
     pub fn with_strategy(
         motion: MotionModel,
-        sensors: LmbmSensorSet,
+        sensors: SensorSet,
         birth: BirthModel,
         association_config: AssociationConfig,
         lmbm_config: LmbmConfig,
@@ -1342,31 +1267,38 @@ impl<S: LmbmAssociator> FilterBuilder for LmbmFilterCore<S> {
 // Type Aliases
 // ============================================================================
 
-/// Single-sensor LMBM filter with default Gibbs associator.
+/// Single-sensor LMBM filter with Gibbs associator.
 ///
 /// This is the standard LMBM filter for tracking with a single sensor.
 /// For multi-sensor tracking, use [`MultisensorLmbmFilter`].
 ///
+/// For custom associators, use [`LmbmFilterCore`] directly.
+///
 /// # Example
 ///
 /// ```ignore
-/// use multisensor_lmb_filters_rs::lmb::LmbmFilter;
+/// use multisensor_lmb_filters_rs::lmb::{lmbm_filter, LmbmFilter};
 ///
-/// let filter = LmbmFilter::new(motion, sensor, birth, assoc_config, lmbm_config);
-/// let estimate = filter.step(&mut rng, &measurements, timestep)?;
+/// // Using factory function (recommended)
+/// let filter = lmbm_filter(motion, sensor, birth, assoc_config, lmbm_config);
+///
+/// // Or using type directly
+/// let filter: LmbmFilter = LmbmFilterCore::with_strategy(...);
 /// ```
-pub type LmbmFilter<A = GibbsAssociator> = LmbmFilterCore<SingleSensorLmbmStrategy<A>>;
+pub type LmbmFilter = LmbmFilterCore<SingleSensorLmbmStrategy<GibbsAssociator>>;
 
-/// Multi-sensor LMBM filter with default Gibbs associator.
+/// Multi-sensor LMBM filter with Gibbs associator.
 ///
 /// Performs joint data association across all sensors using a Cartesian
 /// product likelihood tensor.
 ///
+/// For custom associators, use [`LmbmFilterCore`] directly.
+///
 /// # Warning
 ///
 /// Memory usage is O(∏(m_s + 1) × n) where m_s is measurements from sensor s.
-pub type MultisensorLmbmFilter<A = MultisensorGibbsAssociator> =
-    LmbmFilterCore<MultisensorLmbmStrategy<A>>;
+pub type MultisensorLmbmFilter =
+    LmbmFilterCore<MultisensorLmbmStrategy<MultisensorGibbsAssociator>>;
 
 // ============================================================================
 // Tests
@@ -1601,7 +1533,7 @@ mod tests {
     #[test]
     fn test_lmbm_sensor_set_single() {
         let sensor = create_sensor();
-        let set: LmbmSensorSet = sensor.into();
+        let set: SensorSet = sensor.into();
         assert_eq!(set.num_sensors(), 1);
         assert_eq!(set.z_dim(), 2);
     }
@@ -1609,7 +1541,7 @@ mod tests {
     #[test]
     fn test_lmbm_sensor_set_multi() {
         let sensors = create_multi_sensor();
-        let set: LmbmSensorSet = sensors.into();
+        let set: SensorSet = sensors.into();
         assert_eq!(set.num_sensors(), 2);
         assert_eq!(set.z_dim(), 2);
     }

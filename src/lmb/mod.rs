@@ -47,6 +47,7 @@ pub mod common_ops;
 pub mod core;
 pub mod core_lmbm;
 pub mod errors;
+pub mod factory;
 pub mod reporter;
 pub mod scheduler;
 pub mod traits;
@@ -134,13 +135,19 @@ pub use measurements::{
     MeasurementSource, SingleSensorMeasurements, SliceOfSlicesMeasurements, VecOfVecsMeasurements,
 };
 
-// Unified filter core (Phase 8)
-pub use core::{SensorSet, SensorSetIter};
+// Unified sensor configuration (Phase 7C - moved to config.rs)
+pub use config::{SensorSet, SensorSetIter};
 
 // Unified LMBM filter core (Phase 9)
 pub use core_lmbm::{
-    LmbmAssociationIntermediate, LmbmAssociator, LmbmFilterCore, LmbmSensorSet,
-    MultisensorLmbmStrategy, SingleSensorLmbmStrategy,
+    LmbmAssociationIntermediate, LmbmAssociator, LmbmFilterCore, MultisensorLmbmStrategy,
+    SingleSensorLmbmStrategy,
+};
+
+// Factory functions for common filter configurations (Phase 7C)
+pub use factory::{
+    aa_lmb_filter, ga_lmb_filter, ic_lmb_filter, lmb_filter, lmbm_filter, multisensor_lmbm_filter,
+    pu_lmb_filter,
 };
 
 // ============================================================================

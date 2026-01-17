@@ -133,10 +133,10 @@ struct ScenarioStep {
 enum AnyFilter {
     Lmb(LmbFilter),
     Lmbm(LmbmFilter),
-    AaLmb(AaLmbFilter<LbpAssociator>),
-    GaLmb(GaLmbFilter<LbpAssociator>),
-    PuLmb(PuLmbFilter<LbpAssociator>),
-    IcLmb(IcLmbFilter<LbpAssociator>),
+    AaLmb(AaLmbFilter),
+    GaLmb(GaLmbFilter),
+    PuLmb(PuLmbFilter),
+    IcLmb(IcLmbFilter),
     MsLmbm(MultisensorLmbmFilter),
 }
 

@@ -455,6 +455,130 @@ impl MultisensorConfig {
     }
 }
 
+// ============================================================================
+// SensorSet - Unified sensor configuration
+// ============================================================================
+
+/// Unified sensor configuration for LMB and LMBM filters.
+///
+/// Abstracts over single-sensor and multi-sensor configurations, allowing
+/// the filter core to handle both cases uniformly.
+#[derive(Debug, Clone)]
+pub enum SensorSet {
+    /// Single sensor configuration.
+    Single(SensorModel),
+    /// Multi-sensor configuration.
+    Multi(MultisensorConfig),
+}
+
+impl SensorSet {
+    /// Returns the number of sensors.
+    #[inline]
+    pub fn num_sensors(&self) -> usize {
+        match self {
+            SensorSet::Single(_) => 1,
+            SensorSet::Multi(config) => config.num_sensors(),
+        }
+    }
+
+    /// Returns the measurement dimension (assumes same for all sensors).
+    #[inline]
+    pub fn z_dim(&self) -> usize {
+        match self {
+            SensorSet::Single(sensor) => sensor.z_dim(),
+            SensorSet::Multi(config) => config.z_dim(),
+        }
+    }
+
+    /// Returns the sensor at the given index.
+    pub fn get(&self, index: usize) -> Option<&SensorModel> {
+        match self {
+            SensorSet::Single(sensor) if index == 0 => Some(sensor),
+            SensorSet::Single(_) => None,
+            SensorSet::Multi(config) => config.sensors.get(index),
+        }
+    }
+
+    /// Returns an iterator over all sensors.
+    pub fn iter(&self) -> SensorSetIter<'_> {
+        SensorSetIter {
+            sensors: self,
+            index: 0,
+        }
+    }
+
+    /// Returns the single sensor model.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is a multi-sensor configuration.
+    pub fn single(&self) -> &SensorModel {
+        match self {
+            SensorSet::Single(sensor) => sensor,
+            SensorSet::Multi(_) => panic!("Expected single sensor, got multi-sensor config"),
+        }
+    }
+
+    /// Returns the multi-sensor config.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is a single-sensor configuration.
+    pub fn multi(&self) -> &MultisensorConfig {
+        match self {
+            SensorSet::Single(_) => panic!("Expected multi-sensor config, got single sensor"),
+            SensorSet::Multi(config) => config,
+        }
+    }
+
+    /// Returns detection probabilities for all sensors.
+    pub fn detection_probabilities(&self) -> Vec<f64> {
+        match self {
+            SensorSet::Single(sensor) => vec![sensor.detection_probability],
+            SensorSet::Multi(config) => config
+                .sensors
+                .iter()
+                .map(|s| s.detection_probability)
+                .collect(),
+        }
+    }
+}
+
+impl From<SensorModel> for SensorSet {
+    fn from(sensor: SensorModel) -> Self {
+        SensorSet::Single(sensor)
+    }
+}
+
+impl From<MultisensorConfig> for SensorSet {
+    fn from(config: MultisensorConfig) -> Self {
+        SensorSet::Multi(config)
+    }
+}
+
+/// Iterator over sensors in a [`SensorSet`].
+pub struct SensorSetIter<'a> {
+    sensors: &'a SensorSet,
+    index: usize,
+}
+
+impl<'a> Iterator for SensorSetIter<'a> {
+    type Item = &'a SensorModel;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let result = self.sensors.get(self.index);
+        self.index += 1;
+        result
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.sensors.num_sensors().saturating_sub(self.index);
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for SensorSetIter<'_> {}
+
 /// Birth location parameters
 #[derive(Debug, Clone)]
 pub struct BirthLocation {

@@ -180,14 +180,16 @@ pub fn preprocess(scenario: &ScenarioJson) -> PreprocessedScenario {
 // Filter Factory
 // =============================================================================
 
-/// Enum to hold any filter type for unified handling
+/// Enum to hold any filter type for unified handling.
+///
+/// Uses concrete `LmbFilterCore`/`LmbmFilterCore` types for dynamic dispatch at runtime.
 pub enum AnyFilter {
-    Lmb(LmbFilter<DynamicAssociator>),
-    Lmbm(LmbmFilter<DynamicAssociator>),
-    AaLmb(AaLmbFilter<LbpAssociator>),
-    IcLmb(IcLmbFilter<LbpAssociator>),
-    PuLmb(PuLmbFilter<LbpAssociator>),
-    GaLmb(GaLmbFilter<LbpAssociator>),
+    Lmb(LmbFilterCore<DynamicAssociator, SingleSensorScheduler>),
+    Lmbm(LmbmFilterCore<SingleSensorLmbmStrategy<DynamicAssociator>>),
+    AaLmb(AaLmbFilter),
+    IcLmb(IcLmbFilter),
+    PuLmb(PuLmbFilter),
+    GaLmb(GaLmbFilter),
     MsLmbm(MultisensorLmbmFilter),
 }
 
@@ -300,16 +302,17 @@ fn compute_stats(step_times: &[f64]) -> (f64, f64) {
 /// Create a filter by name
 pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<AnyFilter, String> {
     match filter_name {
-        // Single-sensor LMB
+        // Single-sensor LMB (using LmbFilterCore for dynamic associator)
         "LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
             Ok(AnyFilter::Lmb(
-                LmbFilter::with_associator(
+                LmbFilterCore::with_scheduler(
                     prep.motion.clone(),
-                    prep.sensor.clone(),
+                    prep.sensor.clone().into(),
                     prep.birth.clone(),
                     assoc.clone(),
                     DynamicAssociator::from_config(&assoc),
+                    SingleSensorScheduler::new(),
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
@@ -318,12 +321,13 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         "LMB-Gibbs" => {
             let assoc = AssociationConfig::gibbs(1000);
             Ok(AnyFilter::Lmb(
-                LmbFilter::with_associator(
+                LmbFilterCore::with_scheduler(
                     prep.motion.clone(),
-                    prep.sensor.clone(),
+                    prep.sensor.clone().into(),
                     prep.birth.clone(),
                     assoc.clone(),
                     DynamicAssociator::from_config(&assoc),
+                    SingleSensorScheduler::new(),
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
@@ -332,39 +336,42 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         "LMB-Murty" => {
             let assoc = AssociationConfig::murty(25);
             Ok(AnyFilter::Lmb(
-                LmbFilter::with_associator(
+                LmbFilterCore::with_scheduler(
                     prep.motion.clone(),
-                    prep.sensor.clone(),
+                    prep.sensor.clone().into(),
                     prep.birth.clone(),
                     assoc.clone(),
                     DynamicAssociator::from_config(&assoc),
+                    SingleSensorScheduler::new(),
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
             ))
         }
 
-        // Single-sensor LMBM
+        // Single-sensor LMBM (using LmbmFilterCore for dynamic associator)
         "LMBM-Gibbs" => {
             let assoc = AssociationConfig::gibbs(1000);
-            Ok(AnyFilter::Lmbm(LmbmFilter::with_associator(
+            let strategy = SingleSensorLmbmStrategy::new(DynamicAssociator::from_config(&assoc));
+            Ok(AnyFilter::Lmbm(LmbmFilterCore::with_strategy(
                 prep.motion.clone(),
-                prep.sensor.clone(),
+                prep.sensor.clone().into(),
                 prep.birth.clone(),
                 assoc.clone(),
                 LMBM_CONFIG,
-                DynamicAssociator::from_config(&assoc),
+                strategy,
             )))
         }
         "LMBM-Murty" => {
             let assoc = AssociationConfig::murty(25);
-            Ok(AnyFilter::Lmbm(LmbmFilter::with_associator(
+            let strategy = SingleSensorLmbmStrategy::new(DynamicAssociator::from_config(&assoc));
+            Ok(AnyFilter::Lmbm(LmbmFilterCore::with_strategy(
                 prep.motion.clone(),
-                prep.sensor.clone(),
+                prep.sensor.clone().into(),
                 prep.birth.clone(),
                 assoc.clone(),
                 LMBM_CONFIG,
-                DynamicAssociator::from_config(&assoc),
+                strategy,
             )))
         }
 

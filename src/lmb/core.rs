@@ -32,7 +32,7 @@ use crate::components::prediction::predict_tracks;
 use super::builder::{FilterBuilder, LmbFilterBuilder};
 use super::config::{
     AssociationConfig, BirthModel, FilterConfigSnapshot, MotionModel, MultisensorConfig,
-    SensorModel,
+    SensorModel, SensorSet,
 };
 use super::errors::FilterError;
 use super::multisensor::fusion::{
@@ -46,104 +46,6 @@ use super::traits::{
     AssociationResult, Associator, Filter, LbpAssociator, MarginalUpdater, Merger, Updater,
 };
 use super::types::{SensorUpdateOutput, StepDetailedOutput, Track};
-
-// ============================================================================
-// SensorSet - Unified sensor configuration
-// ============================================================================
-
-/// Unified sensor configuration for LMB filters.
-///
-/// Abstracts over single-sensor and multi-sensor configurations, allowing
-/// the filter core to handle both cases uniformly.
-#[derive(Debug, Clone)]
-pub enum SensorSet {
-    /// Single sensor configuration.
-    Single(SensorModel),
-    /// Multi-sensor configuration.
-    Multi(MultisensorConfig),
-}
-
-impl SensorSet {
-    /// Returns the number of sensors.
-    pub fn num_sensors(&self) -> usize {
-        match self {
-            SensorSet::Single(_) => 1,
-            SensorSet::Multi(config) => config.num_sensors(),
-        }
-    }
-
-    /// Returns the measurement dimension (assumes same for all sensors).
-    pub fn z_dim(&self) -> usize {
-        match self {
-            SensorSet::Single(sensor) => sensor.z_dim(),
-            SensorSet::Multi(config) => config.z_dim(),
-        }
-    }
-
-    /// Returns the sensor at the given index.
-    pub fn get(&self, index: usize) -> Option<&SensorModel> {
-        match self {
-            SensorSet::Single(sensor) if index == 0 => Some(sensor),
-            SensorSet::Single(_) => None,
-            SensorSet::Multi(config) => config.sensors.get(index),
-        }
-    }
-
-    /// Returns an iterator over all sensors.
-    pub fn iter(&self) -> SensorSetIter<'_> {
-        SensorSetIter {
-            sensors: self,
-            index: 0,
-        }
-    }
-
-    /// Returns detection probabilities for all sensors.
-    pub fn detection_probabilities(&self) -> Vec<f64> {
-        match self {
-            SensorSet::Single(sensor) => vec![sensor.detection_probability],
-            SensorSet::Multi(config) => config
-                .sensors
-                .iter()
-                .map(|s| s.detection_probability)
-                .collect(),
-        }
-    }
-}
-
-impl From<SensorModel> for SensorSet {
-    fn from(sensor: SensorModel) -> Self {
-        SensorSet::Single(sensor)
-    }
-}
-
-impl From<MultisensorConfig> for SensorSet {
-    fn from(config: MultisensorConfig) -> Self {
-        SensorSet::Multi(config)
-    }
-}
-
-/// Iterator over sensors in a [`SensorSet`].
-pub struct SensorSetIter<'a> {
-    sensors: &'a SensorSet,
-    index: usize,
-}
-
-impl<'a> Iterator for SensorSetIter<'a> {
-    type Item = &'a SensorModel;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let result = self.sensors.get(self.index);
-        self.index += 1;
-        result
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.sensors.num_sensors().saturating_sub(self.index);
-        (remaining, Some(remaining))
-    }
-}
-
-impl<'a> ExactSizeIterator for SensorSetIter<'a> {}
 
 // ============================================================================
 // Helper Functions
@@ -1100,47 +1002,58 @@ impl<A: Associator, S: UpdateScheduler> LmbFilterBuilder for LmbFilterCore<A, S>
 // Type Aliases
 // ============================================================================
 
-/// Single-sensor LMB filter with default LBP associator.
+/// Single-sensor LMB filter with LBP associator.
 ///
 /// This is the standard LMB filter for tracking with a single sensor.
 /// For multi-sensor tracking, use [`IcLmbFilter`], [`AaLmbFilter`],
 /// [`GaLmbFilter`], or [`PuLmbFilter`].
 ///
+/// For custom associators, use [`LmbFilterCore`] directly.
+///
 /// # Example
 ///
 /// ```ignore
-/// use multisensor_lmb_filters_rs::lmb::LmbFilter;
+/// use multisensor_lmb_filters_rs::lmb::{lmb_filter, LmbFilter};
 ///
-/// let filter = LmbFilter::new(motion, sensor, birth, config);
-/// let estimate = filter.step(&mut rng, &measurements, timestep)?;
+/// // Using factory function (recommended)
+/// let filter = lmb_filter(motion, sensor, birth, config);
+///
+/// // Or using type directly
+/// let filter: LmbFilter = LmbFilterCore::with_scheduler(...);
 /// ```
-pub type LmbFilter<A = LbpAssociator> = LmbFilterCore<A, SingleSensorScheduler>;
+pub type LmbFilter = LmbFilterCore<LbpAssociator, SingleSensorScheduler>;
 
 /// Iterated Corrector LMB filter (IC-LMB).
 ///
 /// Processes sensors sequentially, where the output of sensor N becomes
 /// the input to sensor N+1. Simple but order-dependent.
-pub type IcLmbFilter<A = LbpAssociator> = LmbFilterCore<A, SequentialScheduler>;
+///
+/// For custom associators, use [`LmbFilterCore`] directly.
+pub type IcLmbFilter = LmbFilterCore<LbpAssociator, SequentialScheduler>;
 
 /// Arithmetic Average LMB filter (AA-LMB).
 ///
 /// Processes sensors in parallel, then fuses using weighted arithmetic average.
 /// Fast and robust, but doesn't account for sensor correlation.
-pub type AaLmbFilter<A = LbpAssociator> =
-    LmbFilterCore<A, ParallelScheduler<ArithmeticAverageMerger>>;
+///
+/// For custom associators, use [`LmbFilterCore`] directly.
+pub type AaLmbFilter = LmbFilterCore<LbpAssociator, ParallelScheduler<ArithmeticAverageMerger>>;
 
 /// Geometric Average LMB filter (GA-LMB).
 ///
 /// Processes sensors in parallel, then fuses using covariance intersection.
 /// Produces conservative estimates, robust to unknown correlations.
-pub type GaLmbFilter<A = LbpAssociator> =
-    LmbFilterCore<A, ParallelScheduler<GeometricAverageMerger>>;
+///
+/// For custom associators, use [`LmbFilterCore`] directly.
+pub type GaLmbFilter = LmbFilterCore<LbpAssociator, ParallelScheduler<GeometricAverageMerger>>;
 
 /// Parallel Update LMB filter (PU-LMB).
 ///
 /// Processes sensors in parallel, then fuses using information-form fusion
 /// with decorrelation. Theoretically optimal for independent sensors.
-pub type PuLmbFilter<A = LbpAssociator> = LmbFilterCore<A, ParallelScheduler<ParallelUpdateMerger>>;
+///
+/// For custom associators, use [`LmbFilterCore`] directly.
+pub type PuLmbFilter = LmbFilterCore<LbpAssociator, ParallelScheduler<ParallelUpdateMerger>>;
 
 // ============================================================================
 // Tests
