@@ -677,7 +677,7 @@ uv run pytest python/tests/ -v
 
 ---
 
-## Phase 7D: Dead Code Cleanup
+## Phase 7D: Dead Code Cleanup ✅
 
 **Goal**: Remove ALL redundant code paths. ONE way to do each thing.
 
@@ -686,93 +686,22 @@ uv run pytest python/tests/ -v
 - `with_scheduler()` / `with_strategy()` = escape hatch for custom configs
 - DELETE everything else
 
-### 1. Delete Redundant Constructors from core.rs
+### 1. Deleted Redundant Constructors ✅
 
-Delete these impl blocks (~150 LOC):
+The following redundant constructors were deleted:
 
-| Impl Block | Method | Replaced By |
-|------------|--------|-------------|
-| `impl LmbFilterCore<LbpAssociator, SingleSensorScheduler>` | `new()` | `lmb_filter()` |
-| `impl<A: Associator> LmbFilterCore<A, SingleSensorScheduler>` | `with_associator()` | `with_scheduler()` directly |
-| `impl LmbFilterCore<LbpAssociator, SequentialScheduler>` | `new_ic()` | `ic_lmb_filter()` |
-| `impl<A: Associator> LmbFilterCore<A, SequentialScheduler>` | `with_associator_ic()` | `with_scheduler()` directly |
-| `impl<M: Merger> LmbFilterCore<LbpAssociator, ParallelScheduler<M>>` | `new_parallel()` | `aa/ga/pu_lmb_filter()` |
-| `impl<A: Associator, M: Merger> LmbFilterCore<A, ParallelScheduler<M>>` | `with_associator_parallel()` | `with_scheduler()` directly |
+| Item | File | Status |
+|------|------|--------|
+| 6 redundant constructor impl blocks | `core.rs` | ✅ Deleted (commit 76c7679) |
+| `SensorVariant` enum + impl | `config.rs` | ✅ Deleted (commit 76c7679) |
+| `CommonConfigBuilder` | `config.rs` | ✅ Deleted (commit 76c7679) |
+| `LmbFilterConfigBuilder` | `config.rs` | ✅ Deleted (commit 76c7679) |
+| `LmbmFilterConfigBuilder` | `config.rs` | ✅ Deleted (commit 76c7679) |
+| `FilterParamsBuilder` | `config.rs` | ✅ Deleted (commit 76c7679) |
+| `SingleSensorLmbmStrategy::new()` | `core_lmbm.rs` | ✅ Deleted (commit 11b9281) |
+| `MultisensorLmbmStrategy::new()` | `core_lmbm.rs` | ✅ Deleted (commit 11b9281) |
 
-**KEEP**:
-- [ ] `impl<A: Associator, S: UpdateScheduler> LmbFilterCore<A, S>` with `with_scheduler()`
-- [ ] `impl<A: Associator, S: UpdateScheduler> LmbFilterCore<A, S>` with `with_gm_pruning()`, `with_gm_merge_threshold()`
-
-### 2. Delete Redundant Constructors from core_lmbm.rs
-
-Delete these impl blocks (~100 LOC):
-
-| Impl Block | Method | Replaced By |
-|------------|--------|-------------|
-| `impl LmbmFilterCore<SingleSensorLmbmStrategy<GibbsAssociator>>` | `new()` | `lmbm_filter()` |
-| `impl<A: LmbmAssociator> LmbmFilterCore<SingleSensorLmbmStrategy<A>>` | `with_associator()` | `with_strategy()` directly |
-| `impl LmbmFilterCore<MultisensorLmbmStrategy<MultisensorGibbsAssociator>>` | `new_multisensor()` | `multisensor_lmbm_filter()` |
-| `impl<A: MultisensorAssociator> LmbmFilterCore<MultisensorLmbmStrategy<A>>` | `with_multisensor_associator()` | `with_strategy()` directly |
-
-**KEEP**:
-- [ ] `impl<S: LmbmStrategy> LmbmFilterCore<S>` with `with_strategy()`
-
-### 3. Delete SensorVariant (Duplicate of SensorSet)
-
-In `config.rs`:
-- [ ] Delete `SensorVariant` enum and its impl block (lines ~1236-1272)
-- [ ] Update `FilterParams` to use `SensorSet` instead of `SensorVariant`
-- [ ] Update any code that references `SensorVariant`
-
-**Analysis**: `SensorVariant` and `SensorSet` are identical:
-```rust
-// Both have exactly the same structure:
-pub enum SensorSet { Single(SensorModel), Multi(MultisensorConfig) }
-pub enum SensorVariant { Single(SensorModel), Multi(MultisensorConfig) }
-```
-- `SensorSet`: 53 usages (keep)
-- `SensorVariant`: 15 usages (delete)
-
-### 4. Delete Unused Config Builders
-
-In `config.rs`, delete these structs and impl blocks (~200 LOC):
-- [ ] `CommonConfigBuilder` - ZERO usages in tests/benches/production
-- [ ] `LmbFilterConfigBuilder` - ZERO usages
-- [ ] `LmbmFilterConfigBuilder` - ZERO usages
-- [ ] `FilterParamsBuilder` - ZERO usages
-
-### 5. Update Callers
-
-Check and update any code that uses deleted constructors:
-- [ ] `src/bench_utils.rs` - uses `LmbFilterCore::with_scheduler()` already ✓
-- [ ] `src/python/filters.rs` - verify uses factory functions or `with_scheduler()`
-- [ ] `tests/bench_fixtures.rs` - verify uses factory functions
-- [ ] `tests/ss_lmb.rs`, `tests/ss_lmbm.rs` - update if needed
-
-### 6. Clean Up Exports
-
-In `src/lmb/mod.rs`:
-- [ ] Remove `SensorVariant` from re-exports
-- [ ] Remove builder types from re-exports if they were exported
-
-### 7. Verification
-
-```bash
-cargo test --release
-cargo clippy --all-targets
-uv run pytest python/tests/ -v
-```
-
-### 8. Success Criteria
-
-- [ ] ≤2 constructor impl blocks in `core.rs` (down from 8+)
-- [ ] ≤1 constructor impl block in `core_lmbm.rs` (down from 5+)
-- [ ] `SensorVariant` deleted (~40 LOC)
-- [ ] Unused builders deleted (~200 LOC)
-- [ ] All tests pass unchanged
-- [ ] ONE obvious way to create each filter type
-
-### 9. API After Cleanup
+### 2. API After Cleanup
 
 ```rust
 // === PUBLIC API (Factory Functions) ===
@@ -792,17 +721,22 @@ let filter: LmbmFilterCore<SingleSensorLmbmStrategy<MyAssociator>> =
     LmbmFilterCore::with_strategy(motion, sensor.into(), birth, assoc, lmbm, strategy);
 ```
 
-### 10. Files Summary
+### 3. Verification ✅
 
-| File | Changes | LOC Impact |
-|------|---------|------------|
-| `src/lmb/core.rs` | Delete 6 constructor impl blocks | ~-150 LOC |
-| `src/lmb/core_lmbm.rs` | Delete 4 constructor impl blocks | ~-100 LOC |
-| `src/lmb/config.rs` | Delete `SensorVariant`, delete unused builders | ~-240 LOC |
-| `src/lmb/mod.rs` | Update exports | minimal |
-| `tests/*.rs` | Update any callers of deleted constructors | minimal |
+```bash
+cargo test --release        # ✅ All tests pass
+cargo clippy --all-targets  # ✅ No errors
+uv run pytest python/tests/ -v  # ✅ 86 passed, 1 skipped
+```
 
-**Total estimated deletion**: ~490 LOC
+### Completion Notes (2026-01-17)
+
+- Deleted all redundant constructors from `core.rs` and `core_lmbm.rs`
+- Deleted `SensorVariant` (duplicate of `SensorSet`)
+- Deleted unused config builders
+- Deleted `SingleSensorLmbmStrategy::new()` and `MultisensorLmbmStrategy::new()`
+- Made strategy `associator` fields `pub(crate)` for internal struct construction
+- Factory functions and `with_scheduler()`/`with_strategy()` are the only ways to create filters
 
 ---
 
@@ -1247,13 +1181,15 @@ uv run pytest python/tests/ -v
 | `src/lmb/mod.rs` | **MODIFIED** ✅ | Removed singlesensor module |
 | `src/lmb/multisensor/mod.rs` | **MODIFIED** ✅ | Removed lmbm module |
 
-### Phase 7D (Pending)
+### Phase 7D Completed ✅
 | File | Action | Impact |
 |------|--------|--------|
-| `src/lmb/core.rs` | Delete 6 constructor impl blocks | ~-150 LOC |
-| `src/lmb/core_lmbm.rs` | Delete 4 constructor impl blocks | ~-100 LOC |
-| `src/lmb/config.rs` | Delete `SensorVariant`, delete unused builders | ~-240 LOC |
-| `src/lmb/mod.rs` | Update exports | minimal |
+| `src/lmb/core.rs` | Deleted 6 constructor impl blocks | ~-150 LOC |
+| `src/lmb/core_lmbm.rs` | Deleted 4 constructor impl blocks + strategy `new()` | ~-110 LOC |
+| `src/lmb/config.rs` | Deleted `SensorVariant`, unused builders | ~-240 LOC |
+| `src/lmb/factory.rs` | Updated to use direct struct construction | minimal |
+| `src/bench_utils.rs` | Updated to use direct struct construction | minimal |
+| `src/python/filters.rs` | Updated to use direct struct construction | minimal |
 
 ### Phase 8 (Pending) - Full Unification + Python API Simplification
 | File | Action | Impact |
@@ -1276,9 +1212,8 @@ uv run pytest python/tests/ -v
 | `src/lmb/norfair.rs` | **NEW** (Phase 12) | NorfairStrategy (future) |
 | `python/tests/test_equivalence.py` | **REFACTOR** (Phase 11) | -1200 LOC via parameterization |
 
-**Net LOC change so far**: Deleted 2919 LOC of old filters (Phase 7A: 1285 + Phase 7B: 1634)
-**After Phase 7D**: ~3409 LOC deleted total
-**After Phase 8**: ~5909 LOC deleted total (core.rs + core_lmbm.rs + Python simplification), Python API: 21 types → 12 types
+**Net LOC change so far**: Deleted ~3419 LOC (Phase 7A: 1285 + Phase 7B: 1634 + Phase 7D: ~500)
+**After Phase 8**: ~5919 LOC deleted total (core.rs + core_lmbm.rs + Python simplification), Python API: 21 types → 12 types
 
 ---
 
@@ -1297,7 +1232,7 @@ Phase 7B (LMBM Cleanup)     ─► ✅ COMPLETE (deleted 1634 LOC, using core_lm
 Phase 7C (API Simplify)     ─► ✅ COMPLETE (factory.rs, merged SensorSet, simplified aliases)
          │
          ▼
-Phase 7D (Dead Code)        ─► Delete redundant constructors, SensorVariant, unused builders (~490 LOC)
+Phase 7D (Dead Code)        ─► ✅ COMPLETE (deleted ~500 LOC, ONE way to create filters)
          │
          ▼
 Phase 8 (Full Unification)  ─► Delete core.rs + core_lmbm.rs, create UnifiedFilter<S: UpdateStrategy>
