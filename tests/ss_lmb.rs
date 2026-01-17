@@ -1553,9 +1553,10 @@ fn test_new_api_lmb_filter_step() {
         ..Default::default()
     };
 
-    let mut filter = LmbFilter::new(motion, sensor, birth, association)
-        .with_existence_threshold(1e-3)
-        .with_gm_pruning(1e-6, 5);
+    let mut filter =
+        multisensor_lmb_filters_rs::lmb::lmb_filter(motion, sensor, birth, association)
+            .with_existence_threshold(1e-3)
+            .with_gm_pruning(1e-6, 5);
 
     // Inject prior tracks (normally filter starts empty and uses birth)
     let prior_tracks: Vec<Track> = fixture

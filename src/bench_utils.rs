@@ -375,18 +375,16 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
             )))
         }
 
-        // Multi-sensor LMB variants (using unified core)
+        // Multi-sensor LMB variants (using factory functions)
         "AA-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
-            let merger = ArithmeticAverageMerger::uniform(prep.num_sensors, MAX_GM_COMPONENTS);
-            let scheduler = ParallelScheduler::new(merger);
             Ok(AnyFilter::AaLmb(
-                AaLmbFilter::new_parallel(
+                aa_lmb_filter(
                     prep.motion.clone(),
                     prep.sensors_config.clone(),
                     prep.birth.clone(),
                     assoc,
-                    scheduler,
+                    MAX_GM_COMPONENTS,
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
@@ -395,7 +393,7 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         "IC-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
             Ok(AnyFilter::IcLmb(
-                IcLmbFilter::new_ic(
+                ic_lmb_filter(
                     prep.motion.clone(),
                     prep.sensors_config.clone(),
                     prep.birth.clone(),
@@ -407,15 +405,12 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         }
         "PU-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
-            let merger = ParallelUpdateMerger::new(Vec::new());
-            let scheduler = ParallelScheduler::new(merger);
             Ok(AnyFilter::PuLmb(
-                PuLmbFilter::new_parallel(
+                pu_lmb_filter(
                     prep.motion.clone(),
                     prep.sensors_config.clone(),
                     prep.birth.clone(),
                     assoc,
-                    scheduler,
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
@@ -423,25 +418,22 @@ pub fn create_filter(filter_name: &str, prep: &PreprocessedScenario) -> Result<A
         }
         "GA-LMB-LBP" => {
             let assoc = AssociationConfig::lbp(100, 1e-6);
-            let merger = GeometricAverageMerger::uniform(prep.num_sensors);
-            let scheduler = ParallelScheduler::new(merger);
             Ok(AnyFilter::GaLmb(
-                GaLmbFilter::new_parallel(
+                ga_lmb_filter(
                     prep.motion.clone(),
                     prep.sensors_config.clone(),
                     prep.birth.clone(),
                     assoc,
-                    scheduler,
                 )
                 .with_gm_pruning(GM_WEIGHT_THRESHOLD, MAX_GM_COMPONENTS)
                 .with_gm_merge_threshold(GM_MERGE_THRESHOLD),
             ))
         }
 
-        // Multi-sensor LMBM (using unified core)
+        // Multi-sensor LMBM (using factory functions)
         "MS-LMBM-Gibbs" => {
             let assoc = AssociationConfig::gibbs(1000);
-            Ok(AnyFilter::MsLmbm(MultisensorLmbmFilter::new_multisensor(
+            Ok(AnyFilter::MsLmbm(multisensor_lmbm_filter(
                 prep.motion.clone(),
                 prep.sensors_config.clone(),
                 prep.birth.clone(),

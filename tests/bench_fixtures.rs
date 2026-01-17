@@ -195,55 +195,64 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
     // Build filter based on type
     match f.filter_type.as_str() {
         "LMB" => {
-            let filter = LmbFilter::new(motion, sensor, birth, assoc)
+            let filter = multisensor_lmb_filters_rs::lmb::lmb_filter(motion, sensor, birth, assoc)
                 .with_gm_pruning(t.gm_weight, t.max_components)
                 .with_existence_threshold(t.existence);
             (AnyFilter::Lmb(filter), false)
         }
         "LMBM" => {
             // LMBM uses hypothesis-level pruning, not GM pruning
-            let filter = LmbmFilter::new(motion, sensor, birth, assoc, lmbm_config.clone())
-                .with_existence_threshold(t.existence);
+            let filter = multisensor_lmb_filters_rs::lmb::lmbm_filter(
+                motion,
+                sensor,
+                birth,
+                assoc,
+                lmbm_config.clone(),
+            )
+            .with_existence_threshold(t.existence);
             (AnyFilter::Lmbm(filter), false)
         }
         "AA-LMB" => {
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
-            let merger = ArithmeticAverageMerger::uniform(fixture.num_sensors, t.max_components);
-            let scheduler = ParallelScheduler::new(merger);
-            let filter = AaLmbFilter::new_parallel(motion, sensors, birth, assoc, scheduler)
-                .with_gm_pruning(t.gm_weight, t.max_components)
-                .with_existence_threshold(t.existence);
+            let filter = multisensor_lmb_filters_rs::lmb::aa_lmb_filter(
+                motion,
+                sensors,
+                birth,
+                assoc,
+                t.max_components,
+            )
+            .with_gm_pruning(t.gm_weight, t.max_components)
+            .with_existence_threshold(t.existence);
             (AnyFilter::AaLmb(filter), true)
         }
         "GA-LMB" => {
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
-            let merger = GeometricAverageMerger::uniform(fixture.num_sensors);
-            let scheduler = ParallelScheduler::new(merger);
-            let filter = GaLmbFilter::new_parallel(motion, sensors, birth, assoc, scheduler)
-                .with_gm_pruning(t.gm_weight, t.max_components)
-                .with_existence_threshold(t.existence);
+            let filter =
+                multisensor_lmb_filters_rs::lmb::ga_lmb_filter(motion, sensors, birth, assoc)
+                    .with_gm_pruning(t.gm_weight, t.max_components)
+                    .with_existence_threshold(t.existence);
             (AnyFilter::GaLmb(filter), true)
         }
         "PU-LMB" => {
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
-            let merger = ParallelUpdateMerger::new(Vec::new());
-            let scheduler = ParallelScheduler::new(merger);
-            let filter = PuLmbFilter::new_parallel(motion, sensors, birth, assoc, scheduler)
-                .with_gm_pruning(t.gm_weight, t.max_components)
-                .with_existence_threshold(t.existence);
+            let filter =
+                multisensor_lmb_filters_rs::lmb::pu_lmb_filter(motion, sensors, birth, assoc)
+                    .with_gm_pruning(t.gm_weight, t.max_components)
+                    .with_existence_threshold(t.existence);
             (AnyFilter::PuLmb(filter), true)
         }
         "IC-LMB" => {
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
-            let filter = IcLmbFilter::new_ic(motion, sensors, birth, assoc)
-                .with_gm_pruning(t.gm_weight, t.max_components)
-                .with_existence_threshold(t.existence);
+            let filter =
+                multisensor_lmb_filters_rs::lmb::ic_lmb_filter(motion, sensors, birth, assoc)
+                    .with_gm_pruning(t.gm_weight, t.max_components)
+                    .with_existence_threshold(t.existence);
             (AnyFilter::IcLmb(filter), true)
         }
         "MS-LMBM" => {
             // MS-LMBM uses hypothesis-level pruning, not GM pruning
             let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
-            let filter = MultisensorLmbmFilter::new_multisensor(
+            let filter = multisensor_lmb_filters_rs::lmb::multisensor_lmbm_filter(
                 motion,
                 sensors,
                 birth,

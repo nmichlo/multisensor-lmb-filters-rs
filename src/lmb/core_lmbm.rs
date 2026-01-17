@@ -30,7 +30,7 @@ use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
 use super::builder::FilterBuilder;
 use super::config::{
     AssociationConfig, BirthModel, FilterConfigSnapshot, LmbmConfig, MotionModel,
-    MultisensorConfig, SensorModel, SensorSet,
+    MultisensorConfig, SensorSet,
 };
 use super::errors::FilterError;
 use super::multisensor::traits::{MultisensorAssociator, MultisensorGibbsAssociator};
@@ -748,96 +748,6 @@ pub struct LmbmFilterCore<S: LmbmAssociator> {
 }
 
 // ============================================================================
-// Single-sensor LMBM constructors
-// ============================================================================
-
-impl LmbmFilterCore<SingleSensorLmbmStrategy<GibbsAssociator>> {
-    /// Create a new single-sensor LMBM filter with default Gibbs associator.
-    pub fn new(
-        motion: MotionModel,
-        sensor: SensorModel,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-        lmbm_config: LmbmConfig,
-    ) -> Self {
-        Self::with_strategy(
-            motion,
-            sensor.into(),
-            birth,
-            association_config,
-            lmbm_config,
-            SingleSensorLmbmStrategy::new(GibbsAssociator),
-        )
-    }
-}
-
-impl<A: Associator> LmbmFilterCore<SingleSensorLmbmStrategy<A>> {
-    /// Create a new single-sensor LMBM filter with a custom associator.
-    pub fn with_associator(
-        motion: MotionModel,
-        sensor: SensorModel,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-        lmbm_config: LmbmConfig,
-        associator: A,
-    ) -> Self {
-        Self::with_strategy(
-            motion,
-            sensor.into(),
-            birth,
-            association_config,
-            lmbm_config,
-            SingleSensorLmbmStrategy::new(associator),
-        )
-    }
-}
-
-// ============================================================================
-// Multi-sensor LMBM constructors
-// ============================================================================
-
-impl LmbmFilterCore<MultisensorLmbmStrategy<MultisensorGibbsAssociator>> {
-    /// Create a new multi-sensor LMBM filter with default Gibbs associator.
-    pub fn new_multisensor(
-        motion: MotionModel,
-        sensors: MultisensorConfig,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-        lmbm_config: LmbmConfig,
-    ) -> Self {
-        Self::with_strategy(
-            motion,
-            sensors.into(),
-            birth,
-            association_config,
-            lmbm_config,
-            MultisensorLmbmStrategy::new(MultisensorGibbsAssociator),
-        )
-    }
-}
-
-impl<A: MultisensorAssociator> LmbmFilterCore<MultisensorLmbmStrategy<A>> {
-    /// Create a new multi-sensor LMBM filter with a custom associator.
-    pub fn with_multisensor_associator(
-        motion: MotionModel,
-        sensors: MultisensorConfig,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-        lmbm_config: LmbmConfig,
-        associator: A,
-    ) -> Self {
-        Self::with_strategy(
-            motion,
-            sensors.into(),
-            birth,
-            association_config,
-            lmbm_config,
-            MultisensorLmbmStrategy::new(associator),
-        )
-    }
-}
-
-// ============================================================================
 // Generic implementation
 // ============================================================================
 
@@ -1307,7 +1217,8 @@ pub type MultisensorLmbmFilter =
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmb::config::BirthLocation;
+    use crate::lmb::config::{BirthLocation, SensorModel};
+    use crate::lmb::factory::{lmbm_filter, multisensor_lmbm_filter};
 
     fn create_motion() -> MotionModel {
         MotionModel::constant_velocity_2d(1.0, 0.1, 0.99)
@@ -1334,7 +1245,7 @@ mod tests {
 
     #[test]
     fn test_lmbm_filter_creation() {
-        let filter = LmbmFilter::new(
+        let filter = lmbm_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1349,7 +1260,7 @@ mod tests {
 
     #[test]
     fn test_lmbm_filter_step_no_measurements() {
-        let mut filter = LmbmFilter::new(
+        let mut filter = lmbm_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1364,7 +1275,7 @@ mod tests {
 
     #[test]
     fn test_lmbm_filter_step_with_measurements() {
-        let mut filter = LmbmFilter::new(
+        let mut filter = lmbm_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1384,7 +1295,7 @@ mod tests {
 
     #[test]
     fn test_lmbm_filter_multiple_steps() {
-        let mut filter = LmbmFilter::new(
+        let mut filter = lmbm_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1403,7 +1314,7 @@ mod tests {
 
     #[test]
     fn test_lmbm_filter_reset() {
-        let mut filter = LmbmFilter::new(
+        let mut filter = lmbm_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1422,7 +1333,7 @@ mod tests {
 
     #[test]
     fn test_multisensor_lmbm_filter_creation() {
-        let filter = MultisensorLmbmFilter::new_multisensor(
+        let filter = multisensor_lmbm_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
@@ -1437,7 +1348,7 @@ mod tests {
 
     #[test]
     fn test_multisensor_lmbm_filter_step_no_measurements() {
-        let mut filter = MultisensorLmbmFilter::new_multisensor(
+        let mut filter = multisensor_lmbm_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
@@ -1453,7 +1364,7 @@ mod tests {
 
     #[test]
     fn test_multisensor_lmbm_filter_step_with_measurements() {
-        let mut filter = MultisensorLmbmFilter::new_multisensor(
+        let mut filter = multisensor_lmbm_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
@@ -1473,7 +1384,7 @@ mod tests {
 
     #[test]
     fn test_multisensor_lmbm_filter_multiple_steps() {
-        let mut filter = MultisensorLmbmFilter::new_multisensor(
+        let mut filter = multisensor_lmbm_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
@@ -1495,7 +1406,7 @@ mod tests {
 
     #[test]
     fn test_multisensor_lmbm_filter_reset() {
-        let mut filter = MultisensorLmbmFilter::new_multisensor(
+        let mut filter = multisensor_lmbm_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
@@ -1515,7 +1426,7 @@ mod tests {
 
     #[test]
     fn test_multisensor_lmbm_filter_wrong_sensor_count() {
-        let mut filter = MultisensorLmbmFilter::new_multisensor(
+        let mut filter = multisensor_lmbm_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),

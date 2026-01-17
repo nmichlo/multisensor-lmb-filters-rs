@@ -825,11 +825,6 @@ impl CommonConfig {
             max_trajectory_length,
         }
     }
-
-    /// Create with builder pattern.
-    pub fn builder() -> CommonConfigBuilder {
-        CommonConfigBuilder::default()
-    }
 }
 
 impl Default for CommonConfig {
@@ -838,49 +833,6 @@ impl Default for CommonConfig {
             existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
             min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
             max_trajectory_length: super::DEFAULT_MAX_TRAJECTORY_LENGTH,
-        }
-    }
-}
-
-/// Builder for CommonConfig.
-#[derive(Debug, Default)]
-pub struct CommonConfigBuilder {
-    existence_threshold: Option<f64>,
-    min_trajectory_length: Option<usize>,
-    max_trajectory_length: Option<usize>,
-}
-
-impl CommonConfigBuilder {
-    /// Set existence probability threshold.
-    pub fn existence_threshold(mut self, threshold: f64) -> Self {
-        self.existence_threshold = Some(threshold);
-        self
-    }
-
-    /// Set minimum trajectory length.
-    pub fn min_trajectory_length(mut self, length: usize) -> Self {
-        self.min_trajectory_length = Some(length);
-        self
-    }
-
-    /// Set maximum trajectory length.
-    pub fn max_trajectory_length(mut self, length: usize) -> Self {
-        self.max_trajectory_length = Some(length);
-        self
-    }
-
-    /// Build the configuration.
-    pub fn build(self) -> CommonConfig {
-        CommonConfig {
-            existence_threshold: self
-                .existence_threshold
-                .unwrap_or(super::DEFAULT_EXISTENCE_THRESHOLD),
-            min_trajectory_length: self
-                .min_trajectory_length
-                .unwrap_or(super::DEFAULT_MIN_TRAJECTORY_LENGTH),
-            max_trajectory_length: self
-                .max_trajectory_length
-                .unwrap_or(super::DEFAULT_MAX_TRAJECTORY_LENGTH),
         }
     }
 }
@@ -935,11 +887,6 @@ impl LmbFilterConfig {
         }
     }
 
-    /// Create with builder pattern.
-    pub fn builder() -> LmbFilterConfigBuilder {
-        LmbFilterConfigBuilder::default()
-    }
-
     /// Convenience accessor for existence threshold.
     #[inline]
     pub fn existence_threshold(&self) -> f64 {
@@ -970,108 +917,11 @@ impl Default for LmbFilterConfig {
     }
 }
 
-/// Builder for LmbFilterConfig.
-#[derive(Debug, Default)]
-pub struct LmbFilterConfigBuilder {
-    common: Option<CommonConfig>,
-    existence_threshold: Option<f64>,
-    min_trajectory_length: Option<usize>,
-    max_trajectory_length: Option<usize>,
-    gm_weight_threshold: Option<f64>,
-    max_gm_components: Option<usize>,
-    gm_merge_threshold: Option<f64>,
-}
-
-impl LmbFilterConfigBuilder {
-    /// Set the common configuration (overrides individual common fields).
-    pub fn common(mut self, common: CommonConfig) -> Self {
-        self.common = Some(common);
-        self
-    }
-
-    /// Set existence probability threshold.
-    pub fn existence_threshold(mut self, threshold: f64) -> Self {
-        self.existence_threshold = Some(threshold);
-        self
-    }
-
-    /// Set minimum trajectory length.
-    pub fn min_trajectory_length(mut self, length: usize) -> Self {
-        self.min_trajectory_length = Some(length);
-        self
-    }
-
-    /// Set maximum trajectory length.
-    pub fn max_trajectory_length(mut self, length: usize) -> Self {
-        self.max_trajectory_length = Some(length);
-        self
-    }
-
-    /// Set GM component weight threshold.
-    pub fn gm_weight_threshold(mut self, threshold: f64) -> Self {
-        self.gm_weight_threshold = Some(threshold);
-        self
-    }
-
-    /// Set maximum GM components per track.
-    pub fn max_gm_components(mut self, max: usize) -> Self {
-        self.max_gm_components = Some(max);
-        self
-    }
-
-    /// Set GM merge threshold (Mahalanobis distance).
-    /// Use `f64::INFINITY` to disable merging.
-    pub fn gm_merge_threshold(mut self, threshold: f64) -> Self {
-        self.gm_merge_threshold = Some(threshold);
-        self
-    }
-
-    /// Build the configuration.
-    pub fn build(self) -> LmbFilterConfig {
-        let common = self.common.unwrap_or_else(|| CommonConfig {
-            existence_threshold: self
-                .existence_threshold
-                .unwrap_or(super::DEFAULT_EXISTENCE_THRESHOLD),
-            min_trajectory_length: self
-                .min_trajectory_length
-                .unwrap_or(super::DEFAULT_MIN_TRAJECTORY_LENGTH),
-            max_trajectory_length: self
-                .max_trajectory_length
-                .unwrap_or(super::DEFAULT_MAX_TRAJECTORY_LENGTH),
-        });
-
-        LmbFilterConfig {
-            common,
-            gm_weight_threshold: self
-                .gm_weight_threshold
-                .unwrap_or(super::DEFAULT_GM_WEIGHT_THRESHOLD),
-            max_gm_components: self
-                .max_gm_components
-                .unwrap_or(super::DEFAULT_MAX_GM_COMPONENTS),
-            gm_merge_threshold: self
-                .gm_merge_threshold
-                .unwrap_or(super::DEFAULT_GM_MERGE_THRESHOLD),
-        }
-    }
-}
-
 /// LMBM filter configuration (hypothesis mixture posteriors).
 ///
 /// This configuration type is used exclusively by LMBM-family filters
 /// (not LMB). It contains settings for hypothesis management that
 /// don't apply to LMB filters.
-///
-/// # Example
-///
-/// ```ignore
-/// use multisensor_lmb_filters_rs::lmb::LmbmFilterConfig;
-///
-/// let config = LmbmFilterConfig::builder()
-///     .existence_threshold(0.001)
-///     .max_hypotheses(500)
-///     .use_eap(true)
-///     .build();
-/// ```
 #[derive(Debug, Clone)]
 pub struct LmbmFilterConfig {
     /// Common settings (existence threshold, trajectory lengths).
@@ -1103,11 +953,6 @@ impl LmbmFilterConfig {
             hypothesis_weight_threshold,
             use_eap,
         }
-    }
-
-    /// Create with builder pattern.
-    pub fn builder() -> LmbmFilterConfigBuilder {
-        LmbmFilterConfigBuilder::default()
     }
 
     /// Convenience accessor for existence threshold.
@@ -1149,135 +994,13 @@ impl Default for LmbmFilterConfig {
     }
 }
 
-/// Builder for LmbmFilterConfig.
-#[derive(Debug, Default)]
-pub struct LmbmFilterConfigBuilder {
-    common: Option<CommonConfig>,
-    existence_threshold: Option<f64>,
-    min_trajectory_length: Option<usize>,
-    max_trajectory_length: Option<usize>,
-    max_hypotheses: Option<usize>,
-    hypothesis_weight_threshold: Option<f64>,
-    use_eap: Option<bool>,
-}
-
-impl LmbmFilterConfigBuilder {
-    /// Set the common configuration (overrides individual common fields).
-    pub fn common(mut self, common: CommonConfig) -> Self {
-        self.common = Some(common);
-        self
-    }
-
-    /// Set existence probability threshold.
-    pub fn existence_threshold(mut self, threshold: f64) -> Self {
-        self.existence_threshold = Some(threshold);
-        self
-    }
-
-    /// Set minimum trajectory length.
-    pub fn min_trajectory_length(mut self, length: usize) -> Self {
-        self.min_trajectory_length = Some(length);
-        self
-    }
-
-    /// Set maximum trajectory length.
-    pub fn max_trajectory_length(mut self, length: usize) -> Self {
-        self.max_trajectory_length = Some(length);
-        self
-    }
-
-    /// Set maximum number of hypotheses.
-    pub fn max_hypotheses(mut self, max: usize) -> Self {
-        self.max_hypotheses = Some(max);
-        self
-    }
-
-    /// Set hypothesis weight threshold.
-    pub fn hypothesis_weight_threshold(mut self, threshold: f64) -> Self {
-        self.hypothesis_weight_threshold = Some(threshold);
-        self
-    }
-
-    /// Set whether to use EAP for state extraction.
-    pub fn use_eap(mut self, use_eap: bool) -> Self {
-        self.use_eap = Some(use_eap);
-        self
-    }
-
-    /// Build the configuration.
-    pub fn build(self) -> LmbmFilterConfig {
-        let common = self.common.unwrap_or_else(|| CommonConfig {
-            existence_threshold: self
-                .existence_threshold
-                .unwrap_or(super::DEFAULT_EXISTENCE_THRESHOLD),
-            min_trajectory_length: self
-                .min_trajectory_length
-                .unwrap_or(super::DEFAULT_MIN_TRAJECTORY_LENGTH),
-            max_trajectory_length: self
-                .max_trajectory_length
-                .unwrap_or(super::DEFAULT_MAX_TRAJECTORY_LENGTH),
-        });
-
-        LmbmFilterConfig {
-            common,
-            max_hypotheses: self
-                .max_hypotheses
-                .unwrap_or(super::DEFAULT_LMBM_MAX_HYPOTHESES),
-            hypothesis_weight_threshold: self
-                .hypothesis_weight_threshold
-                .unwrap_or(super::DEFAULT_LMBM_WEIGHT_THRESHOLD),
-            use_eap: self.use_eap.unwrap_or(false),
-        }
-    }
-}
-
-/// Sensor configuration variant (single or multi-sensor)
-#[derive(Debug, Clone)]
-pub enum SensorVariant {
-    /// Single sensor
-    Single(SensorModel),
-    /// Multiple sensors
-    Multi(MultisensorConfig),
-}
-
-impl SensorVariant {
-    /// Check if this is a multi-sensor configuration
-    pub fn is_multisensor(&self) -> bool {
-        matches!(self, SensorVariant::Multi(_))
-    }
-
-    /// Get number of sensors
-    pub fn num_sensors(&self) -> usize {
-        match self {
-            SensorVariant::Single(_) => 1,
-            SensorVariant::Multi(m) => m.num_sensors(),
-        }
-    }
-
-    /// Get single sensor (panics if multi-sensor)
-    pub fn single(&self) -> &SensorModel {
-        match self {
-            SensorVariant::Single(s) => s,
-            SensorVariant::Multi(_) => panic!("Expected single sensor, got multi-sensor"),
-        }
-    }
-
-    /// Get multi-sensor config (panics if single)
-    pub fn multi(&self) -> &MultisensorConfig {
-        match self {
-            SensorVariant::Single(_) => panic!("Expected multi-sensor, got single sensor"),
-            SensorVariant::Multi(m) => m,
-        }
-    }
-}
-
 /// Complete filter parameters
 #[derive(Debug, Clone)]
 pub struct FilterParams {
     /// Motion model
     pub motion: MotionModel,
     /// Sensor configuration
-    pub sensor: SensorVariant,
+    pub sensor: SensorSet,
     /// Birth model
     pub birth: BirthModel,
     /// Association configuration
@@ -1289,11 +1012,6 @@ pub struct FilterParams {
 }
 
 impl FilterParams {
-    /// Create a new filter params builder
-    pub fn builder() -> FilterParamsBuilder {
-        FilterParamsBuilder::new()
-    }
-
     /// Get state dimension
     #[inline]
     pub fn x_dim(&self) -> usize {
@@ -1303,79 +1021,7 @@ impl FilterParams {
     /// Check if multi-sensor
     #[inline]
     pub fn is_multisensor(&self) -> bool {
-        self.sensor.is_multisensor()
-    }
-}
-
-/// Builder for FilterParams
-#[derive(Debug, Default)]
-pub struct FilterParamsBuilder {
-    motion: Option<MotionModel>,
-    sensor: Option<SensorVariant>,
-    birth: Option<BirthModel>,
-    association: Option<AssociationConfig>,
-    thresholds: Option<FilterThresholds>,
-    lmbm: Option<LmbmConfig>,
-}
-
-impl FilterParamsBuilder {
-    /// Create a new builder
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set motion model
-    pub fn motion(mut self, motion: MotionModel) -> Self {
-        self.motion = Some(motion);
-        self
-    }
-
-    /// Set single sensor
-    pub fn sensor(mut self, sensor: SensorModel) -> Self {
-        self.sensor = Some(SensorVariant::Single(sensor));
-        self
-    }
-
-    /// Set multiple sensors
-    pub fn sensors(mut self, sensors: Vec<SensorModel>) -> Self {
-        self.sensor = Some(SensorVariant::Multi(MultisensorConfig::new(sensors)));
-        self
-    }
-
-    /// Set birth model
-    pub fn birth(mut self, birth: BirthModel) -> Self {
-        self.birth = Some(birth);
-        self
-    }
-
-    /// Set association config
-    pub fn association(mut self, association: AssociationConfig) -> Self {
-        self.association = Some(association);
-        self
-    }
-
-    /// Set filter thresholds
-    pub fn thresholds(mut self, thresholds: FilterThresholds) -> Self {
-        self.thresholds = Some(thresholds);
-        self
-    }
-
-    /// Set LMBM config
-    pub fn lmbm(mut self, lmbm: LmbmConfig) -> Self {
-        self.lmbm = Some(lmbm);
-        self
-    }
-
-    /// Build the filter params
-    pub fn build(self) -> Result<FilterParams, &'static str> {
-        Ok(FilterParams {
-            motion: self.motion.ok_or("Motion model is required")?,
-            sensor: self.sensor.ok_or("Sensor model is required")?,
-            birth: self.birth.ok_or("Birth model is required")?,
-            association: self.association.unwrap_or_default(),
-            thresholds: self.thresholds.unwrap_or_default(),
-            lmbm: self.lmbm.unwrap_or_default(),
-        })
+        self.sensor.num_sensors() > 1
     }
 }
 
@@ -1801,24 +1447,6 @@ mod tests {
         assert!((sensor.clutter_density() - 0.1).abs() < 1e-10);
     }
 
-    #[test]
-    fn test_filter_params_builder() {
-        let motion = MotionModel::constant_velocity_2d(1.0, 0.1, 0.99);
-        let sensor = SensorModel::position_sensor_2d(1.0, 0.9, 10.0, 100.0);
-        let birth = BirthModel::new(vec![], 0.1, 0.01);
-
-        let params = FilterParams::builder()
-            .motion(motion)
-            .sensor(sensor)
-            .birth(birth)
-            .association(AssociationConfig::lbp(50, 1e-6))
-            .build()
-            .unwrap();
-
-        assert_eq!(params.x_dim(), 4);
-        assert!(!params.is_multisensor());
-    }
-
     // ============================================================================
     // Type-Safe Configuration Tests (Phase 2)
     // ============================================================================
@@ -1841,13 +1469,8 @@ mod tests {
     }
 
     #[test]
-    fn test_common_config_builder() {
-        let config = CommonConfig::builder()
-            .existence_threshold(0.01)
-            .min_trajectory_length(5)
-            .max_trajectory_length(500)
-            .build();
-
+    fn test_common_config_new() {
+        let config = CommonConfig::new(0.01, 5, 500);
         assert!((config.existence_threshold - 0.01).abs() < 1e-10);
         assert_eq!(config.min_trajectory_length, 5);
         assert_eq!(config.max_trajectory_length, 500);
@@ -1872,13 +1495,9 @@ mod tests {
     }
 
     #[test]
-    fn test_lmb_filter_config_builder() {
-        let config = LmbFilterConfig::builder()
-            .existence_threshold(0.005)
-            .gm_weight_threshold(1e-5)
-            .max_gm_components(50)
-            .gm_merge_threshold(4.0)
-            .build();
+    fn test_lmb_filter_config_new() {
+        let common = CommonConfig::new(0.005, 3, 1000);
+        let config = LmbFilterConfig::new(common, 1e-5, 50, 4.0);
 
         assert!((config.existence_threshold() - 0.005).abs() < 1e-10);
         assert!((config.gm_weight_threshold - 1e-5).abs() < 1e-15);
@@ -1889,10 +1508,12 @@ mod tests {
     #[test]
     fn test_lmb_filter_config_with_common() {
         let common = CommonConfig::new(0.02, 10, 200);
-        let config = LmbFilterConfig::builder()
-            .common(common.clone())
-            .max_gm_components(75)
-            .build();
+        let config = LmbFilterConfig::new(
+            common,
+            super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            75,
+            super::super::DEFAULT_GM_MERGE_THRESHOLD,
+        );
 
         // Common fields should come from the CommonConfig
         assert!((config.existence_threshold() - 0.02).abs() < 1e-10);
@@ -1926,13 +1547,9 @@ mod tests {
     }
 
     #[test]
-    fn test_lmbm_filter_config_builder() {
-        let config = LmbmFilterConfig::builder()
-            .existence_threshold(0.002)
-            .max_hypotheses(500)
-            .hypothesis_weight_threshold(1e-7)
-            .use_eap(true)
-            .build();
+    fn test_lmbm_filter_config_new() {
+        let common = CommonConfig::new(0.002, 3, 1000);
+        let config = LmbmFilterConfig::new(common, 500, 1e-7, true);
 
         assert!((config.existence_threshold() - 0.002).abs() < 1e-10);
         assert_eq!(config.max_hypotheses, 500);
@@ -1942,11 +1559,8 @@ mod tests {
 
     #[test]
     fn test_lmbm_filter_config_to_legacy() {
-        let config = LmbmFilterConfig::builder()
-            .max_hypotheses(200)
-            .hypothesis_weight_threshold(1e-4)
-            .use_eap(true)
-            .build();
+        let common = CommonConfig::default();
+        let config = LmbmFilterConfig::new(common, 200, 1e-4, true);
 
         let legacy = config.to_legacy_lmbm_config();
         assert_eq!(legacy.max_hypotheses, 200);
@@ -1957,9 +1571,6 @@ mod tests {
     #[test]
     fn test_type_safety_lmb_has_no_hypothesis_fields() {
         // This test documents that LmbFilterConfig has NO max_hypotheses field.
-        // The following would not compile:
-        // let config = LmbFilterConfig::builder().max_hypotheses(100).build();
-        //
         // We verify type safety by checking LmbFilterConfig has GM-specific fields
         let config = LmbFilterConfig::default();
         let _ = config.max_gm_components; // This exists
@@ -1970,9 +1581,6 @@ mod tests {
     #[test]
     fn test_type_safety_lmbm_has_no_gm_fields() {
         // This test documents that LmbmFilterConfig has NO GM-specific fields.
-        // The following would not compile:
-        // let config = LmbmFilterConfig::builder().max_gm_components(100).build();
-        //
         // We verify type safety by checking LmbmFilterConfig has hypothesis-specific fields
         let config = LmbmFilterConfig::default();
         let _ = config.max_hypotheses; // This exists

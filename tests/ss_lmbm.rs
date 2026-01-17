@@ -685,8 +685,14 @@ fn test_lmbm_hypothesis_generation_equivalence() {
     };
 
     // Create filter with existence threshold from fixture
-    let mut filter = LmbmFilter::new(motion, sensor, birth, association_config, lmbm_config)
-        .with_existence_threshold(step5_input.model_existence_threshold);
+    let mut filter = multisensor_lmb_filters_rs::lmb::lmbm_filter(
+        motion,
+        sensor,
+        birth,
+        association_config,
+        lmbm_config,
+    )
+    .with_existence_threshold(step5_input.model_existence_threshold);
 
     // Set PRIOR hypothesis (before prediction, 5 tracks)
     // step_detailed() will run prediction to get to 9 tracks (5 + 4 births)

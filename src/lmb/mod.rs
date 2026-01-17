@@ -67,18 +67,14 @@ pub use types::{GaussianComponent, LmbmHypothesis, Track, TrackLabel, Trajectory
 // Configuration
 pub use config::{
     AssociationConfig, BirthLocation, BirthModel, DataAssociationMethod, FilterParams,
-    FilterParamsBuilder, FilterThresholds, LmbmConfig, MotionModel, MultisensorConfig, SensorModel,
-    SensorVariant,
+    FilterThresholds, LmbmConfig, MotionModel, MultisensorConfig, SensorModel,
 };
 
 // Model behavior traits (Phase 3 - Extensibility)
 pub use config::{MotionModelBehavior, SensorModelBehavior};
 
 // Type-safe filter configurations (Phase 2)
-pub use config::{
-    CommonConfig, CommonConfigBuilder, LmbFilterConfig, LmbFilterConfigBuilder, LmbmFilterConfig,
-    LmbmFilterConfigBuilder,
-};
+pub use config::{CommonConfig, LmbFilterConfig, LmbmFilterConfig};
 
 // Configuration snapshots (for debugging)
 pub use config::{

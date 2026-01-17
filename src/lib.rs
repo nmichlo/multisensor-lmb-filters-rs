@@ -20,7 +20,7 @@ Labelled Multi-Bernoulli (LMB) filters and their variants.
 ## Example
 
 ```rust,no_run
-use multisensor_lmb_filters_rs::lmb::{Filter, LmbFilter, MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
+use multisensor_lmb_filters_rs::lmb::{Filter, lmb_filter, MotionModel, SensorModel, BirthModel, BirthLocation, AssociationConfig};
 use nalgebra::{DVector, DMatrix};
 
 // Create filter configuration
@@ -36,8 +36,8 @@ let birth_loc = BirthLocation::new(
 let birth = BirthModel::new(vec![birth_loc], 0.1, 0.01);
 let association = AssociationConfig::default();
 
-// Create filter
-let mut filter = LmbFilter::new(motion, sensor, birth, association);
+// Create filter using factory function
+let mut filter = lmb_filter(motion, sensor, birth, association);
 
 // Process measurements
 let mut rng = rand::thread_rng();
@@ -85,7 +85,7 @@ pub mod bench_utils;
 pub use lmb::{
     AssociationConfig, BirthLocation, BirthModel, EstimatedTrack, FilterOutput, FilterParams,
     FilterThresholds, GaussianComponent, LmbmConfig, LmbmHypothesis, MotionModel,
-    MultisensorConfig, SensorModel, SensorVariant, StateEstimate, Track, TrackLabel, Trajectory,
+    MultisensorConfig, SensorModel, SensorSet, StateEstimate, Track, TrackLabel, Trajectory,
 };
 
 // Errors

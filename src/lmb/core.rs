@@ -31,8 +31,7 @@ use crate::components::prediction::predict_tracks;
 
 use super::builder::{FilterBuilder, LmbFilterBuilder};
 use super::config::{
-    AssociationConfig, BirthModel, FilterConfigSnapshot, MotionModel, MultisensorConfig,
-    SensorModel, SensorSet,
+    AssociationConfig, BirthModel, FilterConfigSnapshot, MotionModel, SensorModel, SensorSet,
 };
 use super::errors::FilterError;
 use super::multisensor::fusion::{
@@ -150,152 +149,6 @@ pub struct LmbFilterCore<A: Associator = LbpAssociator, S: UpdateScheduler = Sin
     scheduler: S,
     /// The updater to use
     updater: MarginalUpdater,
-}
-
-// ============================================================================
-// Constructor implementations for SingleSensorScheduler (single-sensor LMB)
-// ============================================================================
-
-impl LmbFilterCore<LbpAssociator, SingleSensorScheduler> {
-    /// Create a new single-sensor LMB filter with default LBP associator.
-    ///
-    /// This is the standard constructor for single-sensor LMB filters.
-    ///
-    /// # Arguments
-    ///
-    /// * `motion` - Motion model (dynamics and survival probability)
-    /// * `sensor` - Sensor model (observation model, detection probability, clutter)
-    /// * `birth` - Birth model (where new objects can appear)
-    /// * `association_config` - Association algorithm configuration
-    pub fn new(
-        motion: MotionModel,
-        sensor: SensorModel,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-    ) -> Self {
-        Self::with_scheduler(
-            motion,
-            sensor.into(),
-            birth,
-            association_config,
-            LbpAssociator,
-            SingleSensorScheduler::new(),
-        )
-    }
-}
-
-impl<A: Associator> LmbFilterCore<A, SingleSensorScheduler> {
-    /// Create a new single-sensor LMB filter with a custom associator.
-    pub fn with_associator(
-        motion: MotionModel,
-        sensor: SensorModel,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-        associator: A,
-    ) -> Self {
-        Self::with_scheduler(
-            motion,
-            sensor.into(),
-            birth,
-            association_config,
-            associator,
-            SingleSensorScheduler::new(),
-        )
-    }
-}
-
-// ============================================================================
-// Constructor implementations for SequentialScheduler (IC-LMB)
-// ============================================================================
-
-impl LmbFilterCore<LbpAssociator, SequentialScheduler> {
-    /// Create a new IC-LMB filter with default LBP associator.
-    ///
-    /// IC-LMB (Iterated Corrector) processes sensors sequentially, where
-    /// the output of sensor N becomes the input to sensor N+1.
-    pub fn new_ic(
-        motion: MotionModel,
-        sensors: MultisensorConfig,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-    ) -> Self {
-        Self::with_scheduler(
-            motion,
-            sensors.into(),
-            birth,
-            association_config,
-            LbpAssociator,
-            SequentialScheduler::new(),
-        )
-    }
-}
-
-impl<A: Associator> LmbFilterCore<A, SequentialScheduler> {
-    /// Create a new IC-LMB filter with a custom associator.
-    pub fn with_associator_ic(
-        motion: MotionModel,
-        sensors: MultisensorConfig,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-        associator: A,
-    ) -> Self {
-        Self::with_scheduler(
-            motion,
-            sensors.into(),
-            birth,
-            association_config,
-            associator,
-            SequentialScheduler::new(),
-        )
-    }
-}
-
-// ============================================================================
-// Constructor implementations for ParallelScheduler (AA, GA, PU-LMB)
-// ============================================================================
-
-impl<M: Merger> LmbFilterCore<LbpAssociator, ParallelScheduler<M>> {
-    /// Create a new parallel multi-sensor LMB filter with default LBP associator.
-    ///
-    /// Use this for AA-LMB, GA-LMB, or PU-LMB filters by providing the
-    /// appropriate merger in the scheduler.
-    pub fn new_parallel(
-        motion: MotionModel,
-        sensors: MultisensorConfig,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-        scheduler: ParallelScheduler<M>,
-    ) -> Self {
-        Self::with_scheduler(
-            motion,
-            sensors.into(),
-            birth,
-            association_config,
-            LbpAssociator,
-            scheduler,
-        )
-    }
-}
-
-impl<A: Associator, M: Merger> LmbFilterCore<A, ParallelScheduler<M>> {
-    /// Create a new parallel multi-sensor LMB filter with a custom associator.
-    pub fn with_associator_parallel(
-        motion: MotionModel,
-        sensors: MultisensorConfig,
-        birth: BirthModel,
-        association_config: AssociationConfig,
-        associator: A,
-        scheduler: ParallelScheduler<M>,
-    ) -> Self {
-        Self::with_scheduler(
-            motion,
-            sensors.into(),
-            birth,
-            association_config,
-            associator,
-            scheduler,
-        )
-    }
 }
 
 // ============================================================================
@@ -1062,7 +915,10 @@ pub type PuLmbFilter = LmbFilterCore<LbpAssociator, ParallelScheduler<ParallelUp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmb::config::BirthLocation;
+    use crate::lmb::config::{BirthLocation, MultisensorConfig};
+    use crate::lmb::factory::{
+        aa_lmb_filter, ga_lmb_filter, ic_lmb_filter, lmb_filter, pu_lmb_filter,
+    };
     use nalgebra::DMatrix;
 
     fn create_motion() -> MotionModel {
@@ -1111,7 +967,7 @@ mod tests {
 
     #[test]
     fn test_lmb_filter_creation() {
-        let filter = LmbFilter::new(
+        let filter = lmb_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1124,7 +980,7 @@ mod tests {
 
     #[test]
     fn test_lmb_filter_step_no_measurements() {
-        let mut filter = LmbFilter::new(
+        let mut filter = lmb_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1138,7 +994,7 @@ mod tests {
 
     #[test]
     fn test_lmb_filter_step_with_measurements() {
-        let mut filter = LmbFilter::new(
+        let mut filter = lmb_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1157,7 +1013,7 @@ mod tests {
 
     #[test]
     fn test_ic_lmb_filter_creation() {
-        let filter = IcLmbFilter::new_ic(
+        let filter = ic_lmb_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
@@ -1170,7 +1026,7 @@ mod tests {
 
     #[test]
     fn test_ic_lmb_filter_step() {
-        let mut filter = IcLmbFilter::new_ic(
+        let mut filter = ic_lmb_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
@@ -1189,15 +1045,12 @@ mod tests {
 
     #[test]
     fn test_aa_lmb_filter_creation() {
-        let merger = ArithmeticAverageMerger::uniform(2, 100);
-        let scheduler = ParallelScheduler::new(merger);
-
-        let filter = AaLmbFilter::new_parallel(
+        let filter = aa_lmb_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
             AssociationConfig::default(),
-            scheduler,
+            100,
         );
 
         assert_eq!(filter.x_dim(), 4);
@@ -1207,15 +1060,12 @@ mod tests {
 
     #[test]
     fn test_aa_lmb_filter_step() {
-        let merger = ArithmeticAverageMerger::uniform(2, 100);
-        let scheduler = ParallelScheduler::new(merger);
-
-        let mut filter = AaLmbFilter::new_parallel(
+        let mut filter = aa_lmb_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
             AssociationConfig::default(),
-            scheduler,
+            100,
         );
         let mut rng = rand::thread_rng();
 
@@ -1230,15 +1080,11 @@ mod tests {
 
     #[test]
     fn test_ga_lmb_filter_step() {
-        let merger = GeometricAverageMerger::uniform(2);
-        let scheduler = ParallelScheduler::new(merger);
-
-        let mut filter = GaLmbFilter::new_parallel(
+        let mut filter = ga_lmb_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
             AssociationConfig::default(),
-            scheduler,
         );
         let mut rng = rand::thread_rng();
 
@@ -1249,15 +1095,11 @@ mod tests {
 
     #[test]
     fn test_pu_lmb_filter_step() {
-        let merger = ParallelUpdateMerger::new(Vec::new());
-        let scheduler = ParallelScheduler::new(merger);
-
-        let mut filter = PuLmbFilter::new_parallel(
+        let mut filter = pu_lmb_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
             AssociationConfig::default(),
-            scheduler,
         );
         let mut rng = rand::thread_rng();
 
@@ -1272,7 +1114,7 @@ mod tests {
 
     #[test]
     fn test_filter_reset() {
-        let mut filter = LmbFilter::new(
+        let mut filter = lmb_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1288,7 +1130,7 @@ mod tests {
 
     #[test]
     fn test_gm_pruning_configuration() {
-        let filter = LmbFilter::new(
+        let filter = lmb_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
@@ -1305,15 +1147,15 @@ mod tests {
 
     #[test]
     fn test_type_alias_equivalence() {
-        // Verify type aliases match expected types
-        let _: LmbFilter = LmbFilter::new(
+        // Verify type aliases match expected types when using factory functions
+        let _: LmbFilter = lmb_filter(
             create_motion(),
             create_sensor(),
             create_birth(),
             AssociationConfig::default(),
         );
 
-        let _: IcLmbFilter = IcLmbFilter::new_ic(
+        let _: IcLmbFilter = ic_lmb_filter(
             create_motion(),
             create_multi_sensor(),
             create_birth(),
