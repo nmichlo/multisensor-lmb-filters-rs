@@ -158,6 +158,72 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
         self.hypotheses = hypotheses;
     }
 
+    /// Set tracks directly (for fixture testing).
+    /// This sets a single hypothesis with the given tracks.
+    pub fn set_tracks(&mut self, tracks: Vec<Track>) {
+        self.hypotheses = vec![Hypothesis::lmb(tracks)];
+    }
+
+    /// Get configuration as FilterConfigSnapshot (for debugging).
+    pub fn get_config(&self) -> super::config::FilterConfigSnapshot {
+        if self.strategy.is_hypothesis_based() {
+            // LMBM-style filter
+            let lmbm_config = self.strategy.lmbm_config();
+            if self.num_sensors() > 1 {
+                super::config::FilterConfigSnapshot::multi_sensor_lmbm(
+                    self.strategy.name(),
+                    &self.motion,
+                    self.sensors.multi(),
+                    &self.birth,
+                    &self.association_config,
+                    self.common_prune.existence_threshold,
+                    self.common_prune.min_trajectory_length,
+                    &lmbm_config,
+                )
+            } else {
+                super::config::FilterConfigSnapshot::single_sensor_lmbm(
+                    self.strategy.name(),
+                    &self.motion,
+                    self.sensors.single(),
+                    &self.birth,
+                    &self.association_config,
+                    self.common_prune.existence_threshold,
+                    self.common_prune.min_trajectory_length,
+                    &lmbm_config,
+                )
+            }
+        } else {
+            // LMB-style filter
+            if self.num_sensors() > 1 {
+                super::config::FilterConfigSnapshot::multi_sensor_lmb(
+                    self.strategy.name(),
+                    &self.motion,
+                    self.sensors.multi(),
+                    &self.birth,
+                    &self.association_config,
+                    self.common_prune.existence_threshold,
+                    self.strategy.gm_weight_threshold(),
+                    self.strategy.max_gm_components(),
+                    self.common_prune.min_trajectory_length,
+                    f64::INFINITY, // gm_merge_threshold - TODO: expose this
+                )
+            } else {
+                super::config::FilterConfigSnapshot::single_sensor_lmb(
+                    self.strategy.name(),
+                    &self.motion,
+                    self.sensors.single(),
+                    &self.birth,
+                    &self.association_config,
+                    self.common_prune.existence_threshold,
+                    self.strategy.gm_weight_threshold(),
+                    self.strategy.max_gm_components(),
+                    self.common_prune.min_trajectory_length,
+                    f64::INFINITY, // gm_merge_threshold - TODO: expose this
+                )
+            }
+        }
+    }
+
     /// Core step implementation.
     fn step_core<R: Rng>(
         &mut self,
@@ -283,7 +349,9 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
         let updated_tracks = self.get_tracks();
 
         // Prune (use block to limit context lifetime)
-        {
+        // For LMBM, prune() normalizes hypotheses first, then computes objects_likely_to_exist,
+        // then prunes tracks. It returns the keep_mask (objects_likely_to_exist).
+        let objects_likely_to_exist = {
             let ctx = UpdateContext {
                 motion: &self.motion,
                 sensors: &self.sensors,
@@ -291,23 +359,19 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
                 association_config: &self.association_config,
                 common_prune: &self.common_prune,
             };
-            self.strategy
+            let keep_mask = self
+                .strategy
                 .prune(&mut self.hypotheses, &mut self.trajectories, &ctx);
-        }
+            if self.strategy.is_hypothesis_based() {
+                Some(keep_mask)
+            } else {
+                None
+            }
+        };
 
         // Capture normalized hypotheses (after prune, for LMBM)
         let normalized_hypotheses = if self.strategy.is_hypothesis_based() {
             Some(self.hypotheses.clone())
-        } else {
-            None
-        };
-
-        // Compute objects likely to exist mask
-        let objects_likely_to_exist = if self.strategy.is_hypothesis_based() {
-            Some(super::common_ops::compute_objects_likely_to_exist(
-                &self.hypotheses,
-                self.common_prune.existence_threshold,
-            ))
         } else {
             None
         };

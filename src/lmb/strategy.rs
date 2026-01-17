@@ -255,6 +255,25 @@ pub trait UpdateStrategy: Send + Sync + Clone {
     fn init_birth_trajectories(&self, hypotheses: &mut Vec<Hypothesis>, max_length: usize) {
         super::common_ops::init_hypothesis_birth_trajectories(hypotheses, max_length);
     }
+
+    // ========================================================================
+    // Config getters for debugging/serialization
+    // ========================================================================
+
+    /// Get GM weight threshold (for LMB filters) or 0.0 (for LMBM).
+    fn gm_weight_threshold(&self) -> f64 {
+        0.0
+    }
+
+    /// Get max GM components (for LMB filters) or 0 (for LMBM).
+    fn max_gm_components(&self) -> usize {
+        0
+    }
+
+    /// Get LMBM configuration (default for non-LMBM filters).
+    fn lmbm_config(&self) -> super::config::LmbmConfig {
+        super::config::LmbmConfig::default()
+    }
 }
 
 // ============================================================================
@@ -459,6 +478,14 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SingleSensorSchedu
     fn is_hypothesis_based(&self) -> bool {
         false
     }
+
+    fn gm_weight_threshold(&self) -> f64 {
+        self.prune_config.gm_weight_threshold
+    }
+
+    fn max_gm_components(&self) -> usize {
+        self.prune_config.max_gm_components
+    }
 }
 
 // ============================================================================
@@ -563,6 +590,14 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
 
     fn is_hypothesis_based(&self) -> bool {
         false
+    }
+
+    fn gm_weight_threshold(&self) -> f64 {
+        self.prune_config.gm_weight_threshold
+    }
+
+    fn max_gm_components(&self) -> usize {
+        self.prune_config.max_gm_components
     }
 }
 
@@ -701,6 +736,14 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
 
     fn is_hypothesis_based(&self) -> bool {
         false
+    }
+
+    fn gm_weight_threshold(&self) -> f64 {
+        self.prune_config.gm_weight_threshold
+    }
+
+    fn max_gm_components(&self) -> usize {
+        self.prune_config.max_gm_components
     }
 }
 
@@ -1443,6 +1486,14 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
     fn is_hypothesis_based(&self) -> bool {
         true
     }
+
+    fn lmbm_config(&self) -> super::config::LmbmConfig {
+        super::config::LmbmConfig {
+            max_hypotheses: self.prune_config.max_hypotheses,
+            hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
+            use_eap: self.prune_config.use_eap,
+        }
+    }
 }
 
 // ============================================================================
@@ -1541,6 +1592,14 @@ impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<Multisens
 
     fn is_hypothesis_based(&self) -> bool {
         true
+    }
+
+    fn lmbm_config(&self) -> super::config::LmbmConfig {
+        super::config::LmbmConfig {
+            max_hypotheses: self.prune_config.max_hypotheses,
+            hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
+            use_eap: self.prune_config.use_eap,
+        }
     }
 }
 
