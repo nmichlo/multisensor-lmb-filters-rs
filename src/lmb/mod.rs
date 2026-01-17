@@ -46,6 +46,7 @@ pub mod types;
 pub mod builder;
 pub mod common_ops;
 pub mod core;
+pub mod core_lmbm;
 pub mod errors;
 pub mod reporter;
 pub mod scheduler;
@@ -131,6 +132,12 @@ pub use measurements::{
 
 // Unified filter core (Phase 8)
 pub use core::{LmbFilterCore, SensorSet, SensorSetIter};
+
+// Unified LMBM filter core (Phase 9)
+pub use core_lmbm::{
+    LmbmAssociationIntermediate, LmbmAssociator, LmbmFilterCore, LmbmSensorSet,
+    MultisensorLmbmStrategy, SingleSensorLmbmStrategy,
+};
 
 // ============================================================================
 // Default Filter Constants
