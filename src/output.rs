@@ -11,7 +11,7 @@
 
 use nalgebra::{DMatrix, DVector};
 
-use super::types::TrackLabel;
+use crate::types::TrackLabel;
 
 /// Estimated state of a single track at one timestep.
 ///

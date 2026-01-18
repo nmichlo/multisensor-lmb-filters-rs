@@ -554,7 +554,7 @@ fn test_data_association_equivalence(variant: &str) {
 }
 
 fn test_update_output_equivalence(variant: &str) {
-    use multisensor_lmb_filters_rs::lmb::common_ops::update_existence_from_marginals;
+    use multisensor_lmb_filters_rs::utils::common_ops::update_existence_from_marginals;
 
     let fixture = load_variant_fixture(variant);
 
@@ -765,7 +765,7 @@ fn test_fusion_equivalence(variant: &str) {
 }
 
 fn test_cardinality_equivalence(variant: &str) {
-    use multisensor_lmb_filters_rs::lmb::cardinality::lmb_map_cardinality_estimate;
+    use multisensor_lmb_filters_rs::cardinality::lmb_map_cardinality_estimate;
 
     let fixture = load_variant_fixture(variant);
 

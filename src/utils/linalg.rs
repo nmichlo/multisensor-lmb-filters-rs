@@ -6,7 +6,7 @@
 //! # Numerical Robustness
 //!
 //! This module provides "self-healing" math functions that survive numerical
-//! edge cases common in tracking applications (near-singular covariance matrices,
+//! edge cases utils in tracking applications (near-singular covariance matrices,
 //! poorly conditioned systems). Key functions:
 //!
 //! - [`robust_cholesky`] - Auto-regularizes to ensure Cholesky succeeds
@@ -18,7 +18,7 @@
 //! When fallback methods are used, functions can optionally log warnings via
 //! the `tracing` crate. Use [`CholeskyResult`] to detect regularization events.
 
-use crate::common::constants::SVD_TOLERANCE;
+use crate::utils::constants::SVD_TOLERANCE;
 use nalgebra::{Cholesky, DMatrix, DVector, Dyn};
 use std::f64::consts::PI;
 
@@ -35,7 +35,7 @@ use std::f64::consts::PI;
 ///
 /// ```
 /// use nalgebra::DMatrix;
-/// use multisensor_lmb_filters_rs::common::linalg::{robust_cholesky, CholeskyResult};
+/// use multisensor_lmb_filters_rs::utils::linalg::{robust_cholesky, CholeskyResult};
 ///
 /// let matrix = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);
 /// match robust_cholesky(&matrix) {
@@ -160,7 +160,7 @@ pub const CHOLESKY_REGULARIZATION_GROWTH: f64 = 10.0;
 ///
 /// ```
 /// use nalgebra::DMatrix;
-/// use multisensor_lmb_filters_rs::common::linalg::robust_cholesky;
+/// use multisensor_lmb_filters_rs::utils::linalg::robust_cholesky;
 ///
 /// // Well-conditioned positive definite matrix
 /// let good = DMatrix::from_row_slice(2, 2, &[4.0, 2.0, 2.0, 3.0]);

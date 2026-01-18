@@ -117,7 +117,7 @@ pub trait MeasurementSource {
 /// Zero-copy wrapper for single-sensor measurements.
 ///
 /// Wraps a slice of measurements and presents them as a single-sensor source.
-/// This is the most common case for traditional single-sensor tracking.
+/// This is the most utils case for traditional single-sensor tracking.
 ///
 /// # Example
 ///

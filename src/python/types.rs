@@ -3,7 +3,7 @@
 use numpy::{PyArray1, PyArray2};
 use pyo3::prelude::*;
 
-use crate::lmb::types::{GaussianComponent, TrackLabel};
+use crate::types::{GaussianComponent, TrackLabel};
 
 use super::convert::{dmatrix_to_numpy, dvector_to_numpy};
 

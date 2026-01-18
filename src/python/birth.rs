@@ -3,7 +3,7 @@
 use numpy::{PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
-use crate::lmb::config::{BirthLocation, BirthModel};
+use crate::config::{BirthLocation, BirthModel};
 
 use super::convert::{dmatrix_to_numpy, dvector_to_numpy, numpy_to_dmatrix, numpy_to_dvector};
 

@@ -3,7 +3,7 @@
 use numpy::{PyArray1, PyArray2};
 use pyo3::prelude::*;
 
-use crate::lmb::output::{EstimatedTrack, StateEstimate};
+use crate::output::{EstimatedTrack, StateEstimate};
 
 use super::convert::{dmatrix_to_numpy, dvector_to_numpy};
 use super::types::PyTrackLabel;

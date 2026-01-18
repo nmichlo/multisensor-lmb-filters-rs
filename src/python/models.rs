@@ -3,7 +3,7 @@
 use numpy::{PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
-use crate::lmb::config::{MotionModel, SensorConfig, SensorModel};
+use crate::config::{MotionModel, SensorConfig, SensorModel};
 
 use super::convert::{dmatrix_to_numpy, numpy_to_dmatrix, numpy_to_dvector};
 

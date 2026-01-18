@@ -1,5 +1,5 @@
 //! Test MAP cardinality estimation against MATLAB values
-use multisensor_lmb_filters_rs::lmb::cardinality::{
+use multisensor_lmb_filters_rs::cardinality::{
     elementary_symmetric_function, lmb_map_cardinality_estimate,
 };
 

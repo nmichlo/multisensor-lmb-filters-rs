@@ -11,9 +11,9 @@
 //! - [`MergerIteratedCorrector`] - Sequential sensor updates (order-dependent)
 
 use nalgebra::{DMatrix, DVector};
-
-use super::super::traits::Merger;
-use super::super::types::{GaussianComponent, Track};
+use crate::utils::common_ops;
+use crate::Merger;
+use crate::types::{GaussianComponent, Track};
 
 // ============================================================================
 // Arithmetic Average Merger
@@ -93,7 +93,7 @@ impl Merger for MergerAverageArithmetic {
 
             // Truncate to max components and normalize (no Mahalanobis merging)
             fused_tracks[i].components =
-                super::super::common_ops::truncate_components(all_components, self.max_components);
+                common_ops::truncate_components(all_components, self.max_components);
         }
 
         fused_tracks
@@ -255,7 +255,7 @@ impl Merger for MergerAverageGeometric {
 /// Fuses per-sensor track posteriors using information-form fusion with
 /// decorrelation. This is theoretically optimal for independent sensors.
 ///
-/// The algorithm removes the common prior contribution before fusion:
+/// The algorithm removes the utils prior contribution before fusion:
 /// 1. Convert prior to canonical form
 /// 2. K_fused = Σ K_sensor + (1-S) × K_prior  (decorrelation)
 /// 3. Convert back and select max-weight component

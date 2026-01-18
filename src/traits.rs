@@ -13,17 +13,17 @@
 //! with hard assignment updates.
 
 use crate::association::{AssociationMatrices, PosteriorGrid};
-use crate::common::association::gibbs as legacy_gibbs;
-use crate::common::association::lbp as legacy_lbp;
-use crate::common::association::murtys as legacy_murtys;
-use crate::common::rng as legacy_rng;
+use crate::utils::{common_ops, gibbs as legacy_gibbs};
+use crate::utils::lbp as legacy_lbp;
+use crate::utils::murtys as legacy_murtys;
+use crate::utils::rng as legacy_rng;
+use crate::lmb::NUMERICAL_ZERO;
+use crate::config::{AssociationConfig, DataAssociationMethod};
+use crate::errors::{AssociationError, FilterError};
+use crate::output::StateEstimate;
+use crate::types::Track;
 
-use super::config::{AssociationConfig, DataAssociationMethod};
-use super::errors::{AssociationError, FilterError};
-use super::output::StateEstimate;
-use super::types::Track;
-
-/// Adapter to bridge `rand::Rng` to the legacy `common::rng::Rng` trait.
+/// Adapter to bridge `rand::Rng` to the legacy `utils::rng::Rng` trait.
 ///
 /// The legacy association implementations use a custom RNG trait for
 /// deterministic cross-language testing with MATLAB. This adapter allows
@@ -401,7 +401,7 @@ impl Associator for AssociatorGibbs {
         // R: existence ratio matrix (n x (m+1)) with [phi/eta, 1, 1, ...]
         let mut r_mat = nalgebra::DMatrix::from_element(n, m + 1, 1.0);
         for i in 0..n {
-            if matrices.eta[i].abs() > super::NUMERICAL_ZERO {
+            if matrices.eta[i].abs() > NUMERICAL_ZERO {
                 r_mat[(i, 0)] = matrices.phi[i] / matrices.eta[i];
             } else {
                 r_mat[(i, 0)] = 0.0;
@@ -528,7 +528,7 @@ impl Associator for AssociatorMurty {
         // This is the existence ratio matrix
         let mut r_mat = nalgebra::DMatrix::from_element(n, m + 1, 1.0);
         for i in 0..n {
-            if matrices.eta[i].abs() > super::NUMERICAL_ZERO {
+            if matrices.eta[i].abs() > NUMERICAL_ZERO {
                 r_mat[(i, 0)] = matrices.phi[i] / matrices.eta[i];
             } else {
                 r_mat[(i, 0)] = 0.0;
@@ -564,7 +564,7 @@ impl Associator for AssociatorMurty {
         let mut tau = nalgebra::DMatrix::zeros(n, m + 1);
         for i in 0..n {
             let row_sum: f64 = sigma.row(i).sum();
-            if row_sum > super::NUMERICAL_ZERO {
+            if row_sum > NUMERICAL_ZERO {
                 for j in 0..(m + 1) {
                     tau[(i, j)] = (sigma[(i, j)] * r_mat[(i, j)]) / row_sum;
                 }
@@ -582,7 +582,7 @@ impl Associator for AssociatorMurty {
         // MATLAB line 39
         let mut w_full = nalgebra::DMatrix::zeros(n, m + 1);
         for i in 0..n {
-            if posterior_existence[i] > super::NUMERICAL_ZERO {
+            if posterior_existence[i] > NUMERICAL_ZERO {
                 for j in 0..(m + 1) {
                     w_full[(i, j)] = tau[(i, j)] / posterior_existence[i];
                 }
@@ -777,7 +777,7 @@ impl Updater for UpdaterMarginal {
             // MATLAB's posteriorParameters.w[meas][comp] (see fixture file structure docs).
             for j in 0..m {
                 let meas_prob = result.marginal_weights[(i, j)];
-                if meas_prob < super::NUMERICAL_ZERO {
+                if meas_prob < NUMERICAL_ZERO {
                     continue; // Skip negligible associations
                 }
 
@@ -809,7 +809,7 @@ impl Updater for UpdaterMarginal {
                 .collect();
 
             // Prune, truncate, and normalize using shared helper
-            track.components = super::common_ops::prune_weighted_components(
+            track.components = common_ops::prune_weighted_components(
                 weighted_components,
                 self.weight_threshold,
                 self.max_components,
@@ -898,7 +898,7 @@ impl Updater for UpdaterHardAssignment {
                             // (components unchanged, just normalize weight)
                             if !track.components.is_empty() {
                                 let total: f64 = track.components.iter().map(|c| c.weight).sum();
-                                if total > super::NUMERICAL_ZERO {
+                                if total > NUMERICAL_ZERO {
                                     for c in track.components.iter_mut() {
                                         c.weight /= total;
                                     }
@@ -936,7 +936,7 @@ impl Updater for UpdaterHardAssignment {
                 // (components unchanged, just normalize weight)
                 if !track.components.is_empty() {
                     let total: f64 = track.components.iter().map(|c| c.weight).sum();
-                    if total > super::NUMERICAL_ZERO {
+                    if total > NUMERICAL_ZERO {
                         for c in track.components.iter_mut() {
                             c.weight /= total;
                         }

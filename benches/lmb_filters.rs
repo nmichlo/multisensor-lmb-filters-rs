@@ -7,11 +7,11 @@
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use std::time::Duration;
 
-use multisensor_lmb_filters_rs::bench_utils::{
+use multisensor_lmb_filters_rs::lmb::{Filter, SimpleRng};
+use multisensor_lmb_filters_rs::utils::bench::{
     create_filter, load_scenario, preprocess, AnyFilter, PreprocessedScenario,
     MULTI_SENSOR_SCENARIOS, SINGLE_SENSOR_SCENARIOS,
 };
-use multisensor_lmb_filters_rs::lmb::{Filter, SimpleRng};
 
 // =============================================================================
 // Helper: Run all steps for a filter

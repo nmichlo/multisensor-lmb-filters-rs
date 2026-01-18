@@ -14,18 +14,17 @@ use smallvec::SmallVec;
 use std::fs;
 
 use multisensor_lmb_filters_rs::association::AssociationBuilder;
-use multisensor_lmb_filters_rs::common::association::gibbs::{
-    lmb_gibbs_sampling, GibbsAssociationMatrices,
-};
-use multisensor_lmb_filters_rs::common::rng::SimpleRng;
 use multisensor_lmb_filters_rs::lmb::{
-    common_ops::compute_hypothesis_cardinality, AssociationConfig, AssociatorGibbs, BirthLocation,
-    BirthModel, CommonPruneConfig, Filter, GaussianComponent, LmbmPruneConfig, LmbmStrategy,
-    MotionModel, SensorModel, SingleSensorLmbmStrategy, Track, TrackLabel, UnifiedFilter,
+    AssociationConfig, AssociatorGibbs, BirthLocation, BirthModel, CommonPruneConfig, Filter,
+    GaussianComponent, LmbmPruneConfig, LmbmStrategy, MotionModel, SensorModel,
+    SingleSensorLmbmStrategy, Track, TrackLabel, UnifiedFilter,
 };
+use multisensor_lmb_filters_rs::utils::gibbs::{lmb_gibbs_sampling, GibbsAssociationMatrices};
+use multisensor_lmb_filters_rs::utils::rng::SimpleRng;
 
 // Import deserialization helpers from fixtures module
 use helpers::fixtures::{deserialize_matrix, deserialize_p_s, deserialize_v_matrix};
+use multisensor_lmb_filters_rs::utils::common_ops::compute_hypothesis_cardinality;
 
 const TOLERANCE: f64 = 1e-10;
 
@@ -624,7 +623,7 @@ fn test_lmbm_gibbs_v_matrix_equivalence() {
 /// Test LMBM Murty V matrix VALUES match MATLAB exactly (TOLERANCE=0 for integers)
 #[test]
 fn test_lmbm_murty_v_matrix_equivalence() {
-    use multisensor_lmb_filters_rs::common::association::murtys::murtys_algorithm_wrapper;
+    use multisensor_lmb_filters_rs::utils::murtys::murtys_algorithm_wrapper;
 
     let fixture = load_lmbm_fixture();
 

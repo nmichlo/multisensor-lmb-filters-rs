@@ -36,7 +36,7 @@
 ///     fprintf('  %d: %d\n', i-1, val);
 /// end
 /// ```
-use multisensor_lmb_filters_rs::common::rng::{Rng, SimpleRng};
+use multisensor_lmb_filters_rs::utils::rng::{Rng, SimpleRng};
 
 #[test]
 fn test_rng_next_u64_seed_42() {

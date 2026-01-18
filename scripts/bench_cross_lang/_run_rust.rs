@@ -9,7 +9,7 @@
 
 use clap::Parser;
 
-use multisensor_lmb_filters_rs::bench_utils::{create_filter, load_scenario, preprocess};
+use multisensor_lmb_filters_rs::utils::bench::{create_filter, load_scenario, preprocess};
 
 // =============================================================================
 // CLI Arguments

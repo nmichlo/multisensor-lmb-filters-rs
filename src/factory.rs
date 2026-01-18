@@ -1,6 +1,6 @@
 //! Factory functions for creating LMB and LMBM filters.
 //!
-//! These functions provide simple, one-call construction for common filter configurations.
+//! These functions provide simple, one-call construction for utils filter configurations.
 //! For custom associators or schedulers, use [`UnifiedFilter::new`] with a custom strategy.
 //!
 //! # LMB Filters
@@ -16,20 +16,20 @@
 //! - [`lmbm_filter`] - Single-sensor LMBM with Gibbs associator
 //! - [`multisensor_lmbm_filter`] - Multi-sensor LMBM with Gibbs associator
 
-use super::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig, SensorModel};
-use super::multisensor::fusion::{
+use crate::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig, SensorModel};
+use crate::fusion_ms::{
     MergerAverageArithmetic, MergerAverageGeometric, MergerParallelUpdate,
 };
-use super::multisensor::traits::AssociatorMultisensorGibbs;
-use super::scheduler::{ParallelScheduler, SequentialScheduler, SingleSensorScheduler};
-use super::strategy::{
+use crate::traits_ms::AssociatorMultisensorGibbs;
+use crate::scheduler::{ParallelScheduler, SequentialScheduler, SingleSensorScheduler};
+use crate::strategy::{
     AaLmbStrategyLbp, CommonPruneConfig, GaLmbStrategyLbp, IcLmbStrategyLbp, LmbPruneConfig,
     LmbStrategy, LmbStrategyLbp, LmbmPruneConfig, LmbmStrategy, LmbmStrategyGibbs,
     MultisensorLmbmStrategy, MultisensorLmbmStrategyGibbs, PuLmbStrategyLbp,
     SingleSensorLmbmStrategy,
 };
-use super::traits::{AssociatorGibbs, AssociatorLbp};
-use super::unified::UnifiedFilter;
+use crate::traits::{AssociatorGibbs, AssociatorLbp};
+use crate::unified::UnifiedFilter;
 
 // ============================================================================
 // LMB Filter Factory Functions
@@ -243,8 +243,8 @@ pub fn multisensor_lmbm_filter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmb::config::BirthLocation;
-    use crate::lmb::traits::Filter;
+    use crate::config::BirthLocation;
+    use crate::traits::Filter;
     use nalgebra::DMatrix;
 
     fn create_motion() -> MotionModel {

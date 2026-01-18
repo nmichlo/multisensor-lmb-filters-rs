@@ -2,24 +2,24 @@
 //!
 //! Uses helper functions and macros to reduce boilerplate across the 7 filter types.
 
-use crate::common::rng::SimpleRng;
+use crate::utils::rng::SimpleRng;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 
-use crate::lmb::config::{AssociationConfig, DataAssociationMethod};
-use crate::lmb::errors::FilterError;
-use crate::lmb::multisensor::fusion::{
+use crate::config::{AssociationConfig, DataAssociationMethod};
+use crate::errors::FilterError;
+use crate::fusion_ms::{
     MergerAverageArithmetic, MergerAverageGeometric, MergerParallelUpdate,
 };
-use crate::lmb::multisensor::traits::AssociatorMultisensorGibbs;
-use crate::lmb::scheduler::ParallelScheduler;
-use crate::lmb::scheduler::{SequentialScheduler, SingleSensorScheduler};
-use crate::lmb::strategy::{
+use crate::traits_ms::AssociatorMultisensorGibbs;
+use crate::scheduler::ParallelScheduler;
+use crate::scheduler::{SequentialScheduler, SingleSensorScheduler};
+use crate::strategy::{
     CommonPruneConfig, LmbPruneConfig, LmbStrategy, LmbmPruneConfig, LmbmStrategy,
     MultisensorLmbmStrategy, SingleSensorLmbmStrategy,
 };
-use crate::lmb::traits::Filter;
-use crate::lmb::types::{StepDetailedOutput, Track};
+use crate::traits::Filter;
+use crate::types::{StepDetailedOutput, Track};
 use crate::lmb::{AssociatorLbp, DynamicAssociator, UnifiedFilter};
 
 use super::birth::PyBirthModel;

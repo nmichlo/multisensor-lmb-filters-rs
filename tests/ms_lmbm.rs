@@ -243,7 +243,7 @@ use multisensor_lmb_filters_rs::lmb::{
 use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
 
-use multisensor_lmb_filters_rs::lmb::types::GaussianComponent;
+use multisensor_lmb_filters_rs::types::GaussianComponent;
 
 /// Convert fixture HypothesisData to Hypothesis
 fn hypothesis_to_hypothesis(hyp: &HypothesisData) -> Hypothesis {
@@ -739,8 +739,8 @@ fn test_multisensor_lmbm_hypothesis_generation_equivalence() {
 /// It can be tested directly using step5.input (= step4 output) from the fixture.
 #[test]
 fn test_multisensor_lmbm_normalization_isolated_equivalence() {
-    use multisensor_lmb_filters_rs::lmb::common_ops::normalize_gate_and_prune_tracks;
     use multisensor_lmb_filters_rs::lmb::Hypothesis;
+    use multisensor_lmb_filters_rs::utils::common_ops::normalize_gate_and_prune_tracks;
 
     let fixture = load_multisensor_lmbm_fixture();
 
@@ -870,8 +870,8 @@ fn test_multisensor_lmbm_normalization_isolated_equivalence() {
 /// Test multisensor LMBM extraction (step6) VALUE equivalence
 #[test]
 fn test_multisensor_lmbm_extraction_equivalence() {
-    use multisensor_lmb_filters_rs::lmb::common_ops::compute_hypothesis_cardinality;
     use multisensor_lmb_filters_rs::lmb::Hypothesis;
+    use multisensor_lmb_filters_rs::utils::common_ops::compute_hypothesis_cardinality;
 
     let fixture = load_multisensor_lmbm_fixture();
 

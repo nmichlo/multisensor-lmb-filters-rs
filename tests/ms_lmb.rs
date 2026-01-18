@@ -24,6 +24,7 @@ use helpers::fixtures::{
 };
 // Import assertion helpers
 use helpers::assertions::assert_vec_close;
+use multisensor_lmb_filters_rs::utils::common_ops::update_existence_from_marginals;
 
 const TOLERANCE: f64 = 1e-10;
 
@@ -777,7 +778,7 @@ fn test_multisensor_lmb_sensor1_data_association_equivalence() {
 /// Test multisensor LMB final cardinality matches MATLAB
 #[test]
 fn test_multisensor_lmb_cardinality_equivalence() {
-    use multisensor_lmb_filters_rs::lmb::cardinality::lmb_map_cardinality_estimate;
+    use multisensor_lmb_filters_rs::cardinality::lmb_map_cardinality_estimate;
 
     let fixture = load_multisensor_lmb_fixture();
 
@@ -837,8 +838,8 @@ fn test_multisensor_lmb_cardinality_equivalence() {
 #[test]
 fn test_multisensor_lmb_sensor0_update_output_equivalence() {
     use multisensor_lmb_filters_rs::lmb::{
-        common_ops::update_existence_from_marginals, AssociationConfig, Associator, AssociatorLbp,
-        DataAssociationMethod, Updater, UpdaterMarginal,
+        AssociationConfig, Associator, AssociatorLbp, DataAssociationMethod, Updater,
+        UpdaterMarginal,
     };
 
     let fixture = load_multisensor_lmb_fixture();
@@ -889,8 +890,8 @@ fn test_multisensor_lmb_sensor0_update_output_equivalence() {
 #[test]
 fn test_multisensor_lmb_sensor1_update_output_equivalence() {
     use multisensor_lmb_filters_rs::lmb::{
-        common_ops::update_existence_from_marginals, AssociationConfig, Associator, AssociatorLbp,
-        DataAssociationMethod, Updater, UpdaterMarginal,
+        AssociationConfig, Associator, AssociatorLbp, DataAssociationMethod, Updater,
+        UpdaterMarginal,
     };
 
     let fixture = load_multisensor_lmb_fixture();

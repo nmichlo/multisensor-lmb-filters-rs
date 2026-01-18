@@ -3,7 +3,7 @@
 //! Implements MAP cardinality estimation for LMB filters.
 //! Matches MATLAB lmbMapCardinalityEstimate.m and esf.m exactly.
 
-use crate::common::constants::{EPSILON_EXISTENCE, ESF_ADJUSTMENT};
+use crate::utils::constants::{EPSILON_EXISTENCE, ESF_ADJUSTMENT};
 
 /// Elementary Symmetric Function (ESF)
 ///

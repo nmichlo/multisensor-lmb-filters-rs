@@ -24,7 +24,7 @@
 
 use nalgebra::{DMatrix, DVector};
 use serde::Serialize;
-
+use crate::lmb::{DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_GM_MERGE_THRESHOLD, DEFAULT_GM_WEIGHT_THRESHOLD, DEFAULT_LMBM_MAX_HYPOTHESES, DEFAULT_LMBM_WEIGHT_THRESHOLD, DEFAULT_MAX_GM_COMPONENTS, DEFAULT_MAX_TRAJECTORY_LENGTH, DEFAULT_MIN_TRAJECTORY_LENGTH};
 // ============================================================================
 // Model Behavior Traits (Phase 3 - Extensibility)
 // ============================================================================
@@ -629,7 +629,7 @@ pub struct CommonConfig {
 }
 
 impl CommonConfig {
-    /// Create a new common configuration.
+    /// Create a new utils configuration.
     pub fn new(
         existence_threshold: f64,
         min_trajectory_length: usize,
@@ -646,9 +646,9 @@ impl CommonConfig {
 impl Default for CommonConfig {
     fn default() -> Self {
         Self {
-            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
-            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
-            max_trajectory_length: super::DEFAULT_MAX_TRAJECTORY_LENGTH,
+            existence_threshold: DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: DEFAULT_MIN_TRAJECTORY_LENGTH,
+            max_trajectory_length: DEFAULT_MAX_TRAJECTORY_LENGTH,
         }
     }
 }
@@ -726,9 +726,9 @@ impl Default for LmbFilterConfig {
     fn default() -> Self {
         Self {
             common: CommonConfig::default(),
-            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
-            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
-            gm_merge_threshold: super::DEFAULT_GM_MERGE_THRESHOLD,
+            gm_weight_threshold: DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: DEFAULT_MAX_GM_COMPONENTS,
+            gm_merge_threshold: DEFAULT_GM_MERGE_THRESHOLD,
         }
     }
 }
@@ -794,8 +794,8 @@ impl Default for LmbmFilterConfig {
     fn default() -> Self {
         Self {
             common: CommonConfig::default(),
-            max_hypotheses: super::DEFAULT_LMBM_MAX_HYPOTHESES,
-            hypothesis_weight_threshold: super::DEFAULT_LMBM_WEIGHT_THRESHOLD,
+            max_hypotheses: DEFAULT_LMBM_MAX_HYPOTHESES,
+            hypothesis_weight_threshold: DEFAULT_LMBM_WEIGHT_THRESHOLD,
             use_eap: false,
         }
     }
@@ -1216,6 +1216,7 @@ impl FilterConfigSnapshot {
 
 #[cfg(test)]
 mod tests {
+    use crate::lmb::{DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_GM_MERGE_THRESHOLD, DEFAULT_GM_WEIGHT_THRESHOLD, DEFAULT_LMBM_MAX_HYPOTHESES, DEFAULT_LMBM_WEIGHT_THRESHOLD, DEFAULT_MAX_GM_COMPONENTS, DEFAULT_MAX_TRAJECTORY_LENGTH, DEFAULT_MIN_TRAJECTORY_LENGTH};
     use super::*;
 
     #[test]
@@ -1242,15 +1243,15 @@ mod tests {
         let config = CommonConfig::default();
         assert_eq!(
             config.existence_threshold,
-            super::super::DEFAULT_EXISTENCE_THRESHOLD
+            DEFAULT_EXISTENCE_THRESHOLD
         );
         assert_eq!(
             config.min_trajectory_length,
-            super::super::DEFAULT_MIN_TRAJECTORY_LENGTH
+            DEFAULT_MIN_TRAJECTORY_LENGTH
         );
         assert_eq!(
             config.max_trajectory_length,
-            super::super::DEFAULT_MAX_TRAJECTORY_LENGTH
+            DEFAULT_MAX_TRAJECTORY_LENGTH
         );
     }
 
@@ -1267,15 +1268,15 @@ mod tests {
         let config = LmbFilterConfig::default();
         assert_eq!(
             config.existence_threshold(),
-            super::super::DEFAULT_EXISTENCE_THRESHOLD
+            DEFAULT_EXISTENCE_THRESHOLD
         );
         assert_eq!(
             config.gm_weight_threshold,
-            super::super::DEFAULT_GM_WEIGHT_THRESHOLD
+            DEFAULT_GM_WEIGHT_THRESHOLD
         );
         assert_eq!(
             config.max_gm_components,
-            super::super::DEFAULT_MAX_GM_COMPONENTS
+            DEFAULT_MAX_GM_COMPONENTS
         );
         assert!(config.gm_merge_threshold.is_infinite());
     }
@@ -1296,9 +1297,9 @@ mod tests {
         let common = CommonConfig::new(0.02, 10, 200);
         let config = LmbFilterConfig::new(
             common,
-            super::super::DEFAULT_GM_WEIGHT_THRESHOLD,
+            DEFAULT_GM_WEIGHT_THRESHOLD,
             75,
-            super::super::DEFAULT_GM_MERGE_THRESHOLD,
+            DEFAULT_GM_MERGE_THRESHOLD,
         );
 
         // Common fields should come from the CommonConfig
@@ -1310,7 +1311,7 @@ mod tests {
         // GM-specific field from default
         assert_eq!(
             config.gm_weight_threshold,
-            super::super::DEFAULT_GM_WEIGHT_THRESHOLD
+            DEFAULT_GM_WEIGHT_THRESHOLD
         );
     }
 
@@ -1319,15 +1320,15 @@ mod tests {
         let config = LmbmFilterConfig::default();
         assert_eq!(
             config.existence_threshold(),
-            super::super::DEFAULT_EXISTENCE_THRESHOLD
+            DEFAULT_EXISTENCE_THRESHOLD
         );
         assert_eq!(
             config.max_hypotheses,
-            super::super::DEFAULT_LMBM_MAX_HYPOTHESES
+            DEFAULT_LMBM_MAX_HYPOTHESES
         );
         assert_eq!(
             config.hypothesis_weight_threshold,
-            super::super::DEFAULT_LMBM_WEIGHT_THRESHOLD
+            DEFAULT_LMBM_WEIGHT_THRESHOLD
         );
         assert!(!config.use_eap);
     }

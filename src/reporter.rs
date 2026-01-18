@@ -36,8 +36,8 @@
 //! Currently, this module provides the abstraction layer.
 
 use crate::association::AssociationMatrices;
-use crate::lmb::traits::AssociationResult;
-use crate::lmb::types::Track;
+use crate::traits::AssociationResult;
+use crate::types::Track;
 
 // ============================================================================
 // StepReporter Trait

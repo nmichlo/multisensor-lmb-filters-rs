@@ -9,10 +9,10 @@
 
 use nalgebra::{DMatrix, DVector};
 
-use crate::common::linalg::normalize_log_weights;
+use crate::utils::linalg::normalize_log_weights;
 use crate::lmb::{SensorModel, Track};
 
-use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
+use crate::likelihood::{compute_likelihood, LikelihoodWorkspace};
 
 /// Pre-computed Kalman posteriors for all (track, measurement) pairs.
 ///
@@ -359,7 +359,7 @@ impl<'a> AssociationBuilder<'a> {
 
                 // Store log(L[i,j]) using log-sum-exp for numerical stability
                 // This avoids underflow when log_terms are very negative (e.g., -1000)
-                use crate::common::linalg::log_sum_exp;
+                use crate::utils::linalg::log_sum_exp;
                 log_l_matrix[(i, j)] = log_sum_exp(&log_terms);
 
                 // Normalize component weights using log-sum-exp (matches MATLAB lines 68-70)

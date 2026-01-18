@@ -35,7 +35,7 @@
 //! let scheduler = ParallelScheduler::new(ArithmeticAverageMerger::uniform(2, 100));
 //! ```
 
-use crate::lmb::traits::Merger;
+use crate::traits::Merger;
 
 // ============================================================================
 // UpdateScheduler Trait

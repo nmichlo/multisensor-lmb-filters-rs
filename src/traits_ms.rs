@@ -1,7 +1,7 @@
 //! Multi-sensor associator traits and implementations.
 //!
 //! This module provides the [`AssociatorMultisensor`] trait for multi-sensor
-//! joint data association. Unlike the single-sensor [`Associator`] trait which
+//! joint data association. Unlike the single-sensor [`3`] trait which
 //! operates on a 2D cost matrix, multi-sensor association operates on a
 //! Cartesian product space of all sensor measurements.
 //!
@@ -17,9 +17,9 @@
 use nalgebra::DMatrix;
 use rand::distributions::Distribution;
 
-use super::super::config::AssociationConfig;
-use super::super::errors::AssociationError;
-use crate::common::rng::Uniform01;
+use crate::AssociationConfig;
+use crate::AssociationError;
+use crate::utils::rng::Uniform01;
 
 /// Result of multi-sensor data association.
 ///

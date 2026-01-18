@@ -1,5 +1,5 @@
 /*!
-# Prak - Multi-object tracking library
+# multisensor-lmb-filters-rs - Multi-object tracking library
 
 Rust implementation of multi-object tracking algorithms based on
 Labelled Multi-Bernoulli (LMB) filters and their variants.
@@ -13,9 +13,8 @@ Labelled Multi-Bernoulli (LMB) filters and their variants.
 ## Modules
 
 - [`lmb`] - LMB tracking algorithms and types
-- [`components`] - Shared algorithms: prediction, update
 - [`association`] - Data association: likelihood computation, matrix building
-- [`common`] - Low-level utilities
+- [`utils`] - Low-level utilities and shared algorithms
 */
 
 // ============================================================================
@@ -32,18 +31,30 @@ pub mod python;
 /// LMB (Labeled Multi-Bernoulli) tracking algorithms
 pub mod lmb;
 
-/// Shared tracking components (prediction, update)
-pub mod components;
-
 /// Data association algorithms and utilities
 pub mod association;
 
 /// Low-level utilities (linear algebra, RNG, constants)
-pub mod common;
+pub mod utils;
 
-/// Benchmark utilities (scenario loading, filter factory)
-pub mod bench_utils;
-
+// Core types
+pub mod config;
+pub mod output;
+pub mod types;
+pub mod errors;
+pub mod factory;
+pub mod reporter;
+pub mod scheduler;
+pub mod strategy;
+pub mod traits;
+pub mod unified;
+// Utilities
+pub mod cardinality;
+pub mod measurements;
+pub mod builder;
+pub mod likelihood;
+pub mod fusion_ms;
+pub mod traits_ms;
 // ============================================================================
 // Re-exports for convenience
 // ============================================================================

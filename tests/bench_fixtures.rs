@@ -4,16 +4,16 @@
 //!
 //! Fixtures are fully self-describing: model params, filter config, expected outputs.
 
-use multisensor_lmb_filters_rs::lmb::config::{
+use multisensor_lmb_filters_rs::config::{
     AssociationConfig, BirthLocation, BirthModel, MotionModel, SensorConfig, SensorModel,
 };
-use multisensor_lmb_filters_rs::lmb::strategy::{
+use multisensor_lmb_filters_rs::strategy::{
     AaLmbStrategyLbp, CommonPruneConfig, GaLmbStrategyLbp, IcLmbStrategyLbp, LmbPruneConfig,
     LmbStrategyLbp, LmbmPruneConfig, LmbmStrategyGibbs, MultisensorLmbmStrategyGibbs,
     PuLmbStrategyLbp,
 };
-use multisensor_lmb_filters_rs::lmb::traits::Filter;
-use multisensor_lmb_filters_rs::lmb::unified::UnifiedFilter;
+use multisensor_lmb_filters_rs::traits::Filter;
+use multisensor_lmb_filters_rs::unified::UnifiedFilter;
 
 use nalgebra::{DMatrix, DVector};
 use serde::Deserialize;

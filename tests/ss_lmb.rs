@@ -18,11 +18,11 @@ use std::fs;
 
 // New API imports
 use multisensor_lmb_filters_rs::association::AssociationBuilder;
-use multisensor_lmb_filters_rs::components::prediction::{predict_track, predict_tracks};
 use multisensor_lmb_filters_rs::lmb::{
     AssociationConfig, Associator, AssociatorLbp, BirthModel, DataAssociationMethod,
     GaussianComponent, MotionModel, SensorModel, Track, TrackLabel,
 };
+use multisensor_lmb_filters_rs::utils::prediction::{predict_track, predict_tracks};
 
 // Import deserialization helpers from fixtures module
 use helpers::fixtures::{
@@ -433,7 +433,7 @@ impl helpers::tracks::TrackDataAccess for ObjectData {
 /// Test that new API prediction produces MATLAB-equivalent results for single component
 #[test]
 fn test_new_api_prediction_component_equivalence() {
-    use multisensor_lmb_filters_rs::components::prediction::predict_component;
+    use multisensor_lmb_filters_rs::utils::prediction::predict_component;
 
     let fixture_path = "tests/fixtures/step_ss_lmb_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
@@ -849,8 +849,8 @@ fn test_new_api_association_posterior_parameters_equivalence() {
 /// Uses SimpleRng with exact seed from fixture to ensure deterministic results.
 #[test]
 fn test_new_api_gibbs_data_association_equivalence() {
-    use multisensor_lmb_filters_rs::common::rng::SimpleRng;
     use multisensor_lmb_filters_rs::lmb::AssociatorGibbs;
+    use multisensor_lmb_filters_rs::utils::rng::SimpleRng;
 
     let fixture_path = "tests/fixtures/step_ss_lmb_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
@@ -1019,7 +1019,7 @@ fn test_lmb_update_posterior_objects_equivalence() {
     updater.update(&mut tracks, &result, &matrices.posteriors);
 
     // Update existence probabilities from association result
-    use multisensor_lmb_filters_rs::lmb::common_ops::update_existence_from_marginals;
+    use multisensor_lmb_filters_rs::utils::common_ops::update_existence_from_marginals;
     update_existence_from_marginals(&mut tracks, &result);
 
     // Compare using helper
@@ -1032,7 +1032,7 @@ fn test_lmb_update_posterior_objects_equivalence() {
 /// Test that LMB cardinality estimation produces MATLAB-equivalent n_estimated
 #[test]
 fn test_lmb_cardinality_n_estimated_equivalence() {
-    use multisensor_lmb_filters_rs::lmb::cardinality::lmb_map_cardinality_estimate;
+    use multisensor_lmb_filters_rs::cardinality::lmb_map_cardinality_estimate;
 
     let fixture_path = "tests/fixtures/step_ss_lmb_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
@@ -1068,7 +1068,7 @@ fn test_lmb_cardinality_n_estimated_equivalence() {
 /// Test that LMB cardinality estimation produces MATLAB-equivalent map_indices
 #[test]
 fn test_lmb_cardinality_map_indices_equivalence() {
-    use multisensor_lmb_filters_rs::lmb::cardinality::lmb_map_cardinality_estimate;
+    use multisensor_lmb_filters_rs::cardinality::lmb_map_cardinality_estimate;
 
     let fixture_path = "tests/fixtures/step_ss_lmb_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)

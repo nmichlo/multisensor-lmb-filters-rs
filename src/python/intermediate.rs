@@ -11,8 +11,8 @@ use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
 
 use crate::association::AssociationMatrices;
-use crate::lmb::traits::AssociationResult;
-use crate::lmb::types::{GaussianComponent, Track, TrackLabel};
+use crate::traits::AssociationResult;
+use crate::types::{GaussianComponent, Track, TrackLabel};
 
 // =============================================================================
 // _TrackData - Full track data matching fixture format
@@ -792,7 +792,7 @@ impl PyStepOutput {
 // _Hypothesis - Hypothesis for setting filter state
 // =============================================================================
 
-use crate::lmb::types::Hypothesis;
+use crate::types::Hypothesis;
 
 /// Hypothesis for Python bindings
 ///

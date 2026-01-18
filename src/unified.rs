@@ -5,20 +5,22 @@
 //! support all LMB and LMBM variants through strategy composition.
 //! ```
 
-use super::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig};
-use super::errors::FilterError;
+use crate::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig};
+use crate::errors::FilterError;
 use super::multisensor::MeasurementsMultisensor;
-use super::output::{StateEstimate, Trajectory};
-use super::scheduler::{ParallelScheduler, SequentialScheduler, SingleSensorScheduler};
-use super::strategy::{
+use crate::output::{StateEstimate, Trajectory};
+use crate::scheduler::{ParallelScheduler, SequentialScheduler, SingleSensorScheduler};
+use crate::strategy::{
     CommonPruneConfig, LmbStrategy, LmbmStrategy, MultisensorLmbmStrategy,
     SingleSensorLmbmStrategy, UpdateContext, UpdateIntermediate, UpdateStrategy,
 };
-use super::traits::Filter;
-use super::types::{Hypothesis, StepDetailedOutput, Track};
+use crate::traits::Filter;
+use crate::types::{Hypothesis, StepDetailedOutput, Track};
 use nalgebra::DVector;
 use rand::Rng;
-
+use crate::utils::common_ops;
+use crate::lmb::DEFAULT_MAX_TRAJECTORY_LENGTH;
+use crate::traits_ms::AssociatorMultisensor;
 // ============================================================================
 // UnifiedFilter
 // ============================================================================
@@ -81,7 +83,7 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
         }
     }
 
-    /// Create with default common pruning configuration.
+    /// Create with default utils pruning configuration.
     pub fn with_defaults(
         motion: MotionModel,
         sensors: SensorConfig,
@@ -194,7 +196,7 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
         }
 
         self.strategy
-            .init_birth_trajectories(&mut self.hypotheses, super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+            .init_birth_trajectories(&mut self.hypotheses, DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // Update
         let intermediate = {
@@ -265,7 +267,7 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
             self.strategy.predict(&mut self.hypotheses, &ctx, timestep);
         }
         self.strategy
-            .init_birth_trajectories(&mut self.hypotheses, super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+            .init_birth_trajectories(&mut self.hypotheses, DEFAULT_MAX_TRAJECTORY_LENGTH);
 
         // Capture predicted tracks (from first hypothesis for LMB, or all for LMBM)
         let predicted_tracks = self.get_tracks();
@@ -332,7 +334,7 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
 
         // Compute cardinality from updated tracks (before pruning)
         // MATLAB computes cardinality from fused tracks before the gating step
-        let cardinality = super::common_ops::compute_cardinality(&updated_tracks);
+        let cardinality = common_ops::compute_cardinality(&updated_tracks);
 
         Ok(StepDetailedOutput {
             predicted_tracks,
@@ -510,7 +512,7 @@ impl<A: super::traits::Associator + Clone> Filter
 // Filter trait implementation for multi-sensor LMBM
 // ============================================================================
 
-impl<A: super::multisensor::traits::AssociatorMultisensor + Clone> Filter
+impl<A: AssociatorMultisensor + Clone> Filter
     for UnifiedFilter<LmbmStrategy<MultisensorLmbmStrategy<A>>>
 {
     type State = Vec<Hypothesis>;
@@ -552,9 +554,9 @@ impl<A: super::multisensor::traits::AssociatorMultisensor + Clone> Filter
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmb::config::{BirthLocation, SensorModel};
-    use crate::lmb::strategy::LmbStrategyLbp;
-    use crate::lmb::traits::AssociatorLbp;
+    use crate::config::{BirthLocation, SensorModel};
+    use crate::strategy::LmbStrategyLbp;
+    use crate::traits::AssociatorLbp;
     use nalgebra::DMatrix;
 
     fn create_motion() -> MotionModel {

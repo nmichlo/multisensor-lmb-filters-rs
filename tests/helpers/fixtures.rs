@@ -193,7 +193,7 @@ where
 // Fixture Loading Helpers
 //=============================================================================
 
-/// Preloaded fixture and common test setup for association tests
+/// Preloaded fixture and utils test setup for association tests
 pub struct AssociationTestSetup {
     pub sensor: SensorModel,
     pub tracks: Vec<Track>,

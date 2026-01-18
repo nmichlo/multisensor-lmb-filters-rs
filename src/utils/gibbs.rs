@@ -83,7 +83,7 @@ pub fn initialize_gibbs_association_vectors(c: &DMatrix<f64>) -> (Vec<usize>, Ve
 /// # Returns
 /// Updated (v, w) vectors
 pub fn generate_gibbs_sample(
-    rng: &mut impl crate::common::rng::Rng,
+    rng: &mut impl crate::utils::rng::Rng,
     p: &DMatrix<f64>,
     mut v: Vec<usize>,
     mut w: Vec<usize>,
@@ -129,7 +129,7 @@ pub fn generate_gibbs_sample(
 /// # Returns
 /// GibbsResult with existence probabilities, association weights, and samples
 pub fn lmb_gibbs_sampling(
-    rng: &mut impl crate::common::rng::Rng,
+    rng: &mut impl crate::utils::rng::Rng,
     matrices: &GibbsAssociationMatrices,
     num_samples: usize,
 ) -> GibbsResult {
@@ -246,7 +246,7 @@ pub fn lmb_gibbs_sampling(
 /// - Line 36-40: Tally frequencies instead of deduplicating samples
 /// - Line 42-46: Normalize and compute marginals
 pub fn lmb_gibbs_frequency_sampling(
-    rng: &mut impl crate::common::rng::Rng,
+    rng: &mut impl crate::utils::rng::Rng,
     matrices: &GibbsAssociationMatrices,
     num_samples: usize,
 ) -> GibbsResult {
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_gibbs_sampling_simple() {
-        use crate::common::rng::SimpleRng;
+        use crate::utils::rng::SimpleRng;
 
         // Simple 2 objects, 2 measurements
         let p = DMatrix::from_row_slice(2, 2, &[0.7, 0.3, 0.4, 0.6]);
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_gibbs_frequency_sampling() {
-        use crate::common::rng::SimpleRng;
+        use crate::utils::rng::SimpleRng;
 
         // Simple 2 objects, 2 measurements
         let p = DMatrix::from_row_slice(2, 2, &[0.7, 0.3, 0.4, 0.6]);
@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_gibbs_frequency_cross_language_equivalence() {
-        use crate::common::rng::SimpleRng;
+        use crate::utils::rng::SimpleRng;
 
         // Test cross-language equivalence with Octave testGibbsFrequency.m
         // Simple 2 objects, 2 measurements matching Octave test

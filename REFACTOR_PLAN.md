@@ -411,8 +411,8 @@ hypothesis = _Hypothesis.from_matlab(...)
 The legacy adapters (`legacy_lbp`, `legacy_gibbs`, `legacy_murtys`, `RngAdapter`) are kept as internal implementation detail. Update comments to clarify they're intentional internal wrappers, not backward compat:
 
 ```rust
-// Before: "use crate::common::association::gibbs as legacy_gibbs;"
-// After: "use crate::common::association::gibbs as internal_gibbs;"
+// Before: "use crate::utils::association::gibbs as legacy_gibbs;"
+// After: "use crate::utils::association::gibbs as internal_gibbs;"
 ```
 
 - [ ] Rename `legacy_*` imports to `internal_*` (cosmetic, not functional)

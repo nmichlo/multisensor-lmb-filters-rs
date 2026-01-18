@@ -1,7 +1,7 @@
 //! Update strategy trait and implementations for unified filter architecture.
 //!
 //! This module provides the `UpdateStrategy` trait which abstracts over different
-//! tracking algorithms (LMB, LMBM, etc.) allowing them to share common filter
+//! tracking algorithms (LMB, LMBM, etc.) allowing them to share utils filter
 //! infrastructure while maintaining their distinct behaviors.
 //!
 //! # Key Types
@@ -18,22 +18,23 @@
 use nalgebra::{DMatrix, DVector};
 use rand::Rng;
 
-use super::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig, SensorModel};
-use super::errors::FilterError;
-use super::multisensor::traits::AssociatorMultisensor;
+use crate::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig, SensorModel};
+use crate::errors::FilterError;
+use crate::traits_ms::AssociatorMultisensor;
 use super::multisensor::MeasurementsMultisensor;
-use super::output::{StateEstimate, Trajectory};
-use super::scheduler::{
+use crate::output::{StateEstimate, Trajectory};
+use crate::scheduler::{
     ParallelScheduler, SequentialScheduler, SingleSensorScheduler, UpdateScheduler,
 };
-use super::traits::{
+use crate::traits::{
     AssociationResult, Associator, Merger, Updater, UpdaterHardAssignment, UpdaterMarginal,
 };
-use super::types::{GaussianComponent, Hypothesis, Track};
+use crate::types::{GaussianComponent, Hypothesis, Track};
 use crate::association::{AssociationBuilder, AssociationMatrices};
-use crate::common::linalg::{log_gaussian_normalizing_constant, robust_inverse};
-use crate::components::prediction::predict_tracks;
-
+use crate::utils::common_ops;
+use crate::utils::linalg::{log_gaussian_normalizing_constant, robust_inverse};
+use crate::utils::prediction::predict_tracks;
+use crate::lmb::{DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_GM_WEIGHT_THRESHOLD, DEFAULT_MAX_GM_COMPONENTS, DEFAULT_MIN_TRAJECTORY_LENGTH, UNDERFLOW_THRESHOLD};
 // ============================================================================
 // Configuration Types
 // ============================================================================
@@ -52,8 +53,8 @@ pub struct CommonPruneConfig {
 impl Default for CommonPruneConfig {
     fn default() -> Self {
         Self {
-            existence_threshold: super::DEFAULT_EXISTENCE_THRESHOLD,
-            min_trajectory_length: super::DEFAULT_MIN_TRAJECTORY_LENGTH,
+            existence_threshold: DEFAULT_EXISTENCE_THRESHOLD,
+            min_trajectory_length: DEFAULT_MIN_TRAJECTORY_LENGTH,
         }
     }
 }
@@ -74,8 +75,8 @@ pub struct LmbPruneConfig {
 impl Default for LmbPruneConfig {
     fn default() -> Self {
         Self {
-            gm_weight_threshold: super::DEFAULT_GM_WEIGHT_THRESHOLD,
-            max_gm_components: super::DEFAULT_MAX_GM_COMPONENTS,
+            gm_weight_threshold: DEFAULT_GM_WEIGHT_THRESHOLD,
+            max_gm_components: DEFAULT_MAX_GM_COMPONENTS,
             gm_merge_threshold: f64::INFINITY,
         }
     }
@@ -204,7 +205,7 @@ pub trait UpdateStrategy: Send + Sync + Clone {
     ///
     /// * `hypotheses` - Current hypotheses (modified in place)
     /// * `trajectories` - Trajectory archive (dead tracks added here)
-    /// * `ctx` - Update context with common prune config
+    /// * `ctx` - Update context with utils prune config
     ///
     /// # Returns
     ///
@@ -246,14 +247,14 @@ pub trait UpdateStrategy: Send + Sync + Clone {
     ///
     /// Default implementation delegates to common_ops.
     fn update_trajectories(&self, hypotheses: &mut Vec<Hypothesis>, timestamp: usize) {
-        super::common_ops::update_hypothesis_trajectories(hypotheses, timestamp);
+        common_ops::update_hypothesis_trajectories(hypotheses, timestamp);
     }
 
     /// Initialize trajectory recording for birth tracks.
     ///
     /// Default implementation delegates to common_ops.
     fn init_birth_trajectories(&self, hypotheses: &mut Vec<Hypothesis>, max_length: usize) {
-        super::common_ops::init_hypothesis_birth_trajectories(hypotheses, max_length);
+        common_ops::init_hypothesis_birth_trajectories(hypotheses, max_length);
     }
 
     // ========================================================================
@@ -406,7 +407,7 @@ fn update_single_sensor<A: Associator, R: rand::Rng>(
         let p_d = sensor.detection_probability;
         for track in tracks.iter_mut() {
             track.existence =
-                crate::components::update::update_existence_no_detection(track.existence, p_d);
+                crate::utils::update::update_existence_no_detection(track.existence, p_d);
         }
         return Ok((None, None));
     }
@@ -422,7 +423,7 @@ fn update_single_sensor<A: Associator, R: rand::Rng>(
 
     // Update tracks
     updater.update(tracks, &result, &matrices.posteriors);
-    super::common_ops::update_existence_from_marginals(tracks, &result);
+    common_ops::update_existence_from_marginals(tracks, &result);
 
     Ok((Some(matrices), Some(result)))
 }
@@ -490,7 +491,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SingleSensorSchedu
         }
 
         // LMB uses single hypothesis - gate tracks by existence
-        super::common_ops::gate_tracks(
+        common_ops::gate_tracks(
             &mut hypotheses[0].tracks,
             trajectories,
             ctx.common_prune.existence_threshold,
@@ -514,7 +515,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SingleSensorSchedu
             };
         }
 
-        super::common_ops::extract_estimates(&hypotheses[0].tracks, timestamp)
+        common_ops::extract_estimates(&hypotheses[0].tracks, timestamp)
     }
 
     fn name(&self) -> &'static str {
@@ -584,7 +585,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
         measurements: &Self::Measurements,
         ctx: &UpdateContext,
     ) -> Result<UpdateIntermediate, FilterError> {
-        use super::types::SensorUpdateOutput;
+        use crate::types::SensorUpdateOutput;
 
         let num_sensors = ctx.sensors.num_sensors();
 
@@ -645,7 +646,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
             return Vec::new();
         }
 
-        super::common_ops::gate_tracks(
+        common_ops::gate_tracks(
             &mut hypotheses[0].tracks,
             trajectories,
             ctx.common_prune.existence_threshold,
@@ -668,7 +669,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
             };
         }
 
-        super::common_ops::extract_estimates(&hypotheses[0].tracks, timestamp)
+        common_ops::extract_estimates(&hypotheses[0].tracks, timestamp)
     }
 
     fn name(&self) -> &'static str {
@@ -740,7 +741,7 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
         measurements: &Self::Measurements,
         ctx: &UpdateContext,
     ) -> Result<UpdateIntermediate, FilterError> {
-        use super::types::SensorUpdateOutput;
+        use crate::types::SensorUpdateOutput;
 
         let num_sensors = ctx.sensors.num_sensors();
 
@@ -802,7 +803,7 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
             let detection_probs = ctx.sensors.detection_probabilities();
             for track in &mut hypotheses[0].tracks {
                 track.existence =
-                    crate::components::update::update_existence_no_detection_multisensor(
+                    crate::utils::update::update_existence_no_detection_multisensor(
                         track.existence,
                         &detection_probs,
                     );
@@ -837,7 +838,7 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
             return Vec::new();
         }
 
-        super::common_ops::gate_tracks(
+        common_ops::gate_tracks(
             &mut hypotheses[0].tracks,
             trajectories,
             ctx.common_prune.existence_threshold,
@@ -860,7 +861,7 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
             };
         }
 
-        super::common_ops::extract_estimates(&hypotheses[0].tracks, timestamp)
+        common_ops::extract_estimates(&hypotheses[0].tracks, timestamp)
     }
 
     fn name(&self) -> &'static str {
@@ -982,7 +983,7 @@ impl<A: Associator> SingleSensorLmbmStrategy<A> {
         let mut log_likelihood = DMatrix::zeros(n, m + 1);
 
         for i in 0..n {
-            log_likelihood[(i, 0)] = if matrices.eta[i] > super::UNDERFLOW_THRESHOLD {
+            log_likelihood[(i, 0)] = if matrices.eta[i] > UNDERFLOW_THRESHOLD {
                 matrices.eta[i].ln()
             } else {
                 LOG_UNDERFLOW
@@ -990,7 +991,7 @@ impl<A: Associator> SingleSensorLmbmStrategy<A> {
 
             for j in 0..m {
                 let likelihood_ij = matrices.eta[i] * matrices.psi[(i, j)];
-                log_likelihood[(i, j + 1)] = if likelihood_ij > super::UNDERFLOW_THRESHOLD {
+                log_likelihood[(i, j + 1)] = if likelihood_ij > UNDERFLOW_THRESHOLD {
                     likelihood_ij.ln()
                 } else {
                     LOG_UNDERFLOW
@@ -1103,7 +1104,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
         for hyp in hypotheses.iter_mut() {
             for track in &mut hyp.tracks {
                 track.existence =
-                    crate::components::update::update_existence_no_detection(track.existence, p_d);
+                    crate::utils::update::update_existence_no_detection(track.existence, p_d);
             }
         }
     }
@@ -1555,7 +1556,7 @@ fn predict_hypotheses(
     birth: &BirthModel,
     timestep: usize,
 ) {
-    super::common_ops::predict_all_hypotheses(hypotheses, motion, birth, timestep);
+    common_ops::predict_all_hypotheses(hypotheses, motion, birth, timestep);
 }
 
 // ============================================================================
@@ -1617,7 +1618,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
         trajectories: &mut Vec<Trajectory>,
         ctx: &UpdateContext,
     ) -> Vec<bool> {
-        super::common_ops::normalize_gate_and_prune_tracks(
+        common_ops::normalize_gate_and_prune_tracks(
             hypotheses,
             trajectories,
             self.prune_config.hypothesis_weight_threshold,
@@ -1633,7 +1634,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
         timestamp: usize,
         _ctx: &UpdateContext,
     ) -> StateEstimate {
-        super::common_ops::extract_hypothesis_estimates(
+        common_ops::extract_hypothesis_estimates(
             hypotheses,
             timestamp,
             self.prune_config.use_eap,
@@ -1740,18 +1741,18 @@ impl<A: AssociatorMultisensor + Clone> UpdateStrategy for LmbmStrategy<Multisens
         ctx: &UpdateContext,
     ) -> Vec<bool> {
         // For multi-sensor LMBM, we do normalize + gate separately
-        super::common_ops::normalize_and_gate_hypotheses(
+        common_ops::normalize_and_gate_hypotheses(
             hypotheses,
             self.prune_config.hypothesis_weight_threshold,
             self.prune_config.max_hypotheses,
         );
 
-        let objects_likely_to_exist = super::common_ops::compute_objects_likely_to_exist(
+        let objects_likely_to_exist = common_ops::compute_objects_likely_to_exist(
             hypotheses,
             ctx.common_prune.existence_threshold,
         );
 
-        super::common_ops::gate_hypothesis_tracks(
+        common_ops::gate_hypothesis_tracks(
             hypotheses,
             trajectories,
             ctx.common_prune.existence_threshold,
@@ -1767,7 +1768,7 @@ impl<A: AssociatorMultisensor + Clone> UpdateStrategy for LmbmStrategy<Multisens
         timestamp: usize,
         _ctx: &UpdateContext,
     ) -> StateEstimate {
-        super::common_ops::extract_hypothesis_estimates(
+        common_ops::extract_hypothesis_estimates(
             hypotheses,
             timestamp,
             self.prune_config.use_eap,
@@ -1822,11 +1823,11 @@ impl<A: AssociatorMultisensor + Clone> UpdateStrategy for LmbmStrategy<Multisens
 // Strategy Type Aliases
 // ============================================================================
 
-use super::multisensor::fusion::{
+use crate::fusion_ms::{
     MergerAverageArithmetic, MergerAverageGeometric, MergerParallelUpdate,
 };
-use super::multisensor::traits::AssociatorMultisensorGibbs;
-use super::traits::{AssociatorGibbs, AssociatorLbp};
+use crate::traits_ms::AssociatorMultisensorGibbs;
+use crate::traits::{AssociatorGibbs, AssociatorLbp};
 
 /// Single-sensor LMB strategy with LBP associator.
 pub type LmbStrategyLbp = LmbStrategy<AssociatorLbp, SingleSensorScheduler>;

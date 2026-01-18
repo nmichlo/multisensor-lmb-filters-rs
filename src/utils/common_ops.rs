@@ -3,24 +3,24 @@
 //! This module contains extracted helper functions that are used by multiple
 //! filter implementations to avoid code duplication.
 
-use crate::components::prediction::predict_tracks;
+use crate::utils::prediction::predict_tracks;
 
-use super::cardinality::lmb_map_cardinality_estimate;
-use super::config::{BirthModel, MotionModel};
-use super::output::{EstimatedTrack, StateEstimate, Trajectory};
-use super::traits::AssociationResult;
-use super::types::{CardinalityEstimate, GaussianComponent, Hypothesis, Track};
+use crate::cardinality::lmb_map_cardinality_estimate;
+use crate::config::{BirthModel, MotionModel};
+use crate::output::{EstimatedTrack, StateEstimate, Trajectory};
+use crate::traits::AssociationResult;
+use crate::types::{CardinalityEstimate, GaussianComponent, Hypothesis, Track};
 
 use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
-
+use crate::lmb::NUMERICAL_ZERO;
 // ============================================================================
 // Gaussian Mixture Component Operations
 // ============================================================================
 
 /// Prune and normalize Gaussian mixture components.
 ///
-/// This performs the common operation of:
+/// This performs the utils operation of:
 /// 1. Sorting components by weight (descending)
 /// 2. Keeping only components above the weight threshold
 /// 3. Limiting to maximum number of components
@@ -68,7 +68,7 @@ pub fn prune_and_normalize_components(
 /// * `components` - Mutable reference to component list
 pub fn normalize_component_weights(components: &mut SmallVec<[GaussianComponent; 4]>) {
     let total: f64 = components.iter().map(|c| c.weight).sum();
-    if total > super::NUMERICAL_ZERO {
+    if total > NUMERICAL_ZERO {
         for comp in components.iter_mut() {
             comp.weight /= total;
         }
@@ -182,7 +182,7 @@ pub fn merge_components_by_mahalanobis(
     merge_threshold: f64,
     max_components: usize,
 ) {
-    use crate::common::linalg::mahalanobis_distance;
+    use crate::utils::linalg::mahalanobis_distance;
 
     while components.len() > 1 {
         // Find pair with minimum Mahalanobis distance
@@ -268,7 +268,7 @@ pub fn prune_weighted_components(
 
     // Normalize weights
     let total_weight: f64 = weighted_components.iter().map(|(w, _, _)| w).sum();
-    if total_weight > super::NUMERICAL_ZERO {
+    if total_weight > NUMERICAL_ZERO {
         for (w, _, _) in &mut weighted_components {
             *w /= total_weight;
         }
@@ -293,7 +293,7 @@ pub fn prune_weighted_components(
     }
 
     // Renormalize kept components
-    if kept_weight > super::NUMERICAL_ZERO && !result.is_empty() {
+    if kept_weight > NUMERICAL_ZERO && !result.is_empty() {
         for comp in result.iter_mut() {
             comp.weight /= kept_weight;
         }
@@ -882,7 +882,7 @@ pub fn compute_objects_likely_to_exist(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmb::types::{GaussianComponent, TrackLabel};
+    use crate::types::{GaussianComponent, TrackLabel};
     use nalgebra::{DMatrix, DVector};
     use smallvec::smallvec;
 
