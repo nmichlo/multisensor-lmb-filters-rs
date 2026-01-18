@@ -5,7 +5,7 @@
 //! Fixtures are fully self-describing: model params, filter config, expected outputs.
 
 use multisensor_lmb_filters_rs::lmb::config::{
-    AssociationConfig, BirthLocation, BirthModel, MotionModel, MultisensorConfig, SensorModel,
+    AssociationConfig, BirthLocation, BirthModel, MotionModel, SensorConfig, SensorModel,
 };
 use multisensor_lmb_filters_rs::lmb::strategy::{
     AaLmbStrategyLbp, CommonPruneConfig, GaLmbStrategyLbp, IcLmbStrategyLbp, LmbPruneConfig,
@@ -226,7 +226,7 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
             (AnyFilter::Lmbm(filter), false)
         }
         "AA-LMB" => {
-            let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
+            let sensors = SensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
             let filter = multisensor_lmb_filters_rs::lmb::aa_lmb_filter(
                 motion,
                 sensors,
@@ -239,7 +239,7 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
             (AnyFilter::AaLmb(filter), true)
         }
         "GA-LMB" => {
-            let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
+            let sensors = SensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
             let filter = multisensor_lmb_filters_rs::lmb::ga_lmb_filter(
                 motion,
                 sensors,
@@ -251,7 +251,7 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
             (AnyFilter::GaLmb(filter), true)
         }
         "PU-LMB" => {
-            let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
+            let sensors = SensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
             let filter = multisensor_lmb_filters_rs::lmb::pu_lmb_filter(
                 motion,
                 sensors,
@@ -263,7 +263,7 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
             (AnyFilter::PuLmb(filter), true)
         }
         "IC-LMB" => {
-            let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
+            let sensors = SensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
             let filter = multisensor_lmb_filters_rs::lmb::ic_lmb_filter(
                 motion,
                 sensors,
@@ -275,7 +275,7 @@ fn build_filter(fixture: &Fixture) -> (AnyFilter, bool) {
             (AnyFilter::IcLmb(filter), true)
         }
         "MS-LMBM" => {
-            let sensors = MultisensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
+            let sensors = SensorConfig::new(vec![sensor.clone(); fixture.num_sensors]);
             let filter = multisensor_lmb_filters_rs::lmb::multisensor_lmbm_filter(
                 motion,
                 sensors,

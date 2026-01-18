@@ -5,10 +5,7 @@
 //! support all LMB and LMBM variants through strategy composition.
 //! ```
 
-use nalgebra::DVector;
-use rand::Rng;
-
-use super::config::{AssociationConfig, BirthModel, MotionModel, SensorSet};
+use super::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig};
 use super::errors::FilterError;
 use super::multisensor::MultisensorMeasurements;
 use super::output::{StateEstimate, Trajectory};
@@ -19,6 +16,8 @@ use super::strategy::{
 };
 use super::traits::Filter;
 use super::types::{Hypothesis, StepDetailedOutput, Track};
+use nalgebra::DVector;
+use rand::Rng;
 
 // ============================================================================
 // UnifiedFilter
@@ -43,7 +42,7 @@ pub struct UnifiedFilter<S: UpdateStrategy> {
     /// Motion model (dynamics, survival probability)
     motion: MotionModel,
     /// Sensor configuration (single or multi-sensor)
-    sensors: SensorSet,
+    sensors: SensorConfig,
     /// Birth model (where new objects can appear)
     birth: BirthModel,
     /// Association algorithm configuration
@@ -64,7 +63,7 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
     /// Create a new unified filter.
     pub fn new(
         motion: MotionModel,
-        sensors: SensorSet,
+        sensors: SensorConfig,
         birth: BirthModel,
         association_config: AssociationConfig,
         common_prune: CommonPruneConfig,
@@ -85,7 +84,7 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
     /// Create with default common pruning configuration.
     pub fn with_defaults(
         motion: MotionModel,
-        sensors: SensorSet,
+        sensors: SensorConfig,
         birth: BirthModel,
         association_config: AssociationConfig,
         strategy: S,

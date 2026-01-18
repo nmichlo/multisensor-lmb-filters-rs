@@ -24,13 +24,13 @@ pub trait FilterAlgorithm: Send + Sync {
     type DetailedOutput;
     fn predict(&mut self, motion: &dyn MotionModelBehavior, timestep: usize);
     fn inject_birth(&mut self, birth: &BirthModel, timestep: usize);
-    fn associate_and_update<R: Rng>(&mut self, rng: &mut R, measurements: &Self::Measurements, sensors: &SensorSet) -> Result<(), FilterError>;
+    fn associate_and_update<R: Rng>(&mut self, rng: &mut R, measurements: &Self::Measurements, sensors: &SensorConfig) -> Result<(), FilterError>;
     fn normalize_and_gate(&mut self, config: &GatingConfig);
     fn extract_estimate(&self, timestamp: usize) -> StateEstimate;
     fn extract_detailed(&self) -> Self::DetailedOutput;
 }
 
-pub struct Filter<A: FilterAlgorithm> { algorithm: A, motion: MotionModel, sensors: SensorSet, birth: BirthModel, gating: GatingConfig, trajectories: Vec<Trajectory> }
+pub struct Filter<A: FilterAlgorithm> { algorithm: A, motion: MotionModel, sensors: SensorConfig, birth: BirthModel, gating: GatingConfig, trajectories: Vec<Trajectory> }
 ```
 
 ### Type Aliases
@@ -121,7 +121,7 @@ Added to `src/common/linalg.rs` (~200 LOC).
 ## Phase 7C: API Simplification ✅
 Created `src/lmb/factory.rs` with 7 factory functions.
 - [x] Create factory functions: `lmb_filter()`, `ic_lmb_filter()`, `aa_lmb_filter()`, `ga_lmb_filter()`, `pu_lmb_filter()`, `lmbm_filter()`, `multisensor_lmbm_filter()`
-- [x] Merge `SensorSet` into `config.rs`, delete `LmbmSensorSet`
+- [x] Merge `SensorConfig` into `config.rs`, delete `LmbmSensorConfig`
 - [x] Remove generic params from type aliases
 - [ ] Remove constructor impl blocks (deferred to 7D)
 
@@ -443,7 +443,7 @@ pub use traits::{Filter, Associator, Updater, Merger};
 pub use scheduler::UpdateScheduler;
 
 // Configuration
-pub use config::{MotionModel, SensorModel, SensorSet, BirthModel, AssociationConfig};
+pub use config::{MotionModel, SensorModel, SensorConfig, BirthModel, AssociationConfig};
 
 // Schedulers
 pub use scheduler::{SingleSensorScheduler, SequentialScheduler, ParallelScheduler};

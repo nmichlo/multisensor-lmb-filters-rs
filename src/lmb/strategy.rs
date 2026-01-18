@@ -18,9 +18,7 @@
 use nalgebra::{DMatrix, DVector};
 use rand::Rng;
 
-use super::config::{
-    AssociationConfig, BirthModel, MotionModel, MultisensorConfig, SensorModel, SensorSet,
-};
+use super::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig, SensorModel};
 use super::errors::FilterError;
 use super::multisensor::traits::MultisensorAssociator;
 use super::multisensor::MultisensorMeasurements;
@@ -114,7 +112,7 @@ pub struct UpdateContext<'a> {
     /// Motion model (prediction dynamics)
     pub motion: &'a MotionModel,
     /// Sensor configuration (single or multi-sensor)
-    pub sensors: &'a SensorSet,
+    pub sensors: &'a SensorConfig,
     /// Birth model (where new objects appear)
     pub birth: &'a BirthModel,
     /// Association algorithm configuration
@@ -316,7 +314,7 @@ pub trait UpdateStrategy: Send + Sync + Clone {
     fn build_config_snapshot(
         &self,
         motion: &super::config::MotionModel,
-        sensors: &super::config::SensorSet,
+        sensors: &super::config::SensorConfig,
         birth: &super::config::BirthModel,
         association_config: &super::config::AssociationConfig,
         common_prune: &CommonPruneConfig,
@@ -538,7 +536,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SingleSensorSchedu
     fn build_config_snapshot(
         &self,
         motion: &super::config::MotionModel,
-        sensors: &super::config::SensorSet,
+        sensors: &super::config::SensorConfig,
         birth: &super::config::BirthModel,
         association_config: &super::config::AssociationConfig,
         common_prune: &CommonPruneConfig,
@@ -609,7 +607,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
             // Capture input tracks (output of previous sensor, or predicted tracks for first)
             let input_tracks = hypotheses[0].tracks.clone();
 
-            let sensor = ctx.sensors.get(sensor_idx).unwrap();
+            let sensor = ctx.sensors.sensor(sensor_idx).unwrap();
             let (association_matrices, association_result) = update_single_sensor(
                 &self.associator,
                 &self.updater,
@@ -692,7 +690,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
     fn build_config_snapshot(
         &self,
         motion: &super::config::MotionModel,
-        sensors: &super::config::SensorSet,
+        sensors: &super::config::SensorConfig,
         birth: &super::config::BirthModel,
         association_config: &super::config::AssociationConfig,
         common_prune: &CommonPruneConfig,
@@ -700,7 +698,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
         super::config::FilterConfigSnapshot::multi_sensor_lmb(
             self.name(),
             motion,
-            sensors.multi(),
+            sensors,
             birth,
             association_config,
             common_prune.existence_threshold,
@@ -768,7 +766,7 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
 
             for (sensor_idx, sensor_measurements) in measurements.iter().enumerate() {
                 let mut sensor_tracks = hypotheses[0].tracks.clone();
-                let sensor = ctx.sensors.get(sensor_idx).unwrap();
+                let sensor = ctx.sensors.sensor(sensor_idx).unwrap();
                 let (association_matrices, association_result) = update_single_sensor(
                     &self.associator,
                     &self.updater,
@@ -889,7 +887,7 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
     fn build_config_snapshot(
         &self,
         motion: &super::config::MotionModel,
-        sensors: &super::config::SensorSet,
+        sensors: &super::config::SensorConfig,
         birth: &super::config::BirthModel,
         association_config: &super::config::AssociationConfig,
         common_prune: &CommonPruneConfig,
@@ -897,7 +895,7 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
         super::config::FilterConfigSnapshot::multi_sensor_lmb(
             self.name(),
             motion,
-            sensors.multi(),
+            sensors,
             birth,
             association_config,
             common_prune.existence_threshold,
@@ -931,7 +929,7 @@ pub trait LmbmAssociator: Send + Sync {
         rng: &mut R,
         hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
-        sensor_config: &SensorSet,
+        sensor_config: &SensorConfig,
         motion: &MotionModel,
         association_config: &AssociationConfig,
     ) -> Result<Option<LmbmAssociationIntermediate>, FilterError>;
@@ -940,7 +938,7 @@ pub trait LmbmAssociator: Send + Sync {
     fn update_existence_no_measurements(
         &self,
         hypotheses: &mut Vec<Hypothesis>,
-        sensor_config: &SensorSet,
+        sensor_config: &SensorConfig,
     );
 
     /// Check if measurements are empty.
@@ -950,7 +948,7 @@ pub trait LmbmAssociator: Send + Sync {
     fn validate_measurements(
         &self,
         measurements: &Self::Measurements,
-        sensor_config: &SensorSet,
+        sensor_config: &SensorConfig,
     ) -> Result<(), FilterError>;
 
     /// Algorithm name for logging and debugging.
@@ -1068,7 +1066,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
         rng: &mut R,
         hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
-        sensor_config: &SensorSet,
+        sensor_config: &SensorConfig,
         _motion: &MotionModel,
         association_config: &AssociationConfig,
     ) -> Result<Option<LmbmAssociationIntermediate>, FilterError> {
@@ -1099,7 +1097,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
     fn update_existence_no_measurements(
         &self,
         hypotheses: &mut Vec<Hypothesis>,
-        sensor_config: &SensorSet,
+        sensor_config: &SensorConfig,
     ) {
         let p_d = sensor_config.single().detection_probability;
         for hyp in hypotheses.iter_mut() {
@@ -1117,7 +1115,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
     fn validate_measurements(
         &self,
         _measurements: &Self::Measurements,
-        sensor_config: &SensorSet,
+        sensor_config: &SensorConfig,
     ) -> Result<(), FilterError> {
         if sensor_config.num_sensors() != 1 {
             return Err(FilterError::InvalidInput(format!(
@@ -1185,7 +1183,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmStrategy<A> {
     fn generate_association_matrices(
         tracks: &[super::types::Track],
         measurements: &MultisensorMeasurements,
-        sensors: &MultisensorConfig,
+        sensors: &SensorConfig,
         motion: &MotionModel,
     ) -> (Vec<f64>, Vec<MultisensorPosterior>, Vec<usize>) {
         let num_sensors = sensors.num_sensors();
@@ -1242,7 +1240,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmStrategy<A> {
         associations: &[usize],
         tracks: &[super::types::Track],
         measurements: &MultisensorMeasurements,
-        sensors: &MultisensorConfig,
+        sensors: &SensorConfig,
         motion: &MotionModel,
     ) -> (f64, MultisensorPosterior) {
         let track = &tracks[obj_idx];
@@ -1431,7 +1429,7 @@ impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
         rng: &mut R,
         hypotheses: &mut Vec<Hypothesis>,
         measurements: &Self::Measurements,
-        sensor_config: &SensorSet,
+        sensor_config: &SensorConfig,
         motion: &MotionModel,
         association_config: &AssociationConfig,
     ) -> Result<Option<LmbmAssociationIntermediate>, FilterError> {
@@ -1440,7 +1438,7 @@ impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
         }
 
         let tracks = &hypotheses[0].tracks;
-        let sensors = sensor_config.multi();
+        let sensors = sensor_config;
 
         let (log_likelihoods, posteriors, dimensions) =
             Self::generate_association_matrices(tracks, measurements, sensors, motion);
@@ -1463,9 +1461,9 @@ impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
     fn update_existence_no_measurements(
         &self,
         hypotheses: &mut Vec<Hypothesis>,
-        sensor_config: &SensorSet,
+        sensor_config: &SensorConfig,
     ) {
-        let sensors = sensor_config.multi();
+        let sensors = sensor_config;
         let mut prob_no_detect = 1.0;
         for sensor in &sensors.sensors {
             prob_no_detect *= 1.0 - sensor.detection_probability;
@@ -1488,7 +1486,7 @@ impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
     fn validate_measurements(
         &self,
         measurements: &Self::Measurements,
-        sensor_config: &SensorSet,
+        sensor_config: &SensorConfig,
     ) -> Result<(), FilterError> {
         if measurements.len() != sensor_config.num_sensors() {
             return Err(FilterError::InvalidInput(format!(
@@ -1668,7 +1666,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
     fn build_config_snapshot(
         &self,
         motion: &super::config::MotionModel,
-        sensors: &super::config::SensorSet,
+        sensors: &super::config::SensorConfig,
         birth: &super::config::BirthModel,
         association_config: &super::config::AssociationConfig,
         common_prune: &CommonPruneConfig,
@@ -1802,7 +1800,7 @@ impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<Multisens
     fn build_config_snapshot(
         &self,
         motion: &super::config::MotionModel,
-        sensors: &super::config::SensorSet,
+        sensors: &super::config::SensorConfig,
         birth: &super::config::BirthModel,
         association_config: &super::config::AssociationConfig,
         common_prune: &CommonPruneConfig,
@@ -1810,7 +1808,7 @@ impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<Multisens
         super::config::FilterConfigSnapshot::multi_sensor_lmbm(
             self.name(),
             motion,
-            sensors.multi(),
+            sensors,
             birth,
             association_config,
             common_prune.existence_threshold,

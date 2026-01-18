@@ -65,8 +65,8 @@ pub use types::{GaussianComponent, Hypothesis, Track, TrackLabel, TrajectoryHist
 
 // Configuration
 pub use config::{
-    AssociationConfig, BirthLocation, BirthModel, DataAssociationMethod, MotionModel,
-    MultisensorConfig, SensorModel,
+    AssociationConfig, BirthLocation, BirthModel, DataAssociationMethod, MotionModel, SensorConfig,
+    SensorModel,
 };
 
 // Model behavior traits (Phase 3 - Extensibility)
@@ -153,9 +153,6 @@ pub use crate::common::rng::{SimpleRng, Uniform01};
 pub use measurements::{
     MeasurementSource, SingleSensorMeasurements, SliceOfSlicesMeasurements, VecOfVecsMeasurements,
 };
-
-// Unified sensor configuration (Phase 7C - moved to config.rs)
-pub use config::{SensorSet, SensorSetIter};
 
 // Factory functions for common filter configurations (Phase 7C)
 pub use factory::{

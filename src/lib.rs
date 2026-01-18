@@ -30,11 +30,6 @@ pub mod python;
 // ============================================================================
 
 /// LMB (Labeled Multi-Bernoulli) tracking algorithms
-///
-/// This is the main module containing all LMB-family implementations:
-/// - Single-sensor: `LmbFilter`, `LmbmFilter`
-/// - Multi-sensor: `AaLmbFilter`, `GaLmbFilter`, `PuLmbFilter`, `IcLmbFilter`, `MultisensorLmbmFilter`
-/// - Fusion strategies: `ArithmeticAverageMerger`, `GeometricAverageMerger`, etc.
 pub mod lmb;
 
 /// Shared tracking components (prediction, update)
@@ -56,8 +51,8 @@ pub mod bench_utils;
 // Core types
 pub use lmb::{
     AssociationConfig, BirthLocation, BirthModel, EstimatedTrack, FilterOutput, GaussianComponent,
-    Hypothesis, MotionModel, MultisensorConfig, SensorModel, SensorSet, StateEstimate, Track,
-    TrackLabel, Trajectory,
+    Hypothesis, MotionModel, SensorConfig, SensorModel, StateEstimate, Track, TrackLabel,
+    Trajectory,
 };
 
 // Errors

@@ -3,7 +3,7 @@
 use numpy::{PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
-use crate::lmb::config::{MotionModel, MultisensorConfig, SensorModel};
+use crate::lmb::config::{MotionModel, SensorConfig, SensorModel};
 
 use super::convert::{dmatrix_to_numpy, numpy_to_dmatrix, numpy_to_dvector};
 
@@ -180,7 +180,7 @@ impl PySensorModel {
 #[pyclass(name = "SensorConfigMulti")]
 #[derive(Clone)]
 pub struct PySensorConfigMulti {
-    pub(crate) inner: MultisensorConfig,
+    pub(crate) inner: SensorConfig,
 }
 
 #[pymethods]
@@ -188,7 +188,7 @@ impl PySensorConfigMulti {
     #[new]
     fn new(sensors: Vec<PySensorModel>) -> Self {
         Self {
-            inner: MultisensorConfig::new(sensors.into_iter().map(|s| s.inner).collect()),
+            inner: SensorConfig::new(sensors.into_iter().map(|s| s.inner).collect()),
         }
     }
 

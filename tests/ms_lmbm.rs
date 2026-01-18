@@ -238,7 +238,7 @@ impl helpers::tracks::HypothesisDataAccess for HypothesisData {
 //=============================================================================
 
 use multisensor_lmb_filters_rs::lmb::{
-    Hypothesis, MotionModel, MultisensorConfig, SensorModel, Track, TrackLabel,
+    Hypothesis, MotionModel, SensorConfig, SensorModel, Track, TrackLabel,
 };
 use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
@@ -298,7 +298,7 @@ fn hypothesis_to_hypothesis_impl(hyp: &HypothesisData, w_is_log: bool) -> Hypoth
 }
 
 /// Convert fixture model to MultisensorConfig
-fn model_to_multisensor_config(model: &MultisensorLmbmModelData) -> MultisensorConfig {
+fn model_to_multisensor_config(model: &MultisensorLmbmModelData) -> SensorConfig {
     let mut sensors = Vec::new();
 
     for s in 0..model.number_of_sensors {
@@ -340,7 +340,7 @@ fn model_to_multisensor_config(model: &MultisensorLmbmModelData) -> MultisensorC
         sensors.push(sensor);
     }
 
-    MultisensorConfig::new(sensors)
+    SensorConfig::new(sensors)
 }
 
 /// Convert fixture model to MotionModel

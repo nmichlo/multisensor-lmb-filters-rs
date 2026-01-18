@@ -11,11 +11,11 @@ pytest: pybuild
 	uv run pytest python/tests/ --disable-warnings -v
 
 test:
-	cargo test --release
+	cargo test
 
 build:
 	cargo build --release
 
-test-all: pytest test
+test-all: test pytest
 
 build-all: build pybuild

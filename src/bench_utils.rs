@@ -86,7 +86,7 @@ pub struct StepJson {
 pub struct PreprocessedScenario {
     pub motion: MotionModel,
     pub sensor: SensorModel,
-    pub sensors_config: MultisensorConfig,
+    pub sensors_config: SensorConfig,
     pub birth: BirthModel,
     /// Single-sensor steps: (timestep, measurements)
     pub steps: Vec<(usize, Vec<DVector<f64>>)>,
@@ -119,7 +119,7 @@ pub fn preprocess(scenario: &ScenarioJson) -> PreprocessedScenario {
         obs_vol,
     );
 
-    let sensors_config = MultisensorConfig::new(vec![sensor.clone(); scenario.num_sensors]);
+    let sensors_config = SensorConfig::new(vec![sensor.clone(); scenario.num_sensors]);
 
     let birth_locs: Vec<_> = scenario
         .model
