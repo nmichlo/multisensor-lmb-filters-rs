@@ -260,21 +260,21 @@ class TestLmbFixtureEquivalence:
         component weights and weight-based pruning) produces results identical
         to MATLAB's computePosteriorLmbSpatialDistributions implementation.
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb, FilterThresholds
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
         sensor = make_sensor_model(model)
         birth = make_birth_model_from_fixture(lmb_fixture)
 
-        # Use max_components=5 and gm_weight=1e-5 to match MATLAB's thresholds
-        thresholds = FilterThresholds(max_components=5, gm_weight=1e-5)
+        # Use max_gm_components=5 and gm_weight_threshold=1e-5 to match MATLAB's thresholds
         filter = FilterLmb(
             motion,
             sensor,
             birth,
             AssociatorConfig.lbp(),
-            thresholds=thresholds,
+            max_gm_components=5,
+            gm_weight_threshold=1e-5,
             seed=lmb_fixture["seed"],
         )
 
@@ -361,7 +361,7 @@ class TestLmbmFixtureEquivalence:
 
     def test_lmbm_prediction_full_equivalence(self, lmbm_fixture):
         """Verify LMBM prediction ALL fields: w, r, mu, Sigma, birthTime, birthLocation."""
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _Hypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -379,7 +379,7 @@ class TestLmbmFixtureEquivalence:
 
         # Load prior hypothesis
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -435,7 +435,7 @@ class TestLmbmFixtureEquivalence:
         Note: posteriorParameters.r/mu/Sigma are not exposed in the Python API
         for LMBM (different structure than LMB). See Rust tests for full validation.
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _Hypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -455,7 +455,7 @@ class TestLmbmFixtureEquivalence:
 
         # Load PRIOR hypothesis - step_detailed will run prediction to add birth tracks
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -517,7 +517,7 @@ class TestLmbmFixtureEquivalence:
         Note: MATLAB returns unique(V, 'rows') - only distinct samples are kept.
         We load the PRIOR hypothesis and let prediction run to match the fixture flow.
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _Hypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -537,7 +537,7 @@ class TestLmbmFixtureEquivalence:
 
         # Load PRIOR hypothesis - step_detailed will run prediction to add birth tracks
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -581,7 +581,7 @@ class TestLmbmFixtureEquivalence:
 
         Murty's algorithm finds the K-best assignments deterministically.
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _Hypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -600,7 +600,7 @@ class TestLmbmFixtureEquivalence:
         )
 
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -634,7 +634,7 @@ class TestLmbmFixtureEquivalence:
             AssociatorConfig,
             FilterLmbm,
             FilterLmbmConfig,
-            _LmbmHypothesis,
+            _Hypothesis,
         )
 
         model = lmbm_fixture["model"]
@@ -672,7 +672,7 @@ class TestLmbmFixtureEquivalence:
 
         # Load PRIOR hypothesis
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -725,7 +725,7 @@ class TestLmbmFixtureEquivalence:
             AssociatorConfig,
             FilterLmbm,
             FilterLmbmConfig,
-            _LmbmHypothesis,
+            _Hypothesis,
         )
 
         model = lmbm_fixture["model"]
@@ -755,7 +755,7 @@ class TestLmbmFixtureEquivalence:
         )
 
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -795,7 +795,7 @@ class TestLmbmFixtureEquivalence:
             AssociatorConfig,
             FilterLmbm,
             FilterLmbmConfig,
-            _LmbmHypothesis,
+            _Hypothesis,
         )
 
         model = lmbm_fixture["model"]
@@ -825,7 +825,7 @@ class TestLmbmFixtureEquivalence:
         )
 
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -864,7 +864,7 @@ class TestLmbmFixtureEquivalence:
             AssociatorConfig,
             FilterLmbm,
             FilterLmbmConfig,
-            _LmbmHypothesis,
+            _Hypothesis,
         )
 
         model = lmbm_fixture["model"]
@@ -892,7 +892,7 @@ class TestLmbmFixtureEquivalence:
         )
 
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -1051,25 +1051,25 @@ class TestMultisensorLmbPerSensorEquivalence:
         - max_components=20, gm_weight=1e-6 (thresholds)
         - max_iterations=1000, tolerance=1e-6 (LBP association)
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterIcLmb, FilterThresholds
+        from multisensor_lmb_filters_rs import AssociatorConfig, FilterIcLmb
 
         model = multisensor_lmb_fixture["model"]
         motion = make_motion_model(model)
         sensor_config = make_multisensor_config(model)
         birth = make_birth_model_from_fixture(multisensor_lmb_fixture)
 
-        # Use thresholds matching MATLAB fixture (from Rust test: max_components=20, gm_weight=1e-6)
-        thresholds = FilterThresholds(max_components=20, gm_weight=1e-6)
         # Use LBP config matching MATLAB exactly:
         # max_iterations=1000, tolerance=1e-6
         # (MATLAB default: model.maximumNumberOfLbpIterations=1e3, model.lbpConvergenceTolerance=1e-6)
         association = AssociatorConfig.lbp(max_iterations=1000, tolerance=1e-6)
+        # Use thresholds matching MATLAB fixture (from Rust test: max_gm_components=20, gm_weight_threshold=1e-6)
         filter = FilterIcLmb(
             motion,
             sensor_config,
             birth,
             association=association,
-            thresholds=thresholds,
+            max_gm_components=20,
+            gm_weight_threshold=1e-6,
             seed=multisensor_lmb_fixture["seed"],
         )
 
@@ -1355,7 +1355,7 @@ class TestMultisensorLmbmFixtureEquivalence:
 
     def test_multisensor_lmbm_prediction_full_equivalence(self, multisensor_lmbm_fixture):
         """Verify multisensor LMBM prediction ALL fields: w, r, mu, Sigma, birthTime, birthLocation."""
-        from multisensor_lmb_filters_rs import FilterMultisensorLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import FilterMultisensorLmbm, _Hypothesis
 
         model = multisensor_lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -1368,7 +1368,7 @@ class TestMultisensorLmbmFixtureEquivalence:
 
         # Load prior hypothesis
         prior_hyp = multisensor_lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -1428,7 +1428,7 @@ class TestMultisensorLmbmFixtureEquivalence:
 
     def test_multisensor_lmbm_association_full_equivalence(self, multisensor_lmbm_fixture):
         """Verify multisensor LMBM association L matrix and posteriorParameters."""
-        from multisensor_lmb_filters_rs import FilterMultisensorLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import FilterMultisensorLmbm, _Hypothesis
 
         model = multisensor_lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -1440,7 +1440,7 @@ class TestMultisensorLmbmFixtureEquivalence:
         )
 
         prior_hyp = multisensor_lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -1464,7 +1464,7 @@ class TestMultisensorLmbmFixtureEquivalence:
 
     def test_multisensor_lmbm_gibbs_full_equivalence(self, multisensor_lmbm_fixture):
         """Verify multisensor LMBM Gibbs sampling produces correct number of samples."""
-        from multisensor_lmb_filters_rs import FilterMultisensorLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import FilterMultisensorLmbm, _Hypothesis
 
         model = multisensor_lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -1476,7 +1476,7 @@ class TestMultisensorLmbmFixtureEquivalence:
         )
 
         prior_hyp = multisensor_lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -1513,7 +1513,7 @@ class TestMultisensorLmbmFixtureEquivalence:
         from multisensor_lmb_filters_rs import (
             FilterLmbmConfig,
             FilterMultisensorLmbm,
-            _LmbmHypothesis,
+            _Hypothesis,
         )
 
         model = multisensor_lmbm_fixture["model"]
@@ -1543,7 +1543,7 @@ class TestMultisensorLmbmFixtureEquivalence:
         )
 
         prior_hyp = multisensor_lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
-        hypothesis = _LmbmHypothesis.from_matlab(
+        hypothesis = _Hypothesis.from_matlab(
             w=prior_hyp["w"],
             r=prior_hyp["r"],
             mu=prior_hyp["mu"],
@@ -1625,7 +1625,7 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
             make_multisensor_config,
             nested_measurements_to_numpy,
         )
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterThresholds
+        from multisensor_lmb_filters_rs import AssociatorConfig
 
         model = fixture["model"]
         motion = make_motion_model(model)
@@ -1641,7 +1641,6 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
         # - maximumNumberOfGmComponents = 20
         # - maximumNumberOfLbpIterations = 1e3
         # - lbpConvergenceTolerance = 1e-6
-        thresholds = FilterThresholds(max_components=20, gm_weight=1e-6)
         association = AssociatorConfig.lbp(max_iterations=1000, tolerance=1e-6)
 
         filter = FilterCls(
@@ -1649,7 +1648,8 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
             sensor_config,
             birth,
             association=association,
-            thresholds=thresholds,
+            max_gm_components=20,
+            gm_weight_threshold=1e-6,
             seed=fixture["seed"],
         )
 

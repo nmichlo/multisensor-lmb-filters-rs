@@ -290,15 +290,15 @@ fn hypothesis_to_tracks(hyp: &HypothesisData) -> Vec<Track> {
     tracks
 }
 
-fn hypothesis_data_to_lmbm_hypothesis(
+fn hypothesis_data_to_hypothesis(
     hyp: &HypothesisData,
-) -> multisensor_lmb_filters_rs::lmb::LmbmHypothesis {
+) -> multisensor_lmb_filters_rs::lmb::Hypothesis {
     let tracks = hypothesis_to_tracks(hyp);
     // MATLAB stores hypothesis weights in LINEAR space in the fixture,
-    // but Rust LmbmHypothesis stores them in LOG space.
+    // but Rust Hypothesis stores them in LOG space.
     // See MATLAB determinePosteriorHypothesisParameters.m line 40:
     //   posteriorHypotheses(i).w = log(priorHypothesis.w) + sum(L(ell));
-    multisensor_lmb_filters_rs::lmb::LmbmHypothesis::new(hyp.w.ln(), tracks)
+    multisensor_lmb_filters_rs::lmb::Hypothesis::new(hyp.w.ln(), tracks)
 }
 
 /// Create BirthModel from fixture by extracting new birth tracks from predicted hypothesis
@@ -703,7 +703,7 @@ fn test_lmbm_hypothesis_generation_equivalence() {
     // Set PRIOR hypothesis (before prediction, 5 tracks)
     // step_detailed() will run prediction to get to 9 tracks (5 + 4 births)
     let prior_hyp = &fixture.step1_prediction.input.prior_hypothesis;
-    let prior_hypothesis = hypothesis_data_to_lmbm_hypothesis(prior_hyp);
+    let prior_hypothesis = hypothesis_data_to_hypothesis(prior_hyp);
     filter.set_hypotheses(vec![prior_hypothesis]);
 
     // Run step_detailed with exact RNG seed from fixture
@@ -792,7 +792,7 @@ fn test_lmbm_cardinality_equivalence() {
         .input
         .hypotheses
         .iter()
-        .map(hypothesis_data_to_lmbm_hypothesis)
+        .map(hypothesis_data_to_hypothesis)
         .collect();
 
     // MATLAB use_map=true means MAP, use_map=false means EAP

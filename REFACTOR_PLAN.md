@@ -34,6 +34,10 @@ This plan addresses major code duplication (~60% overlap between single/multi-se
    - `StepReporter` trait for custom observability
    - `MotionModelBehavior` / `SensorModelBehavior` for custom models
 
+5. ALWAYS use the rust lsp MCP/plugin instead of manual editing and grep
+
+6. ALWAYS prefer bulk renaming if possible (with unique names) instead of manual edits.
+
 ---
 
 ## Unified Filter Architecture
@@ -982,15 +986,19 @@ uv run pytest python/tests/ -v  # All 87 Python tests pass at 1e-10 tolerance
 
 ---
 
-## Phase 10: Complete API Migration (Delete All Backward Compat)
+## Phase 10: Complete API Migration (Delete All Backward Compat) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
 
 **Goal**: Delete ALL backward compatibility code. Update ALL tests to use new APIs. Per the refactor principles: "Delete old code, don't keep for backward compat."
 
 **CRITICAL**: This phase explicitly updates tests to new APIs - tests are NOT exempt from API migration.
 
+**NB** FOLLOW THE "## Core Principles" section at the top.
+
 ---
 
-### 10.1: Delete Deprecated Rust Types
+### 10.1: Delete Deprecated Rust Types (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Files**: `src/lmb/types.rs`, `src/lmb/config.rs`, `src/lib.rs`
 
@@ -1003,17 +1011,19 @@ uv run pytest python/tests/ -v  # All 87 Python tests pass at 1e-10 tolerance
 | `to_legacy_lmbm_config()` | `config.rs` | DELETE |
 | `#[allow(deprecated)] pub use lmb::LmbmHypothesis` | `lib.rs` | DELETE |
 
-- [ ] Delete `LmbmHypothesis` type alias from `types.rs`
-- [ ] Delete `FilterParams` struct from `config.rs`
+- [x] Delete `LmbmHypothesis` type alias from `types.rs`
+- [x] Delete `FilterParams` struct from `config.rs`
 - [ ] Delete `FilterThresholds` struct from `config.rs`
 - [ ] Delete `LmbmConfig` struct from `config.rs`
 - [ ] Delete `to_legacy_lmbm_config()` method from `LmbmFilterConfig`
-- [ ] Delete deprecated re-export from `lib.rs`
-- [ ] Update `src/lmb/mod.rs` exports
+- [x] Delete deprecated re-export from `lib.rs`
+- [x] Update `src/lmb/mod.rs` exports
 
 ---
 
 ### 10.2: Delete Old Python Config Classes
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **File**: `src/python/filters.rs`
 
@@ -1069,17 +1079,17 @@ filter = FilterLmbm(
 )
 ```
 
-- [ ] Update `PyFilterLmb::new()` to accept inline params
-- [ ] Update `PyFilterLmbm::new()` to accept inline params
-- [ ] Update `PyFilterIcLmb::new()` to accept inline params
-- [ ] Update `PyFilterAaLmb::new()` to accept inline params
-- [ ] Update `PyFilterGaLmb::new()` to accept inline params
-- [ ] Update `PyFilterPuLmb::new()` to accept inline params
-- [ ] Update `PyFilterMultisensorLmbm::new()` to accept inline params
+- [x] Update `PyFilterLmb::new()` to accept inline params
+- [x] Update `PyFilterLmbm::new()` to accept inline params
+- [x] Update `PyFilterIcLmb::new()` to accept inline params
+- [x] Update `PyFilterAaLmb::new()` to accept inline params
+- [x] Update `PyFilterGaLmb::new()` to accept inline params
+- [x] Update `PyFilterPuLmb::new()` to accept inline params
+- [x] Update `PyFilterMultisensorLmbm::new()` to accept inline params
 - [ ] DELETE `PyFilterThresholds` class
 - [ ] DELETE `PyFilterLmbmConfig` class
 - [ ] DELETE `PyAssociatorConfig` class
-- [ ] Rename `_LmbmHypothesis` to `_Hypothesis`
+- [x] Rename `_LmbmHypothesis` to `_Hypothesis`
 
 ---
 
@@ -1122,11 +1132,13 @@ __all__ = [
 - [ ] Remove `FilterThresholds` from exports
 - [ ] Remove `FilterLmbmConfig` from exports
 - [ ] Remove `AssociatorConfig` from exports
-- [ ] Rename `_LmbmHypothesis` to `_Hypothesis` in exports
+- [x] Rename `_LmbmHypothesis` to `_Hypothesis` in exports
 
 ---
 
 ### 10.4: Migrate ALL Python Tests to New API
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **CRITICAL**: Tests must use new API. No backward compat exemptions.
 
@@ -1173,26 +1185,30 @@ from multisensor_lmb_filters_rs import _Hypothesis
 hypothesis = _Hypothesis.from_matlab(...)
 ```
 
-- [ ] Update `test_equivalence.py`: Replace all `FilterThresholds` usages
+- [x] Update `test_equivalence.py`: Replace all `FilterThresholds` usages
 - [ ] Update `test_equivalence.py`: Replace all `FilterLmbmConfig` usages
 - [ ] Update `test_equivalence.py`: Replace all `AssociatorConfig` usages
-- [ ] Update `test_equivalence.py`: Replace all `_LmbmHypothesis` with `_Hypothesis`
-- [ ] Update `test_benchmark_fixtures.py`: Same replacements
-- [ ] Update `conftest.py`: Replace `_LmbmHypothesis` references
+- [x] Update `test_equivalence.py`: Replace all `_LmbmHypothesis` with `_Hypothesis`
+- [x] Update `test_benchmark_fixtures.py`: Same replacements
+- [x] Update `conftest.py`: Replace `_LmbmHypothesis` references
 
 ---
 
-### 10.5: Update Rust Test Files
+### 10.5: Update Rust Test Files (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Files**: `tests/ss_lmb.rs`, `tests/ss_lmbm.rs`, `tests/ms_lmb.rs`, `tests/ms_lmbm.rs`, `tests/ms_variants.rs`
 
-- [ ] Remove any uses of deprecated `LmbmHypothesis` alias
-- [ ] Update to use `Hypothesis` directly
-- [ ] Remove any uses of `FilterParams`, `FilterThresholds`
+- [x] Remove any uses of deprecated `LmbmHypothesis` alias
+- [x] Update to use `Hypothesis` directly
+- [x] Remove any uses of `FilterParams`, `FilterThresholds`
 
 ---
 
-### 10.6: Clean Up Legacy Adapter Comments
+### 10.6: Clean Up Legacy Adapter Comments (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **File**: `src/lmb/traits.rs`
 
@@ -1208,7 +1224,9 @@ The legacy adapters (`legacy_lbp`, `legacy_gibbs`, `legacy_murtys`, `RngAdapter`
 
 ---
 
-### 10.7: Clean Up mod.rs Exports
+### 10.7: Clean Up mod.rs Exports (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **File**: `src/lmb/mod.rs`
 
@@ -1251,7 +1269,9 @@ pub use errors::{FilterError, AssociationError};
 
 ---
 
-### 10.8: Update lib.rs Exports
+### 10.8: Update lib.rs Exports (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **File**: `src/lib.rs`
 
@@ -1271,7 +1291,9 @@ pub use lmb::{CommonPruneConfig, LmbPruneConfig, LmbmPruneConfig};
 
 ---
 
-### 10.9: Update Documentation
+### 10.9: Update Documentation (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 - [ ] Update `lib.rs` doc example to use new API (already uses factory functions, verify no old types)
 - [ ] Update any doc comments referencing old types
@@ -1284,7 +1306,9 @@ The following issues were identified during architecture review and should be ad
 
 ---
 
-### 10.10: Eliminate Configuration Leakage (HIGH PRIORITY)
+### 10.10: Eliminate Configuration Leakage (HIGH PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: 7+ `is_hypothesis_based()` checks scattered throughout `unified.rs` (lines ~350, ~378, ~405, ~450, ~502, ~518, ~551). Each check is a configuration leakage where filter behavior diverges based on strategy type rather than polymorphism.
 
@@ -1319,7 +1343,9 @@ trait UpdateStrategy {
 
 ---
 
-### 10.11: Integrate Zero-Copy MeasurementSource (HIGH PRIORITY)
+### 10.11: Integrate Zero-Copy MeasurementSource (HIGH PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: `MeasurementSource` trait was created in Phase 1 but never integrated. All filter `step()` methods still accept raw slices, forcing allocations.
 
@@ -1352,7 +1378,9 @@ pub fn step<M: MeasurementSource>(&mut self, rng: &mut R, measurements: &M, ts: 
 
 ---
 
-### 10.12: Consolidate Python Filter Classes (HIGH PRIORITY)
+### 10.12: Consolidate Python Filter Classes (HIGH PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: 7 nearly identical Python filter classes (`PyFilterLmb`, `PyFilterLmbm`, `PyFilterIcLmb`, etc.) with 489 lines of duplicated code. Phase 8.7 updated internals but kept class proliferation.
 
@@ -1385,7 +1413,9 @@ filter = Filter(motion, sensors, birth, strategy=LmbStrategy(..., scheduler="ic"
 
 ---
 
-### 10.13: Fix Strategy-Specific Defaults Returning 0 (HIGH PRIORITY)
+### 10.13: Fix Strategy-Specific Defaults Returning 0 (HIGH PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: Trait methods like `gm_weight_threshold()`, `max_gm_components()`, `lmbm_config()` return 0 or empty when called on wrong strategy type. This violates LSP - calling these on LMBM returns meaningless values.
 
@@ -1424,7 +1454,9 @@ impl UpdateStrategy for LmbStrategy {
 
 ---
 
-### 10.14: Consolidate impl Filter Blocks (MEDIUM PRIORITY)
+### 10.14: Consolidate impl Filter Blocks (MEDIUM PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: 5 nearly identical `impl Filter for UnifiedFilter<LmbStrategy<A, S>>` blocks in `unified.rs`. Each block has the same structure with minor differences in measurement types.
 
@@ -1451,7 +1483,9 @@ impl Filter for UnifiedFilter<LmbmStrategy<MultisensorLmbmAssociator<Multisensor
 
 ---
 
-### 10.15: Refactor step_detailed() (MEDIUM PRIORITY)
+### 10.15: Refactor step_detailed() (MEDIUM PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: `step_detailed()` in `unified.rs` is 113 lines. Complex method doing too many things.
 
@@ -1467,7 +1501,9 @@ impl Filter for UnifiedFilter<LmbmStrategy<MultisensorLmbmAssociator<Multisensor
 
 ---
 
-### 10.16: Refactor UpdateContext (MEDIUM PRIORITY)
+### 10.16: Refactor UpdateContext (MEDIUM PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: `UpdateContext` bundles 5 references (motion, sensors, birth, association_config, common_prune). It's a "God Object" for passing state around.
 
@@ -1485,7 +1521,9 @@ impl Filter for UnifiedFilter<LmbmStrategy<MultisensorLmbmAssociator<Multisensor
 
 ---
 
-### 10.17: Make gm_merge_threshold Configurable (MEDIUM PRIORITY)
+### 10.17: Make gm_merge_threshold Configurable (MEDIUM PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: `gm_merge_threshold` is hardcoded to `f64::INFINITY` in `LmbPruneConfig::default()`. This effectively disables GM merging.
 
@@ -1514,6 +1552,8 @@ impl Default for LmbPruneConfig {
 
 ### 10.18: Fix Python Accessor Mismatch (MEDIUM PRIORITY)
 
+**NB** FOLLOW THE "## Core Principles" section at the top.
+
 **Problem**: `set_tracks()` exists on LMB filters but not LMBM filters. Inconsistent API.
 
 **File**: `src/python/filters.rs`
@@ -1525,7 +1565,9 @@ impl Default for LmbPruneConfig {
 
 ---
 
-### 10.19: Replace unwrap() with expect() (LOW PRIORITY)
+### 10.19: Replace unwrap() with expect() (LOW PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: Bare `unwrap()` calls provide no context on panic. Should use `expect("reason")`.
 
@@ -1538,7 +1580,9 @@ impl Default for LmbPruneConfig {
 
 ---
 
-### 10.20: Review Macro Usage (LOW PRIORITY)
+### 10.20: Review Macro Usage (LOW PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: Macro boilerplate may obscure logic. Evaluate if macros add or reduce clarity.
 
@@ -1551,7 +1595,9 @@ impl Default for LmbPruneConfig {
 
 ---
 
-### 10.21: Extract Track Extraction Helper (LOW PRIORITY)
+### 10.21: Extract Track Extraction Helper (LOW PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: Track extraction code (getting means/covariances from tracks) repeated 6x across codebase.
 
@@ -1564,7 +1610,9 @@ impl Default for LmbPruneConfig {
 
 ---
 
-### 10.22: Make Merger/Scheduler Configurable (LOW PRIORITY)
+### 10.22: Make Merger/Scheduler Configurable (LOW PRIORITY) (NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
+
+**NB** FOLLOW THE "## Core Principles" section at the top.
 
 **Problem**: Merger and scheduler types are hardcoded in type aliases. Can't change at runtime.
 
@@ -1598,6 +1646,8 @@ uv run pytest python/tests/ -v
 ---
 
 ### Phase 10 Priority Summary
+
+(NB: ALWAYS USE THE rust-analyzer-lsp Plugin)
 
 | Priority | Sections | Description |
 |----------|----------|-------------|

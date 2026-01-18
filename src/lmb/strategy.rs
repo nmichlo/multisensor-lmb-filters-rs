@@ -262,20 +262,65 @@ pub trait UpdateStrategy: Send + Sync + Clone {
     // Config getters for debugging/serialization
     // ========================================================================
 
-    /// Get GM weight threshold (for LMB filters) or 0.0 (for LMBM).
-    fn gm_weight_threshold(&self) -> f64 {
-        0.0
+    /// Get GM weight threshold (for LMB filters).
+    ///
+    /// Returns `Some(threshold)` for LMB strategies, `None` for LMBM strategies.
+    /// This avoids LSP violations where LMBM would return a meaningless 0.0.
+    fn gm_weight_threshold(&self) -> Option<f64> {
+        None
     }
 
-    /// Get max GM components (for LMB filters) or 0 (for LMBM).
-    fn max_gm_components(&self) -> usize {
-        0
+    /// Get max GM components (for LMB filters).
+    ///
+    /// Returns `Some(max)` for LMB strategies, `None` for LMBM strategies.
+    /// This avoids LSP violations where LMBM would return a meaningless 0.
+    fn max_gm_components(&self) -> Option<usize> {
+        None
     }
 
-    /// Get LMBM configuration (default for non-LMBM filters).
-    fn lmbm_config(&self) -> super::config::LmbmConfig {
-        super::config::LmbmConfig::default()
+    /// Get LMBM configuration (for LMBM filters).
+    ///
+    /// Returns `Some(config)` for LMBM strategies, `None` for LMB strategies.
+    /// This avoids LSP violations where LMB would return a meaningless default.
+    fn lmbm_config(&self) -> Option<super::config::LmbmConfig> {
+        None
     }
+
+    // ========================================================================
+    // Polymorphic hypothesis capture methods (eliminate is_hypothesis_based() checks)
+    // ========================================================================
+
+    /// Capture hypotheses for detailed output if this strategy needs it.
+    ///
+    /// Returns `None` for LMB strategies (single hypothesis, not captured),
+    /// Returns `Some(clone)` for LMBM strategies (multiple hypotheses, captured).
+    fn capture_hypotheses(
+        &self,
+        _hypotheses: &[super::types::Hypothesis],
+    ) -> Option<Vec<super::types::Hypothesis>> {
+        None
+    }
+
+    /// Wrap objects_likely_to_exist mask for detailed output.
+    ///
+    /// Returns `None` for LMB strategies,
+    /// Returns `Some(mask)` for LMBM strategies.
+    fn wrap_objects_likely_to_exist(&self, _keep_mask: Vec<bool>) -> Option<Vec<bool>> {
+        None
+    }
+
+    /// Build configuration snapshot for debugging/serialization.
+    ///
+    /// Each strategy knows how to build its own config snapshot,
+    /// eliminating the need to branch on `is_hypothesis_based()`.
+    fn build_config_snapshot(
+        &self,
+        motion: &super::config::MotionModel,
+        sensors: &super::config::SensorSet,
+        birth: &super::config::BirthModel,
+        association_config: &super::config::AssociationConfig,
+        common_prune: &CommonPruneConfig,
+    ) -> super::config::FilterConfigSnapshot;
 }
 
 // ============================================================================
@@ -482,12 +527,34 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SingleSensorSchedu
         false
     }
 
-    fn gm_weight_threshold(&self) -> f64 {
-        self.prune_config.gm_weight_threshold
+    fn gm_weight_threshold(&self) -> Option<f64> {
+        Some(self.prune_config.gm_weight_threshold)
     }
 
-    fn max_gm_components(&self) -> usize {
-        self.prune_config.max_gm_components
+    fn max_gm_components(&self) -> Option<usize> {
+        Some(self.prune_config.max_gm_components)
+    }
+
+    fn build_config_snapshot(
+        &self,
+        motion: &super::config::MotionModel,
+        sensors: &super::config::SensorSet,
+        birth: &super::config::BirthModel,
+        association_config: &super::config::AssociationConfig,
+        common_prune: &CommonPruneConfig,
+    ) -> super::config::FilterConfigSnapshot {
+        super::config::FilterConfigSnapshot::single_sensor_lmb(
+            self.name(),
+            motion,
+            sensors.single(),
+            birth,
+            association_config,
+            common_prune.existence_threshold,
+            self.prune_config.gm_weight_threshold,
+            self.prune_config.max_gm_components,
+            common_prune.min_trajectory_length,
+            self.prune_config.gm_merge_threshold,
+        )
     }
 }
 
@@ -614,12 +681,34 @@ impl<A: Associator + Clone> UpdateStrategy for LmbStrategy<A, SequentialSchedule
         false
     }
 
-    fn gm_weight_threshold(&self) -> f64 {
-        self.prune_config.gm_weight_threshold
+    fn gm_weight_threshold(&self) -> Option<f64> {
+        Some(self.prune_config.gm_weight_threshold)
     }
 
-    fn max_gm_components(&self) -> usize {
-        self.prune_config.max_gm_components
+    fn max_gm_components(&self) -> Option<usize> {
+        Some(self.prune_config.max_gm_components)
+    }
+
+    fn build_config_snapshot(
+        &self,
+        motion: &super::config::MotionModel,
+        sensors: &super::config::SensorSet,
+        birth: &super::config::BirthModel,
+        association_config: &super::config::AssociationConfig,
+        common_prune: &CommonPruneConfig,
+    ) -> super::config::FilterConfigSnapshot {
+        super::config::FilterConfigSnapshot::multi_sensor_lmb(
+            self.name(),
+            motion,
+            sensors.multi(),
+            birth,
+            association_config,
+            common_prune.existence_threshold,
+            self.prune_config.gm_weight_threshold,
+            self.prune_config.max_gm_components,
+            common_prune.min_trajectory_length,
+            self.prune_config.gm_merge_threshold,
+        )
     }
 }
 
@@ -789,12 +878,34 @@ impl<A: Associator + Clone, M: Merger + Clone> UpdateStrategy
         false
     }
 
-    fn gm_weight_threshold(&self) -> f64 {
-        self.prune_config.gm_weight_threshold
+    fn gm_weight_threshold(&self) -> Option<f64> {
+        Some(self.prune_config.gm_weight_threshold)
     }
 
-    fn max_gm_components(&self) -> usize {
-        self.prune_config.max_gm_components
+    fn max_gm_components(&self) -> Option<usize> {
+        Some(self.prune_config.max_gm_components)
+    }
+
+    fn build_config_snapshot(
+        &self,
+        motion: &super::config::MotionModel,
+        sensors: &super::config::SensorSet,
+        birth: &super::config::BirthModel,
+        association_config: &super::config::AssociationConfig,
+        common_prune: &CommonPruneConfig,
+    ) -> super::config::FilterConfigSnapshot {
+        super::config::FilterConfigSnapshot::multi_sensor_lmb(
+            self.name(),
+            motion,
+            sensors.multi(),
+            birth,
+            association_config,
+            common_prune.existence_threshold,
+            self.prune_config.gm_weight_threshold,
+            self.prune_config.max_gm_components,
+            common_prune.min_trajectory_length,
+            self.prune_config.gm_merge_threshold,
+        )
     }
 }
 
@@ -1539,12 +1650,48 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
         true
     }
 
-    fn lmbm_config(&self) -> super::config::LmbmConfig {
-        super::config::LmbmConfig {
+    fn lmbm_config(&self) -> Option<super::config::LmbmConfig> {
+        Some(super::config::LmbmConfig {
             max_hypotheses: self.prune_config.max_hypotheses,
             hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
             use_eap: self.prune_config.use_eap,
-        }
+        })
+    }
+
+    fn capture_hypotheses(
+        &self,
+        hypotheses: &[super::types::Hypothesis],
+    ) -> Option<Vec<super::types::Hypothesis>> {
+        Some(hypotheses.to_vec())
+    }
+
+    fn wrap_objects_likely_to_exist(&self, keep_mask: Vec<bool>) -> Option<Vec<bool>> {
+        Some(keep_mask)
+    }
+
+    fn build_config_snapshot(
+        &self,
+        motion: &super::config::MotionModel,
+        sensors: &super::config::SensorSet,
+        birth: &super::config::BirthModel,
+        association_config: &super::config::AssociationConfig,
+        common_prune: &CommonPruneConfig,
+    ) -> super::config::FilterConfigSnapshot {
+        let lmbm_cfg = super::config::LmbmConfig {
+            max_hypotheses: self.prune_config.max_hypotheses,
+            hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
+            use_eap: self.prune_config.use_eap,
+        };
+        super::config::FilterConfigSnapshot::single_sensor_lmbm(
+            self.name(),
+            motion,
+            sensors.single(),
+            birth,
+            association_config,
+            common_prune.existence_threshold,
+            common_prune.min_trajectory_length,
+            &lmbm_cfg,
+        )
     }
 }
 
@@ -1646,12 +1793,48 @@ impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<Multisens
         true
     }
 
-    fn lmbm_config(&self) -> super::config::LmbmConfig {
-        super::config::LmbmConfig {
+    fn lmbm_config(&self) -> Option<super::config::LmbmConfig> {
+        Some(super::config::LmbmConfig {
             max_hypotheses: self.prune_config.max_hypotheses,
             hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
             use_eap: self.prune_config.use_eap,
-        }
+        })
+    }
+
+    fn capture_hypotheses(
+        &self,
+        hypotheses: &[super::types::Hypothesis],
+    ) -> Option<Vec<super::types::Hypothesis>> {
+        Some(hypotheses.to_vec())
+    }
+
+    fn wrap_objects_likely_to_exist(&self, keep_mask: Vec<bool>) -> Option<Vec<bool>> {
+        Some(keep_mask)
+    }
+
+    fn build_config_snapshot(
+        &self,
+        motion: &super::config::MotionModel,
+        sensors: &super::config::SensorSet,
+        birth: &super::config::BirthModel,
+        association_config: &super::config::AssociationConfig,
+        common_prune: &CommonPruneConfig,
+    ) -> super::config::FilterConfigSnapshot {
+        let lmbm_cfg = super::config::LmbmConfig {
+            max_hypotheses: self.prune_config.max_hypotheses,
+            hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
+            use_eap: self.prune_config.use_eap,
+        };
+        super::config::FilterConfigSnapshot::multi_sensor_lmbm(
+            self.name(),
+            motion,
+            sensors.multi(),
+            birth,
+            association_config,
+            common_prune.existence_threshold,
+            common_prune.min_trajectory_length,
+            &lmbm_cfg,
+        )
     }
 }
 

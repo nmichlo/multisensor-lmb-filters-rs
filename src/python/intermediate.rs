@@ -762,15 +762,15 @@ pub struct PyStepOutput {
     /// LMBM predicted hypothesis after prediction step (step1 in MATLAB)
     /// For LMBM, this contains a single hypothesis representing the predicted state
     #[pyo3(get)]
-    pub predicted_hypotheses: Option<Vec<Py<PyLmbmHypothesis>>>,
+    pub predicted_hypotheses: Option<Vec<Py<PyHypothesis>>>,
 
     /// LMBM hypotheses after association, before normalization (step4 in MATLAB)
     #[pyo3(get)]
-    pub pre_normalization_hypotheses: Option<Vec<Py<PyLmbmHypothesis>>>,
+    pub pre_normalization_hypotheses: Option<Vec<Py<PyHypothesis>>>,
 
     /// LMBM hypotheses after normalization (step5 in MATLAB)
     #[pyo3(get)]
-    pub normalized_hypotheses: Option<Vec<Py<PyLmbmHypothesis>>>,
+    pub normalized_hypotheses: Option<Vec<Py<PyHypothesis>>>,
 
     /// Mask of which tracks "likely exist" (weighted existence > threshold)
     #[pyo3(get)]
@@ -789,16 +789,16 @@ impl PyStepOutput {
 }
 
 // =============================================================================
-// _LmbmHypothesis - LMBM hypothesis for setting filter state
+// _Hypothesis - Hypothesis for setting filter state
 // =============================================================================
 
-use crate::lmb::types::LmbmHypothesis;
+use crate::lmb::types::Hypothesis;
 
-/// LMBM Hypothesis for Python bindings
+/// Hypothesis for Python bindings
 ///
 /// Used for loading LMBM fixture data into the filter for testing.
-#[pyclass(name = "_LmbmHypothesis")]
-pub struct PyLmbmHypothesis {
+#[pyclass(name = "_Hypothesis")]
+pub struct PyHypothesis {
     /// Log-space hypothesis weight
     #[pyo3(get)]
     pub log_weight: f64,
@@ -808,7 +808,7 @@ pub struct PyLmbmHypothesis {
 }
 
 #[pymethods]
-impl PyLmbmHypothesis {
+impl PyHypothesis {
     #[new]
     #[pyo3(signature = (log_weight, tracks))]
     fn new(log_weight: f64, tracks: Vec<PyRef<PyTrackData>>) -> Self {
@@ -911,22 +911,22 @@ impl PyLmbmHypothesis {
 
     fn __repr__(&self) -> String {
         format!(
-            "_LmbmHypothesis(w={:.4}, num_tracks={})",
+            "_Hypothesis(w={:.4}, num_tracks={})",
             self.weight(),
             self.tracks.len()
         )
     }
 }
 
-impl PyLmbmHypothesis {
-    /// Convert to Rust LmbmHypothesis
-    pub fn to_hypothesis(&self) -> LmbmHypothesis {
+impl PyHypothesis {
+    /// Convert to Rust Hypothesis
+    pub fn to_hypothesis(&self) -> Hypothesis {
         let tracks = self.tracks.iter().map(|t| t.to_track()).collect();
-        LmbmHypothesis::new(self.log_weight, tracks)
+        Hypothesis::new(self.log_weight, tracks)
     }
 
-    /// Create from Rust LmbmHypothesis
-    pub fn from_hypothesis(hyp: &LmbmHypothesis) -> Self {
+    /// Create from Rust Hypothesis
+    pub fn from_hypothesis(hyp: &Hypothesis) -> Self {
         Self {
             log_weight: hyp.log_weight,
             tracks: hyp.tracks.iter().map(PyTrackData::from_track).collect(),

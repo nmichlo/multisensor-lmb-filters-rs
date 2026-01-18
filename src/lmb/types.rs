@@ -422,10 +422,6 @@ impl Hypothesis {
     }
 }
 
-/// Deprecated alias for backward compatibility.
-#[deprecated(since = "0.3.0", note = "Use `Hypothesis` instead")]
-pub type LmbmHypothesis = Hypothesis;
-
 #[cfg(test)]
 mod tests {
     use super::*;

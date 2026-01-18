@@ -166,62 +166,13 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
 
     /// Get configuration as FilterConfigSnapshot (for debugging).
     pub fn get_config(&self) -> super::config::FilterConfigSnapshot {
-        if self.strategy.is_hypothesis_based() {
-            // LMBM-style filter
-            let lmbm_config = self.strategy.lmbm_config();
-            if self.num_sensors() > 1 {
-                super::config::FilterConfigSnapshot::multi_sensor_lmbm(
-                    self.strategy.name(),
-                    &self.motion,
-                    self.sensors.multi(),
-                    &self.birth,
-                    &self.association_config,
-                    self.common_prune.existence_threshold,
-                    self.common_prune.min_trajectory_length,
-                    &lmbm_config,
-                )
-            } else {
-                super::config::FilterConfigSnapshot::single_sensor_lmbm(
-                    self.strategy.name(),
-                    &self.motion,
-                    self.sensors.single(),
-                    &self.birth,
-                    &self.association_config,
-                    self.common_prune.existence_threshold,
-                    self.common_prune.min_trajectory_length,
-                    &lmbm_config,
-                )
-            }
-        } else {
-            // LMB-style filter
-            if self.num_sensors() > 1 {
-                super::config::FilterConfigSnapshot::multi_sensor_lmb(
-                    self.strategy.name(),
-                    &self.motion,
-                    self.sensors.multi(),
-                    &self.birth,
-                    &self.association_config,
-                    self.common_prune.existence_threshold,
-                    self.strategy.gm_weight_threshold(),
-                    self.strategy.max_gm_components(),
-                    self.common_prune.min_trajectory_length,
-                    f64::INFINITY, // gm_merge_threshold - TODO: expose this
-                )
-            } else {
-                super::config::FilterConfigSnapshot::single_sensor_lmb(
-                    self.strategy.name(),
-                    &self.motion,
-                    self.sensors.single(),
-                    &self.birth,
-                    &self.association_config,
-                    self.common_prune.existence_threshold,
-                    self.strategy.gm_weight_threshold(),
-                    self.strategy.max_gm_components(),
-                    self.common_prune.min_trajectory_length,
-                    f64::INFINITY, // gm_merge_threshold - TODO: expose this
-                )
-            }
-        }
+        self.strategy.build_config_snapshot(
+            &self.motion,
+            &self.sensors,
+            &self.birth,
+            &self.association_config,
+            &self.common_prune,
+        )
     }
 
     /// Core step implementation.
@@ -319,11 +270,8 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
 
         // Capture predicted tracks (from first hypothesis for LMB, or all for LMBM)
         let predicted_tracks = self.get_tracks();
-        let predicted_hypotheses = if self.strategy.is_hypothesis_based() {
-            Some(self.hypotheses.clone())
-        } else {
-            None
-        };
+        // LMBM strategies capture hypotheses, LMB strategies return None
+        let predicted_hypotheses = self.strategy.capture_hypotheses(&self.hypotheses);
 
         // Update (use block to limit context lifetime)
         let intermediate = {
@@ -339,11 +287,8 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
         };
 
         // Capture pre-normalization hypotheses (after update, before prune)
-        let pre_normalization_hypotheses = if self.strategy.is_hypothesis_based() {
-            Some(self.hypotheses.clone())
-        } else {
-            None
-        };
+        // LMBM strategies capture hypotheses, LMB strategies return None
+        let pre_normalization_hypotheses = self.strategy.capture_hypotheses(&self.hypotheses);
 
         // Capture updated tracks before pruning
         let updated_tracks = self.get_tracks();
@@ -362,19 +307,13 @@ impl<S: UpdateStrategy> UnifiedFilter<S> {
             let keep_mask = self
                 .strategy
                 .prune(&mut self.hypotheses, &mut self.trajectories, &ctx);
-            if self.strategy.is_hypothesis_based() {
-                Some(keep_mask)
-            } else {
-                None
-            }
+            // LMBM strategies wrap the mask, LMB strategies return None
+            self.strategy.wrap_objects_likely_to_exist(keep_mask)
         };
 
         // Capture normalized hypotheses (after prune, for LMBM)
-        let normalized_hypotheses = if self.strategy.is_hypothesis_based() {
-            Some(self.hypotheses.clone())
-        } else {
-            None
-        };
+        // LMBM strategies capture hypotheses, LMB strategies return None
+        let normalized_hypotheses = self.strategy.capture_hypotheses(&self.hypotheses);
 
         // Update trajectories
         self.strategy

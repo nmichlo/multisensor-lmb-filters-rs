@@ -994,37 +994,6 @@ impl Default for LmbmFilterConfig {
     }
 }
 
-/// Complete filter parameters
-#[derive(Debug, Clone)]
-pub struct FilterParams {
-    /// Motion model
-    pub motion: MotionModel,
-    /// Sensor configuration
-    pub sensor: SensorSet,
-    /// Birth model
-    pub birth: BirthModel,
-    /// Association configuration
-    pub association: AssociationConfig,
-    /// Filter thresholds
-    pub thresholds: FilterThresholds,
-    /// LMBM-specific config (only used by LMBM filters)
-    pub lmbm: LmbmConfig,
-}
-
-impl FilterParams {
-    /// Get state dimension
-    #[inline]
-    pub fn x_dim(&self) -> usize {
-        self.motion.x_dim()
-    }
-
-    /// Check if multi-sensor
-    #[inline]
-    pub fn is_multisensor(&self) -> bool {
-        self.sensor.num_sensors() > 1
-    }
-}
-
 // ============================================================================
 // Configuration Snapshots (for debugging/comparison)
 // ============================================================================

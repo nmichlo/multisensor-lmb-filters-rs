@@ -546,7 +546,7 @@ def compare_lmbm_hypothesis(name: str, expected: dict, actual, tol: float = TOLE
     Args:
         name: Name for error messages
         expected: Fixture dict with keys: w, r, mu, Sigma, birthTime, birthLocation
-        actual: _LmbmHypothesis object from filter
+        actual: _Hypothesis object from filter
         tol: Numerical tolerance
     """
     # Compare weight (w is log-weight in fixture for step4, linear for step5)
@@ -591,7 +591,7 @@ def compare_lmbm_hypotheses(name: str, expected: list, actual: list, tol: float 
     Args:
         name: Name for error messages
         expected: List of fixture hypothesis dicts
-        actual: List of _LmbmHypothesis objects from filter
+        actual: List of _Hypothesis objects from filter
         tol: Numerical tolerance
     """
     if len(expected) != len(actual):

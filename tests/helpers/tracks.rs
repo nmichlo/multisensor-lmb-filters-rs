@@ -1,9 +1,9 @@
 //! Track and Hypothesis comparison helpers
 //!
 //! This module provides reusable functions for comparing Track and
-//! LmbmHypothesis structures against MATLAB fixtures.
+//! Hypothesis structures against MATLAB fixtures.
 
-use multisensor_lmb_filters_rs::lmb::{LmbmHypothesis, Track};
+use multisensor_lmb_filters_rs::lmb::{Hypothesis, Track};
 
 use super::assertions::{assert_dvector_close, assert_scalar_close};
 
@@ -106,10 +106,10 @@ where
     }
 }
 
-/// Compare single LmbmHypothesis against expected values
+/// Compare single Hypothesis against expected values
 ///
 /// # Arguments
-/// * `actual` - Rust LmbmHypothesis to validate
+/// * `actual` - Rust Hypothesis to validate
 /// * `expected_w` - Expected log-weight
 /// * `expected_r` - Expected existence probabilities (one per track)
 /// * `expected_mu` - Expected means (one per track, each is state_dim)
@@ -118,12 +118,8 @@ where
 /// * `expected_birth_location` - Expected birth locations
 /// * `tolerance` - Numerical tolerance (typically 1e-10)
 /// * `hyp_idx` - Index for error messages
-pub fn assert_hypothesis_close<T>(
-    actual: &LmbmHypothesis,
-    expected: &T,
-    tolerance: f64,
-    hyp_idx: usize,
-) where
+pub fn assert_hypothesis_close<T>(actual: &Hypothesis, expected: &T, tolerance: f64, hyp_idx: usize)
+where
     T: HypothesisDataAccess,
 {
     // Compare log-weight (fixture w field stores log weights in LMBM context)
@@ -227,7 +223,7 @@ pub fn assert_hypothesis_close<T>(
 }
 
 /// Compare vector of hypotheses
-pub fn assert_hypotheses_close<T>(actual: &[LmbmHypothesis], expected: &[T], tolerance: f64)
+pub fn assert_hypotheses_close<T>(actual: &[Hypothesis], expected: &[T], tolerance: f64)
 where
     T: HypothesisDataAccess,
 {

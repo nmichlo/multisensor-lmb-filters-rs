@@ -139,12 +139,7 @@ fn step_output_to_py(
         .predicted_hypotheses
         .map(|hyps| {
             hyps.iter()
-                .map(|h| {
-                    Py::new(
-                        py,
-                        super::intermediate::PyLmbmHypothesis::from_hypothesis(h),
-                    )
-                })
+                .map(|h| Py::new(py, super::intermediate::PyHypothesis::from_hypothesis(h)))
                 .collect::<PyResult<Vec<_>>>()
         })
         .transpose()?;
@@ -153,12 +148,7 @@ fn step_output_to_py(
         .pre_normalization_hypotheses
         .map(|hyps| {
             hyps.iter()
-                .map(|h| {
-                    Py::new(
-                        py,
-                        super::intermediate::PyLmbmHypothesis::from_hypothesis(h),
-                    )
-                })
+                .map(|h| Py::new(py, super::intermediate::PyHypothesis::from_hypothesis(h)))
                 .collect::<PyResult<Vec<_>>>()
         })
         .transpose()?;
@@ -167,12 +157,7 @@ fn step_output_to_py(
         .normalized_hypotheses
         .map(|hyps| {
             hyps.iter()
-                .map(|h| {
-                    Py::new(
-                        py,
-                        super::intermediate::PyLmbmHypothesis::from_hypothesis(h),
-                    )
-                })
+                .map(|h| Py::new(py, super::intermediate::PyHypothesis::from_hypothesis(h)))
                 .collect::<PyResult<Vec<_>>>()
         })
         .transpose()?;
@@ -410,7 +395,7 @@ macro_rules! impl_lmbm_hypothesis_access {
         impl $filter {
             fn set_hypotheses(
                 &mut self,
-                hypotheses: Vec<PyRef<super::intermediate::PyLmbmHypothesis>>,
+                hypotheses: Vec<PyRef<super::intermediate::PyHypothesis>>,
             ) {
                 let rust_hypotheses: Vec<_> =
                     hypotheses.iter().map(|h| h.to_hypothesis()).collect();
@@ -630,29 +615,68 @@ pub struct PyFilterLmb {
 #[pymethods]
 impl PyFilterLmb {
     #[new]
-    #[pyo3(signature = (motion, sensor, birth, association=None, thresholds=None, seed=None))]
+    #[pyo3(signature = (
+        motion,
+        sensor,
+        birth,
+        association=None,
+        thresholds=None,
+        existence_threshold=None,
+        gm_weight_threshold=None,
+        max_gm_components=None,
+        min_trajectory_length=None,
+        gm_merge_threshold=None,
+        seed=None
+    ))]
     fn new(
         motion: &PyMotionModel,
         sensor: &PySensorModel,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
         thresholds: Option<&PyFilterThresholds>,
+        existence_threshold: Option<f64>,
+        gm_weight_threshold: Option<f64>,
+        max_gm_components: Option<usize>,
+        min_trajectory_length: Option<usize>,
+        gm_merge_threshold: Option<f64>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
+        use crate::lmb::{
+            DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_GM_MERGE_THRESHOLD, DEFAULT_GM_WEIGHT_THRESHOLD,
+            DEFAULT_MAX_GM_COMPONENTS, DEFAULT_MIN_TRAJECTORY_LENGTH,
+        };
+
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
-        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
+
+        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
+        let base_thresh = thresholds.map(|t| &t.inner);
+        let existence = existence_threshold
+            .or_else(|| base_thresh.map(|t| t.existence_threshold))
+            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
+            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components
+            .or_else(|| base_thresh.map(|t| t.max_gm_components))
+            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length
+            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
+            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
+            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         // Create the appropriate dynamic associator based on the config
         let associator = DynamicAssociator::from_config(&assoc);
 
         let common_prune = CommonPruneConfig {
-            existence_threshold: thresh.existence_threshold,
-            min_trajectory_length: thresh.min_trajectory_length,
+            existence_threshold: existence,
+            min_trajectory_length: min_traj_len,
         };
         let lmb_prune = LmbPruneConfig {
-            gm_weight_threshold: thresh.gm_weight_threshold,
-            max_gm_components: thresh.max_gm_components,
-            gm_merge_threshold: thresh.gm_merge_threshold,
+            gm_weight_threshold: gm_weight,
+            max_gm_components: max_components,
+            gm_merge_threshold: gm_merge,
         };
         let strategy = LmbStrategy::new(associator, SingleSensorScheduler::new(), lmb_prune);
 
@@ -794,30 +818,69 @@ pub struct PyFilterAaLmb {
 #[pymethods]
 impl PyFilterAaLmb {
     #[new]
-    #[pyo3(signature = (motion, sensors, birth, association=None, thresholds=None, seed=None))]
+    #[pyo3(signature = (
+        motion,
+        sensors,
+        birth,
+        association=None,
+        thresholds=None,
+        existence_threshold=None,
+        gm_weight_threshold=None,
+        max_gm_components=None,
+        min_trajectory_length=None,
+        gm_merge_threshold=None,
+        seed=None
+    ))]
     fn new(
         motion: &PyMotionModel,
         sensors: &PySensorConfigMulti,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
         thresholds: Option<&PyFilterThresholds>,
+        existence_threshold: Option<f64>,
+        gm_weight_threshold: Option<f64>,
+        max_gm_components: Option<usize>,
+        min_trajectory_length: Option<usize>,
+        gm_merge_threshold: Option<f64>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
+        use crate::lmb::{
+            DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_GM_MERGE_THRESHOLD, DEFAULT_GM_WEIGHT_THRESHOLD,
+            DEFAULT_MAX_GM_COMPONENTS, DEFAULT_MIN_TRAJECTORY_LENGTH,
+        };
+
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
-        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
+
+        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
+        let base_thresh = thresholds.map(|t| &t.inner);
+        let existence = existence_threshold
+            .or_else(|| base_thresh.map(|t| t.existence_threshold))
+            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
+            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components
+            .or_else(|| base_thresh.map(|t| t.max_gm_components))
+            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length
+            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
+            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
+            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         let num_sensors = sensors.inner.num_sensors();
-        let merger = ArithmeticAverageMerger::uniform(num_sensors, thresh.max_gm_components);
+        let merger = ArithmeticAverageMerger::uniform(num_sensors, max_components);
         let scheduler = ParallelScheduler::new(merger);
 
         let common_prune = CommonPruneConfig {
-            existence_threshold: thresh.existence_threshold,
-            min_trajectory_length: thresh.min_trajectory_length,
+            existence_threshold: existence,
+            min_trajectory_length: min_traj_len,
         };
         let lmb_prune = LmbPruneConfig {
-            gm_weight_threshold: thresh.gm_weight_threshold,
-            max_gm_components: thresh.max_gm_components,
-            gm_merge_threshold: thresh.gm_merge_threshold,
+            gm_weight_threshold: gm_weight,
+            max_gm_components: max_components,
+            gm_merge_threshold: gm_merge,
         };
         let strategy = LmbStrategy::new(LbpAssociator, scheduler, lmb_prune);
 
@@ -864,30 +927,69 @@ pub struct PyFilterGaLmb {
 #[pymethods]
 impl PyFilterGaLmb {
     #[new]
-    #[pyo3(signature = (motion, sensors, birth, association=None, thresholds=None, seed=None))]
+    #[pyo3(signature = (
+        motion,
+        sensors,
+        birth,
+        association=None,
+        thresholds=None,
+        existence_threshold=None,
+        gm_weight_threshold=None,
+        max_gm_components=None,
+        min_trajectory_length=None,
+        gm_merge_threshold=None,
+        seed=None
+    ))]
     fn new(
         motion: &PyMotionModel,
         sensors: &PySensorConfigMulti,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
         thresholds: Option<&PyFilterThresholds>,
+        existence_threshold: Option<f64>,
+        gm_weight_threshold: Option<f64>,
+        max_gm_components: Option<usize>,
+        min_trajectory_length: Option<usize>,
+        gm_merge_threshold: Option<f64>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
+        use crate::lmb::{
+            DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_GM_MERGE_THRESHOLD, DEFAULT_GM_WEIGHT_THRESHOLD,
+            DEFAULT_MAX_GM_COMPONENTS, DEFAULT_MIN_TRAJECTORY_LENGTH,
+        };
+
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
-        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
+
+        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
+        let base_thresh = thresholds.map(|t| &t.inner);
+        let existence = existence_threshold
+            .or_else(|| base_thresh.map(|t| t.existence_threshold))
+            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
+            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components
+            .or_else(|| base_thresh.map(|t| t.max_gm_components))
+            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length
+            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
+            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
+            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         let num_sensors = sensors.inner.num_sensors();
         let merger = GeometricAverageMerger::uniform(num_sensors);
         let scheduler = ParallelScheduler::new(merger);
 
         let common_prune = CommonPruneConfig {
-            existence_threshold: thresh.existence_threshold,
-            min_trajectory_length: thresh.min_trajectory_length,
+            existence_threshold: existence,
+            min_trajectory_length: min_traj_len,
         };
         let lmb_prune = LmbPruneConfig {
-            gm_weight_threshold: thresh.gm_weight_threshold,
-            max_gm_components: thresh.max_gm_components,
-            gm_merge_threshold: thresh.gm_merge_threshold,
+            gm_weight_threshold: gm_weight,
+            max_gm_components: max_components,
+            gm_merge_threshold: gm_merge,
         };
         let strategy = LmbStrategy::new(LbpAssociator, scheduler, lmb_prune);
 
@@ -934,30 +1036,69 @@ pub struct PyFilterPuLmb {
 #[pymethods]
 impl PyFilterPuLmb {
     #[new]
-    #[pyo3(signature = (motion, sensors, birth, association=None, thresholds=None, seed=None))]
+    #[pyo3(signature = (
+        motion,
+        sensors,
+        birth,
+        association=None,
+        thresholds=None,
+        existence_threshold=None,
+        gm_weight_threshold=None,
+        max_gm_components=None,
+        min_trajectory_length=None,
+        gm_merge_threshold=None,
+        seed=None
+    ))]
     fn new(
         motion: &PyMotionModel,
         sensors: &PySensorConfigMulti,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
         thresholds: Option<&PyFilterThresholds>,
+        existence_threshold: Option<f64>,
+        gm_weight_threshold: Option<f64>,
+        max_gm_components: Option<usize>,
+        min_trajectory_length: Option<usize>,
+        gm_merge_threshold: Option<f64>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
+        use crate::lmb::{
+            DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_GM_MERGE_THRESHOLD, DEFAULT_GM_WEIGHT_THRESHOLD,
+            DEFAULT_MAX_GM_COMPONENTS, DEFAULT_MIN_TRAJECTORY_LENGTH,
+        };
+
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
-        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
+
+        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
+        let base_thresh = thresholds.map(|t| &t.inner);
+        let existence = existence_threshold
+            .or_else(|| base_thresh.map(|t| t.existence_threshold))
+            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
+            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components
+            .or_else(|| base_thresh.map(|t| t.max_gm_components))
+            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length
+            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
+            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
+            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         // PU merger needs prior tracks - start with empty
         let merger = ParallelUpdateMerger::new(Vec::new());
         let scheduler = ParallelScheduler::new(merger);
 
         let common_prune = CommonPruneConfig {
-            existence_threshold: thresh.existence_threshold,
-            min_trajectory_length: thresh.min_trajectory_length,
+            existence_threshold: existence,
+            min_trajectory_length: min_traj_len,
         };
         let lmb_prune = LmbPruneConfig {
-            gm_weight_threshold: thresh.gm_weight_threshold,
-            max_gm_components: thresh.max_gm_components,
-            gm_merge_threshold: thresh.gm_merge_threshold,
+            gm_weight_threshold: gm_weight,
+            max_gm_components: max_components,
+            gm_merge_threshold: gm_merge,
         };
         let strategy = LmbStrategy::new(LbpAssociator, scheduler, lmb_prune);
 
@@ -1004,26 +1145,65 @@ pub struct PyFilterIcLmb {
 #[pymethods]
 impl PyFilterIcLmb {
     #[new]
-    #[pyo3(signature = (motion, sensors, birth, association=None, thresholds=None, seed=None))]
+    #[pyo3(signature = (
+        motion,
+        sensors,
+        birth,
+        association=None,
+        thresholds=None,
+        existence_threshold=None,
+        gm_weight_threshold=None,
+        max_gm_components=None,
+        min_trajectory_length=None,
+        gm_merge_threshold=None,
+        seed=None
+    ))]
     fn new(
         motion: &PyMotionModel,
         sensors: &PySensorConfigMulti,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
         thresholds: Option<&PyFilterThresholds>,
+        existence_threshold: Option<f64>,
+        gm_weight_threshold: Option<f64>,
+        max_gm_components: Option<usize>,
+        min_trajectory_length: Option<usize>,
+        gm_merge_threshold: Option<f64>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
+        use crate::lmb::{
+            DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_GM_MERGE_THRESHOLD, DEFAULT_GM_WEIGHT_THRESHOLD,
+            DEFAULT_MAX_GM_COMPONENTS, DEFAULT_MIN_TRAJECTORY_LENGTH,
+        };
+
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
-        let thresh = thresholds.map(|t| t.inner.clone()).unwrap_or_default();
+
+        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
+        let base_thresh = thresholds.map(|t| &t.inner);
+        let existence = existence_threshold
+            .or_else(|| base_thresh.map(|t| t.existence_threshold))
+            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
+            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components
+            .or_else(|| base_thresh.map(|t| t.max_gm_components))
+            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length
+            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
+            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold
+            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
+            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         let common_prune = CommonPruneConfig {
-            existence_threshold: thresh.existence_threshold,
-            min_trajectory_length: thresh.min_trajectory_length,
+            existence_threshold: existence,
+            min_trajectory_length: min_traj_len,
         };
         let lmb_prune = LmbPruneConfig {
-            gm_weight_threshold: thresh.gm_weight_threshold,
-            max_gm_components: thresh.max_gm_components,
-            gm_merge_threshold: thresh.gm_merge_threshold,
+            gm_weight_threshold: gm_weight,
+            max_gm_components: max_components,
+            gm_merge_threshold: gm_merge,
         };
         let strategy = LmbStrategy::new(LbpAssociator, SequentialScheduler::new(), lmb_prune);
 

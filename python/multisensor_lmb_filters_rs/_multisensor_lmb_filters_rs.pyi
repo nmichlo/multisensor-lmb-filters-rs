@@ -60,8 +60,8 @@ class _CardinalityEstimate:
     n_estimated: int
     map_indices: NDArray[np.intp]
 
-class _LmbmHypothesis:
-    """LMBM hypothesis for setting filter state."""
+class _Hypothesis:
+    """Hypothesis for setting filter state."""
 
     log_weight: float
     weight: float
@@ -85,7 +85,7 @@ class _LmbmHypothesis:
         sigma: list[list[list[float]]],
         birth_time: list[int],
         birth_location: list[int],
-    ) -> _LmbmHypothesis: ...
+    ) -> _Hypothesis: ...
 
 class _SensorUpdateOutput:
     """Per-sensor intermediate data from multisensor filter update."""
@@ -107,9 +107,9 @@ class _StepOutput:
     # Multisensor-specific fields (None for single-sensor filters)
     sensor_updates: list[_SensorUpdateOutput] | None
     # LMBM-specific fields (None for LMB filters)
-    predicted_hypotheses: list[_LmbmHypothesis] | None
-    pre_normalization_hypotheses: list[_LmbmHypothesis] | None
-    normalized_hypotheses: list[_LmbmHypothesis] | None
+    predicted_hypotheses: list[_Hypothesis] | None
+    pre_normalization_hypotheses: list[_Hypothesis] | None
+    normalized_hypotheses: list[_Hypothesis] | None
     objects_likely_to_exist: list[bool] | None
 
 # =============================================================================
@@ -350,7 +350,7 @@ class FilterLmbm:
         timestep: int,
     ) -> _StepOutput: ...
     def get_tracks(self) -> list[_TrackData]: ...
-    def set_hypotheses(self, hypotheses: list[_LmbmHypothesis]) -> None: ...
+    def set_hypotheses(self, hypotheses: list[_Hypothesis]) -> None: ...
     def reset(self) -> None: ...
 
 # =============================================================================
@@ -496,5 +496,5 @@ class FilterMultisensorLmbm:
         timestep: int,
     ) -> _StepOutput: ...
     def get_tracks(self) -> list[_TrackData]: ...
-    def set_hypotheses(self, hypotheses: list[_LmbmHypothesis]) -> None: ...
+    def set_hypotheses(self, hypotheses: list[_Hypothesis]) -> None: ...
     def reset(self) -> None: ...

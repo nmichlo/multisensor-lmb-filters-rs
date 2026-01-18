@@ -27,7 +27,7 @@
 //! - [`MotionModel`] - Prediction model (transition matrix, process noise)
 //! - [`SensorModel`] - Observation model (observation matrix, measurement noise)
 //! - [`BirthModel`] - Birth model for new tracks
-//! - [`FilterParams`] - Complete filter configuration
+//! - [`AssociationConfig`] - Data association configuration
 //!
 //! # Traits
 //!
@@ -61,14 +61,12 @@ pub mod measurements;
 // Re-export all public types from submodules
 
 // Types
-#[allow(deprecated)]
-pub use types::LmbmHypothesis;
 pub use types::{GaussianComponent, Hypothesis, Track, TrackLabel, TrajectoryHistory};
 
 // Configuration
 pub use config::{
-    AssociationConfig, BirthLocation, BirthModel, DataAssociationMethod, FilterParams,
-    FilterThresholds, LmbmConfig, MotionModel, MultisensorConfig, SensorModel,
+    AssociationConfig, BirthLocation, BirthModel, DataAssociationMethod, FilterThresholds,
+    LmbmConfig, MotionModel, MultisensorConfig, SensorModel,
 };
 
 // Model behavior traits (Phase 3 - Extensibility)

@@ -238,23 +238,23 @@ impl helpers::tracks::HypothesisDataAccess for HypothesisData {
 //=============================================================================
 
 use multisensor_lmb_filters_rs::lmb::{
-    LmbmHypothesis, MotionModel, MultisensorConfig, SensorModel, Track, TrackLabel,
+    Hypothesis, MotionModel, MultisensorConfig, SensorModel, Track, TrackLabel,
 };
 use nalgebra::{DMatrix, DVector};
 use smallvec::SmallVec;
 
 use multisensor_lmb_filters_rs::lmb::types::GaussianComponent;
 
-/// Convert fixture HypothesisData to LmbmHypothesis
-fn hypothesis_to_lmbm_hypothesis(hyp: &HypothesisData) -> LmbmHypothesis {
-    hypothesis_to_lmbm_hypothesis_impl(hyp, true)
+/// Convert fixture HypothesisData to Hypothesis
+fn hypothesis_to_hypothesis(hyp: &HypothesisData) -> Hypothesis {
+    hypothesis_to_hypothesis_impl(hyp, true)
 }
 
-fn hypothesis_to_lmbm_hypothesis_linear_weight(hyp: &HypothesisData) -> LmbmHypothesis {
-    hypothesis_to_lmbm_hypothesis_impl(hyp, false)
+fn hypothesis_to_hypothesis_linear_weight(hyp: &HypothesisData) -> Hypothesis {
+    hypothesis_to_hypothesis_impl(hyp, false)
 }
 
-fn hypothesis_to_lmbm_hypothesis_impl(hyp: &HypothesisData, w_is_log: bool) -> LmbmHypothesis {
+fn hypothesis_to_hypothesis_impl(hyp: &HypothesisData, w_is_log: bool) -> Hypothesis {
     let mut tracks = Vec::new();
 
     for i in 0..hyp.r.len() {
@@ -291,7 +291,7 @@ fn hypothesis_to_lmbm_hypothesis_impl(hyp: &HypothesisData, w_is_log: bool) -> L
         });
     }
 
-    LmbmHypothesis {
+    Hypothesis {
         log_weight: if w_is_log { hyp.w } else { hyp.w.ln() },
         tracks,
     }
@@ -740,7 +740,7 @@ fn test_multisensor_lmbm_hypothesis_generation_equivalence() {
 #[test]
 fn test_multisensor_lmbm_normalization_isolated_equivalence() {
     use multisensor_lmb_filters_rs::lmb::common_ops::normalize_gate_and_prune_tracks;
-    use multisensor_lmb_filters_rs::lmb::LmbmHypothesis;
+    use multisensor_lmb_filters_rs::lmb::Hypothesis;
 
     let fixture = load_multisensor_lmbm_fixture();
 
@@ -751,10 +751,10 @@ fn test_multisensor_lmbm_normalization_isolated_equivalence() {
     let expected = &fixture.step5_normalization.output;
 
     // Convert input hypotheses from fixture format to Rust types
-    let mut input_hyps: Vec<LmbmHypothesis> = step5_input
+    let mut input_hyps: Vec<Hypothesis> = step5_input
         .posterior_hypotheses
         .iter()
-        .map(|h| hypothesis_to_lmbm_hypothesis(h))
+        .map(|h| hypothesis_to_hypothesis(h))
         .collect();
 
     println!(
@@ -871,7 +871,7 @@ fn test_multisensor_lmbm_normalization_isolated_equivalence() {
 #[test]
 fn test_multisensor_lmbm_extraction_equivalence() {
     use multisensor_lmb_filters_rs::lmb::common_ops::compute_hypothesis_cardinality;
-    use multisensor_lmb_filters_rs::lmb::LmbmHypothesis;
+    use multisensor_lmb_filters_rs::lmb::Hypothesis;
 
     let fixture = load_multisensor_lmbm_fixture();
 
@@ -883,10 +883,10 @@ fn test_multisensor_lmbm_extraction_equivalence() {
 
     // Convert input hypotheses from fixture format to Rust types
     // NOTE: step6 input comes from step5 output which stores LINEAR weights
-    let input_hyps: Vec<LmbmHypothesis> = step6_input
+    let input_hyps: Vec<Hypothesis> = step6_input
         .hypotheses
         .iter()
-        .map(|h| hypothesis_to_lmbm_hypothesis_linear_weight(h))
+        .map(|h| hypothesis_to_hypothesis_linear_weight(h))
         .collect();
 
     println!("  Input: {} hypotheses", input_hyps.len());

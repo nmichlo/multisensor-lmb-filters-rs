@@ -24,7 +24,6 @@ from multisensor_lmb_filters_rs import (
     FilterLmbmConfig,
     FilterMultisensorLmbm,
     FilterPuLmb,
-    FilterThresholds,
     MotionModel,
     SensorConfigMulti,
     SensorModel,
@@ -76,17 +75,14 @@ def build_filter_from_fixture(fixture: dict, scenario: dict):
     ]
     birth = BirthModel(birth_locs, lmb_existence=model["birth_existence"], lmbm_existence=0.001)
 
-    # Thresholds from fixture
+    # Thresholds from fixture - stored locally for inline passing
     # gm_merge can be null (JSON's null for MATLAB's inf) or "Inf" string
     gm_merge_val = thresh["gm_merge"]
     if gm_merge_val is None or gm_merge_val == "Inf":
         gm_merge_val = float("inf")
-    thresholds = FilterThresholds(
-        existence=thresh["existence"],
-        gm_weight=thresh["gm_weight"],
-        max_components=thresh["max_components"],
-        gm_merge=gm_merge_val,
-    )
+    existence_threshold = thresh["existence"]
+    gm_weight_threshold = thresh["gm_weight"]
+    max_gm_components = thresh["max_components"]
 
     # Associator from fixture
     assoc_cfg = filt_cfg["associator"]
@@ -108,25 +104,37 @@ def build_filter_from_fixture(fixture: dict, scenario: dict):
     # Filter type from fixture
     filter_type = filt_cfg["type"]
 
+    # Common threshold kwargs for all filters
+    threshold_kwargs = {
+        "existence_threshold": existence_threshold,
+        "gm_weight_threshold": gm_weight_threshold,
+        "max_gm_components": max_gm_components,
+        "gm_merge_threshold": gm_merge_val,
+    }
+
     if filter_type == "LMB":
-        return FilterLmb(motion, sensor, birth, assoc, thresholds), False
+        return FilterLmb(motion, sensor, birth, assoc, **threshold_kwargs), False
     elif filter_type == "LMBM":
-        return FilterLmbm(motion, sensor, birth, assoc, thresholds, lmbm_config), False
+        return FilterLmbm(
+            motion, sensor, birth, assoc, lmbm_config=lmbm_config, **threshold_kwargs
+        ), False
     elif filter_type == "AA-LMB":
         sensors = SensorConfigMulti([sensor] * n_sensors)
-        return FilterAaLmb(motion, sensors, birth, assoc, thresholds), True
+        return FilterAaLmb(motion, sensors, birth, assoc, **threshold_kwargs), True
     elif filter_type == "GA-LMB":
         sensors = SensorConfigMulti([sensor] * n_sensors)
-        return FilterGaLmb(motion, sensors, birth, assoc, thresholds), True
+        return FilterGaLmb(motion, sensors, birth, assoc, **threshold_kwargs), True
     elif filter_type == "PU-LMB":
         sensors = SensorConfigMulti([sensor] * n_sensors)
-        return FilterPuLmb(motion, sensors, birth, assoc, thresholds), True
+        return FilterPuLmb(motion, sensors, birth, assoc, **threshold_kwargs), True
     elif filter_type == "IC-LMB":
         sensors = SensorConfigMulti([sensor] * n_sensors)
-        return FilterIcLmb(motion, sensors, birth, assoc, thresholds), True
+        return FilterIcLmb(motion, sensors, birth, assoc, **threshold_kwargs), True
     elif filter_type == "MS-LMBM":
         sensors = SensorConfigMulti([sensor] * n_sensors)
-        return FilterMultisensorLmbm(motion, sensors, birth, assoc, thresholds, lmbm_config), True
+        return FilterMultisensorLmbm(
+            motion, sensors, birth, assoc, lmbm_config=lmbm_config, **threshold_kwargs
+        ), True
     else:
         raise ValueError(f"Unknown filter type: {filter_type}")
 
