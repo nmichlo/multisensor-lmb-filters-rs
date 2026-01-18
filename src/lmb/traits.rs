@@ -184,9 +184,9 @@ impl AssociationResult {
 /// as the true associations are unknown and must be inferred probabilistically.
 ///
 /// The trait is implemented by different algorithms with different trade-offs:
-/// - [`LbpAssociator`] - Loopy Belief Propagation: fast, approximate message passing
-/// - [`GibbsAssociator`] - Gibbs sampling: MCMC-based, produces samples for LMBM
-/// - [`MurtyAssociator`] - Murty's k-best: exact top-k assignments, good for LMBM
+/// - [`AssociatorLbp`] - Loopy Belief Propagation: fast, approximate message passing
+/// - [`AssociatorGibbs`] - Gibbs sampling: MCMC-based, produces samples for LMBM
+/// - [`AssociatorMurty`] - Murty's k-best: exact top-k assignments, good for LMBM
 ///
 /// All implementations are `Send + Sync` to support parallel filter execution.
 pub trait Associator: Send + Sync {
@@ -250,11 +250,11 @@ pub trait Merger: Send + Sync {
 /// measurement information. The update strategy differs fundamentally between
 /// filter types:
 ///
-/// - [`MarginalUpdater`] (LMB): Maintains Gaussian mixture by reweighting components
+/// - [`UpdaterMarginal`] (LMB): Maintains Gaussian mixture by reweighting components
 ///   according to marginal association probabilities. Each track becomes a weighted
 ///   mixture of "missed" and "detected with measurement j" hypotheses.
 ///
-/// - [`HardAssignmentUpdater`] (LMBM): Makes hard (deterministic) assignments from
+/// - [`UpdaterHardAssignment`] (LMBM): Makes hard (deterministic) assignments from
 ///   sampled association events. Each track gets a single component based on its
 ///   assigned measurement. Used with hypothesis-based filters.
 ///
@@ -289,9 +289,9 @@ pub trait Updater: Send + Sync {
 /// LBP is deterministic and does not produce discrete samples, making it suitable
 /// for LMB filters but not for LMBM which requires sampled association events.
 #[derive(Debug, Clone, Default)]
-pub struct LbpAssociator;
+pub struct AssociatorLbp;
 
-impl Associator for LbpAssociator {
+impl Associator for AssociatorLbp {
     fn associate<R: rand::Rng>(
         &self,
         matrices: &AssociationMatrices,
@@ -360,9 +360,9 @@ impl Associator for LbpAssociator {
 /// discrete samples needed for LMBM filters. The quality of approximation improves
 /// with more samples but at increased computational cost.
 #[derive(Debug, Clone, Default)]
-pub struct GibbsAssociator;
+pub struct AssociatorGibbs;
 
-impl Associator for GibbsAssociator {
+impl Associator for AssociatorGibbs {
     fn associate<R: rand::Rng>(
         &self,
         matrices: &AssociationMatrices,
@@ -481,9 +481,9 @@ impl Associator for GibbsAssociator {
 /// The marginal probabilities are computed by weighting each assignment by its
 /// likelihood. Computational cost grows with k, but typically k=100-1000 suffices.
 #[derive(Debug, Clone, Default)]
-pub struct MurtyAssociator;
+pub struct AssociatorMurty;
 
-impl Associator for MurtyAssociator {
+impl Associator for AssociatorMurty {
     fn associate<R: rand::Rng>(
         &self,
         matrices: &AssociationMatrices,
@@ -640,16 +640,16 @@ impl Associator for MurtyAssociator {
 #[derive(Debug, Clone)]
 pub enum DynamicAssociator {
     /// Loopy Belief Propagation
-    Lbp(LbpAssociator),
+    Lbp(AssociatorLbp),
     /// Gibbs Sampling
-    Gibbs(GibbsAssociator),
+    Gibbs(AssociatorGibbs),
     /// Murty's Algorithm
-    Murty(MurtyAssociator),
+    Murty(AssociatorMurty),
 }
 
 impl Default for DynamicAssociator {
     fn default() -> Self {
-        DynamicAssociator::Lbp(LbpAssociator)
+        DynamicAssociator::Lbp(AssociatorLbp)
     }
 }
 
@@ -658,10 +658,10 @@ impl DynamicAssociator {
     pub fn from_config(config: &AssociationConfig) -> Self {
         match config.method {
             DataAssociationMethod::Lbp | DataAssociationMethod::LbpFixed => {
-                DynamicAssociator::Lbp(LbpAssociator)
+                DynamicAssociator::Lbp(AssociatorLbp)
             }
-            DataAssociationMethod::Gibbs => DynamicAssociator::Gibbs(GibbsAssociator),
-            DataAssociationMethod::Murty => DynamicAssociator::Murty(MurtyAssociator),
+            DataAssociationMethod::Gibbs => DynamicAssociator::Gibbs(AssociatorGibbs),
+            DataAssociationMethod::Murty => DynamicAssociator::Murty(AssociatorMurty),
         }
     }
 }
@@ -710,7 +710,7 @@ impl Associator for DynamicAssociator {
 /// measurements are ambiguous. However, it can lead to component explosion in
 /// dense scenarios.
 #[derive(Debug, Clone)]
-pub struct MarginalUpdater {
+pub struct UpdaterMarginal {
     /// Components with weight below this threshold are pruned.
     pub weight_threshold: f64,
     /// Maximum number of Gaussian components to retain per track.
@@ -720,13 +720,13 @@ pub struct MarginalUpdater {
     pub merge_threshold: f64,
 }
 
-impl Default for MarginalUpdater {
+impl Default for UpdaterMarginal {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl MarginalUpdater {
+impl UpdaterMarginal {
     /// Create a new marginal updater with default settings (MATLAB-compatible).
     pub fn new() -> Self {
         Self {
@@ -750,7 +750,7 @@ impl MarginalUpdater {
     }
 }
 
-impl Updater for MarginalUpdater {
+impl Updater for UpdaterMarginal {
     fn update(&self, tracks: &mut [Track], result: &AssociationResult, posteriors: &PosteriorGrid) {
         let m = result.marginal_weights.ncols();
 
@@ -825,7 +825,7 @@ impl Updater for MarginalUpdater {
 
 /// LMBM hard assignment update strategy using discrete association events.
 ///
-/// Unlike [`MarginalUpdater`] which maintains uncertainty through Gaussian mixtures,
+/// Unlike [`UpdaterMarginal`] which maintains uncertainty through Gaussian mixtures,
 /// this updater makes hard (deterministic) assignments. Each track is updated
 /// based on a single association event, resulting in single-component posteriors.
 ///
@@ -843,12 +843,12 @@ impl Updater for MarginalUpdater {
 /// to use. For LMBM, different hypotheses use different sample indices to
 /// represent different association possibilities.
 #[derive(Debug, Clone, Default)]
-pub struct HardAssignmentUpdater {
+pub struct UpdaterHardAssignment {
     /// Which association sample to apply (0 = first/best sample).
     pub sample_index: usize,
 }
 
-impl HardAssignmentUpdater {
+impl UpdaterHardAssignment {
     /// Create a new hard assignment updater
     pub fn new() -> Self {
         Self { sample_index: 0 }
@@ -860,7 +860,7 @@ impl HardAssignmentUpdater {
     }
 }
 
-impl Updater for HardAssignmentUpdater {
+impl Updater for UpdaterHardAssignment {
     fn update(&self, tracks: &mut [Track], result: &AssociationResult, posteriors: &PosteriorGrid) {
         let n = tracks.len();
 
@@ -971,18 +971,18 @@ mod tests {
 
     #[test]
     fn test_associator_names() {
-        assert_eq!(LbpAssociator.name(), "LBP");
-        assert_eq!(GibbsAssociator.name(), "Gibbs");
-        assert_eq!(MurtyAssociator.name(), "Murty");
+        assert_eq!(AssociatorLbp.name(), "LBP");
+        assert_eq!(AssociatorGibbs.name(), "Gibbs");
+        assert_eq!(AssociatorMurty.name(), "Murty");
         // Test DynamicAssociator names
-        assert_eq!(DynamicAssociator::Lbp(LbpAssociator).name(), "LBP");
-        assert_eq!(DynamicAssociator::Gibbs(GibbsAssociator).name(), "Gibbs");
-        assert_eq!(DynamicAssociator::Murty(MurtyAssociator).name(), "Murty");
+        assert_eq!(DynamicAssociator::Lbp(AssociatorLbp).name(), "LBP");
+        assert_eq!(DynamicAssociator::Gibbs(AssociatorGibbs).name(), "Gibbs");
+        assert_eq!(DynamicAssociator::Murty(AssociatorMurty).name(), "Murty");
     }
 
     #[test]
     fn test_updater_names() {
-        assert_eq!(MarginalUpdater::new().name(), "Marginal");
-        assert_eq!(HardAssignmentUpdater::new().name(), "HardAssignment");
+        assert_eq!(UpdaterMarginal::new().name(), "Marginal");
+        assert_eq!(UpdaterHardAssignment::new().name(), "HardAssignment");
     }
 }

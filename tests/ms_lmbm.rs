@@ -597,7 +597,7 @@ fn test_multisensor_lmbm_association_posterior_r_equivalence() {
 #[test]
 fn test_multisensor_lmbm_gibbs_a_matrix_equivalence() {
     use multisensor_lmb_filters_rs::lmb::multisensor::{
-        MultisensorAssociator, MultisensorGibbsAssociator,
+        AssociatorMultisensor, AssociatorMultisensorGibbs,
     };
     use multisensor_lmb_filters_rs::lmb::{AssociationConfig, SimpleRng};
 
@@ -658,7 +658,7 @@ fn test_multisensor_lmbm_gibbs_a_matrix_equivalence() {
         gibbs_samples: fixture.step3_gibbs.input.number_of_samples,
         ..Default::default()
     };
-    let associator = MultisensorGibbsAssociator::new();
+    let associator = AssociatorMultisensorGibbs::new();
     let mut rng = SimpleRng::new(fixture.step3_gibbs.input.rng_seed);
     let result = associator
         .associate(&mut rng, &log_likelihoods, &dimensions, &association_config)

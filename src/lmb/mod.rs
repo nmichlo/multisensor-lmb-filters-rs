@@ -4,16 +4,16 @@
 //!
 //! # Single-Sensor Filters
 //!
-//! - [`LmbFilter`] - LMB filter with marginal association (Gaussian mixture posteriors)
-//! - [`LmbmFilter`] - LMBM filter with hypothesis management (discrete association samples)
+//! - [`FilterLmb`] - LMB filter with marginal association (Gaussian mixture posteriors)
+//! - [`FilterLmbm`] - LMBM filter with hypothesis management (discrete association samples)
 //!
 //! # Multi-Sensor Filters
 //!
-//! - [`AaLmbFilter`] - Arithmetic Average fusion (fast, simple)
-//! - [`GaLmbFilter`] - Geometric Average fusion (conservative covariance)
-//! - [`PuLmbFilter`] - Parallel Update fusion (optimal for independent sensors)
-//! - [`IcLmbFilter`] - Iterated Corrector fusion (sequential sensor updates)
-//! - [`MultisensorLmbmFilter`] - Multi-sensor LMBM with joint association
+//! - [`FilterLmbAa`] - Arithmetic Average fusion (fast, simple)
+//! - [`FilterLmbGa`] - Geometric Average fusion (conservative covariance)
+//! - [`FilterLmbPu`] - Parallel Update fusion (optimal for independent sensors)
+//! - [`FilterLmbIc`] - Iterated Corrector fusion (sequential sensor updates)
+//! - [`FilterLmbmMultisensor`] - Multi-sensor LMBM with joint association
 //!
 //! # Core Types
 //!
@@ -89,8 +89,8 @@ pub use errors::{AssociationError, FilterError};
 
 // Traits and implementations
 pub use traits::{
-    AssociationResult, Associator, DynamicAssociator, Filter, GibbsAssociator,
-    HardAssignmentUpdater, LbpAssociator, MarginalUpdater, Merger, MurtyAssociator, Updater,
+    AssociationResult, Associator, AssociatorGibbs, AssociatorLbp, AssociatorMurty,
+    DynamicAssociator, Filter, Merger, Updater, UpdaterHardAssignment, UpdaterMarginal,
 };
 
 // Update schedulers (Phase 4 - Strategy Pattern)
@@ -131,19 +131,19 @@ pub use strategy::{
 pub use unified::UnifiedFilter;
 
 // Filter type aliases (all backed by UnifiedFilter)
-pub type LmbFilter = UnifiedFilter<LmbStrategyLbp>;
-pub type LmbmFilter = UnifiedFilter<LmbmStrategyGibbs>;
-pub type AaLmbFilter = UnifiedFilter<AaLmbStrategyLbp>;
-pub type GaLmbFilter = UnifiedFilter<GaLmbStrategyLbp>;
-pub type PuLmbFilter = UnifiedFilter<PuLmbStrategyLbp>;
-pub type IcLmbFilter = UnifiedFilter<IcLmbStrategyLbp>;
-pub type MultisensorLmbmFilter = UnifiedFilter<MultisensorLmbmStrategyGibbs>;
+pub type FilterLmb = UnifiedFilter<LmbStrategyLbp>;
+pub type FilterLmbm = UnifiedFilter<LmbmStrategyGibbs>;
+pub type FilterLmbAa = UnifiedFilter<AaLmbStrategyLbp>;
+pub type FilterLmbGa = UnifiedFilter<GaLmbStrategyLbp>;
+pub type FilterLmbPu = UnifiedFilter<PuLmbStrategyLbp>;
+pub type FilterLmbIc = UnifiedFilter<IcLmbStrategyLbp>;
+pub type FilterLmbmMultisensor = UnifiedFilter<MultisensorLmbmStrategyGibbs>;
 
 // Fusion mergers and multi-sensor traits
 pub use multisensor::{
-    ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger,
-    MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator,
-    MultisensorMeasurements, ParallelUpdateMerger,
+    AssociationMultisensorResult, AssociatorMultisensor, AssociatorMultisensorGibbs,
+    MeasurementsMultisensor, MergerAverageArithmetic, MergerAverageGeometric,
+    MergerIteratedCorrector, MergerParallelUpdate,
 };
 
 // Utilities (re-exported from common)

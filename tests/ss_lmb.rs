@@ -20,8 +20,8 @@ use std::fs;
 use multisensor_lmb_filters_rs::association::AssociationBuilder;
 use multisensor_lmb_filters_rs::components::prediction::{predict_track, predict_tracks};
 use multisensor_lmb_filters_rs::lmb::{
-    AssociationConfig, Associator, BirthModel, DataAssociationMethod, GaussianComponent,
-    LbpAssociator, MotionModel, SensorModel, Track, TrackLabel,
+    AssociationConfig, Associator, AssociatorLbp, BirthModel, DataAssociationMethod,
+    GaussianComponent, MotionModel, SensorModel, Track, TrackLabel,
 };
 
 // Import deserialization helpers from fixtures module
@@ -850,7 +850,7 @@ fn test_new_api_association_posterior_parameters_equivalence() {
 #[test]
 fn test_new_api_gibbs_data_association_equivalence() {
     use multisensor_lmb_filters_rs::common::rng::SimpleRng;
-    use multisensor_lmb_filters_rs::lmb::GibbsAssociator;
+    use multisensor_lmb_filters_rs::lmb::AssociatorGibbs;
 
     let fixture_path = "tests/fixtures/step_ss_lmb_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
@@ -885,7 +885,7 @@ fn test_new_api_gibbs_data_association_equivalence() {
         ..Default::default()
     };
 
-    let associator = GibbsAssociator;
+    let associator = AssociatorGibbs;
     let mut rng = SimpleRng::new(gibbs_input.rng_seed);
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
@@ -913,7 +913,7 @@ fn test_new_api_gibbs_data_association_equivalence() {
 /// Test that new API Murty's algorithm produces MATLAB-equivalent r and W values.
 #[test]
 fn test_new_api_murtys_data_association_equivalence() {
-    use multisensor_lmb_filters_rs::lmb::MurtyAssociator;
+    use multisensor_lmb_filters_rs::lmb::AssociatorMurty;
 
     let fixture_path = "tests/fixtures/step_ss_lmb_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
@@ -948,7 +948,7 @@ fn test_new_api_murtys_data_association_equivalence() {
         ..Default::default()
     };
 
-    let associator = MurtyAssociator;
+    let associator = AssociatorMurty;
     let mut rng = rand::thread_rng(); // Murty's is deterministic, RNG not used
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
@@ -975,7 +975,7 @@ fn test_new_api_murtys_data_association_equivalence() {
 /// Test that LMB update step produces MATLAB-equivalent posterior_objects
 #[test]
 fn test_lmb_update_posterior_objects_equivalence() {
-    use multisensor_lmb_filters_rs::lmb::{MarginalUpdater, Updater};
+    use multisensor_lmb_filters_rs::lmb::{Updater, UpdaterMarginal};
 
     let fixture_path = "tests/fixtures/step_ss_lmb_seed42.json";
     let fixture_data = fs::read_to_string(fixture_path)
@@ -1009,13 +1009,13 @@ fn test_lmb_update_posterior_objects_equivalence() {
         ..Default::default()
     };
 
-    let associator = LbpAssociator;
+    let associator = AssociatorLbp;
     let mut rng = rand::thread_rng();
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
     // Apply update to get posterior objects
     // Use MATLAB-equivalent parameters: gmWeightThreshold=1e-6, maxComponents=5, no merging
-    let updater = MarginalUpdater::with_thresholds(1e-6, 5, f64::INFINITY);
+    let updater = UpdaterMarginal::with_thresholds(1e-6, 5, f64::INFINITY);
     updater.update(&mut tracks, &result, &matrices.posteriors);
 
     // Update existence probabilities from association result
@@ -1160,7 +1160,7 @@ fn test_new_api_lbp_runs_on_matlab_fixture() {
         ..Default::default()
     };
 
-    let associator = LbpAssociator;
+    let associator = AssociatorLbp;
     let mut rng = rand::thread_rng();
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
@@ -1441,7 +1441,7 @@ fn test_new_api_lbp_marginals_equivalence() {
         ..Default::default()
     };
 
-    let associator = LbpAssociator;
+    let associator = AssociatorLbp;
     let mut rng = rand::thread_rng();
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 

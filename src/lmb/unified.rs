@@ -7,7 +7,7 @@
 
 use super::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig};
 use super::errors::FilterError;
-use super::multisensor::MultisensorMeasurements;
+use super::multisensor::MeasurementsMultisensor;
 use super::output::{StateEstimate, Trajectory};
 use super::scheduler::{ParallelScheduler, SequentialScheduler, SingleSensorScheduler};
 use super::strategy::{
@@ -510,11 +510,11 @@ impl<A: super::traits::Associator + Clone> Filter
 // Filter trait implementation for multi-sensor LMBM
 // ============================================================================
 
-impl<A: super::multisensor::traits::MultisensorAssociator + Clone> Filter
+impl<A: super::multisensor::traits::AssociatorMultisensor + Clone> Filter
     for UnifiedFilter<LmbmStrategy<MultisensorLmbmStrategy<A>>>
 {
     type State = Vec<Hypothesis>;
-    type Measurements = MultisensorMeasurements;
+    type Measurements = MeasurementsMultisensor;
 
     fn step<R: Rng>(
         &mut self,
@@ -554,7 +554,7 @@ mod tests {
     use super::*;
     use crate::lmb::config::{BirthLocation, SensorModel};
     use crate::lmb::strategy::LmbStrategyLbp;
-    use crate::lmb::traits::LbpAssociator;
+    use crate::lmb::traits::AssociatorLbp;
     use nalgebra::DMatrix;
 
     fn create_motion() -> MotionModel {
@@ -576,7 +576,7 @@ mod tests {
 
     #[test]
     fn test_unified_filter_creation() {
-        let strategy = LmbStrategy::with_defaults(LbpAssociator, SingleSensorScheduler);
+        let strategy = LmbStrategy::with_defaults(AssociatorLbp, SingleSensorScheduler);
 
         let filter: UnifiedFilter<LmbStrategyLbp> = UnifiedFilter::with_defaults(
             create_motion(),
@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     fn test_unified_lmb_filter_step() {
-        let strategy = LmbStrategy::with_defaults(LbpAssociator, SingleSensorScheduler);
+        let strategy = LmbStrategy::with_defaults(AssociatorLbp, SingleSensorScheduler);
 
         let mut filter: UnifiedFilter<LmbStrategyLbp> = UnifiedFilter::with_defaults(
             create_motion(),
@@ -612,7 +612,7 @@ mod tests {
 
     #[test]
     fn test_unified_filter_reset() {
-        let strategy = LmbStrategy::with_defaults(LbpAssociator, SingleSensorScheduler);
+        let strategy = LmbStrategy::with_defaults(AssociatorLbp, SingleSensorScheduler);
 
         let mut filter: UnifiedFilter<LmbStrategyLbp> = UnifiedFilter::with_defaults(
             create_motion(),

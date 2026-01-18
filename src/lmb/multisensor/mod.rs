@@ -17,10 +17,10 @@
 //!
 //! # Fusion Strategies
 //!
-//! - [`ArithmeticAverageMerger`] - Simple weighted average
-//! - [`GeometricAverageMerger`] - Covariance intersection
-//! - [`ParallelUpdateMerger`] - Information-form fusion
-//! - [`IteratedCorrectorMerger`] - Sequential sensor updates
+//! - [`MergerAverageArithmetic`] - Simple weighted average
+//! - [`MergerAverageGeometric`] - Covariance intersection
+//! - [`MergerParallelUpdate`] - Information-form fusion
+//! - [`MergerIteratedCorrector`] - Sequential sensor updates
 
 use nalgebra::DVector;
 
@@ -29,11 +29,11 @@ pub mod traits;
 
 // Re-export fusion strategies
 pub use fusion::{
-    ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger, ParallelUpdateMerger,
+    MergerAverageArithmetic, MergerAverageGeometric, MergerIteratedCorrector, MergerParallelUpdate,
 };
 
 // Re-export from traits.rs
-pub use traits::{MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator};
+pub use traits::{AssociationMultisensorResult, AssociatorMultisensor, AssociatorMultisensorGibbs};
 
 /// Multi-sensor measurements: one measurement set per sensor.
-pub type MultisensorMeasurements = Vec<Vec<DVector<f64>>>;
+pub type MeasurementsMultisensor = Vec<Vec<DVector<f64>>>;

@@ -11,7 +11,7 @@ pytest: pybuild
 	uv run pytest python/tests/ --disable-warnings -v
 
 test:
-	cargo test
+	cargo test --release
 
 build:
 	cargo build --release

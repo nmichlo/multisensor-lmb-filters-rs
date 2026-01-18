@@ -19,8 +19,8 @@ use multisensor_lmb_filters_rs::common::association::gibbs::{
 };
 use multisensor_lmb_filters_rs::common::rng::SimpleRng;
 use multisensor_lmb_filters_rs::lmb::{
-    common_ops::compute_hypothesis_cardinality, AssociationConfig, BirthLocation, BirthModel,
-    CommonPruneConfig, Filter, GaussianComponent, GibbsAssociator, LmbmPruneConfig, LmbmStrategy,
+    common_ops::compute_hypothesis_cardinality, AssociationConfig, AssociatorGibbs, BirthLocation,
+    BirthModel, CommonPruneConfig, Filter, GaussianComponent, LmbmPruneConfig, LmbmStrategy,
     MotionModel, SensorModel, SingleSensorLmbmStrategy, Track, TrackLabel, UnifiedFilter,
 };
 
@@ -688,7 +688,7 @@ fn test_lmbm_hypothesis_generation_equivalence() {
 
     // Create filter using UnifiedFilter with LmbmStrategy
     let inner = SingleSensorLmbmStrategy {
-        associator: GibbsAssociator,
+        associator: AssociatorGibbs,
     };
     let strategy = LmbmStrategy::new(inner, lmbm_prune);
     let mut filter = UnifiedFilter::new(

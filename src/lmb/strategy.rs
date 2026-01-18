@@ -20,14 +20,14 @@ use rand::Rng;
 
 use super::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig, SensorModel};
 use super::errors::FilterError;
-use super::multisensor::traits::MultisensorAssociator;
-use super::multisensor::MultisensorMeasurements;
+use super::multisensor::traits::AssociatorMultisensor;
+use super::multisensor::MeasurementsMultisensor;
 use super::output::{StateEstimate, Trajectory};
 use super::scheduler::{
     ParallelScheduler, SequentialScheduler, SingleSensorScheduler, UpdateScheduler,
 };
 use super::traits::{
-    AssociationResult, Associator, HardAssignmentUpdater, MarginalUpdater, Merger, Updater,
+    AssociationResult, Associator, Merger, Updater, UpdaterHardAssignment, UpdaterMarginal,
 };
 use super::types::{GaussianComponent, Hypothesis, Track};
 use crate::association::{AssociationBuilder, AssociationMatrices};
@@ -333,7 +333,7 @@ pub trait UpdateStrategy: Send + Sync + Clone {
 ///
 /// # Type Parameters
 ///
-/// * `A` - The data association algorithm (default: [`LbpAssociator`])
+/// * `A` - The data association algorithm (default: [`AssociatorLbp`])
 /// * `S` - The update scheduler determining single/multi-sensor behavior
 ///
 /// # Configuration
@@ -352,7 +352,7 @@ pub struct LmbStrategy<A: Associator, S: UpdateScheduler> {
     /// The update scheduler
     pub(crate) scheduler: S,
     /// The marginal updater (applies soft assignments)
-    pub(crate) updater: MarginalUpdater,
+    pub(crate) updater: UpdaterMarginal,
     /// LMB-specific pruning configuration
     pub(crate) prune_config: LmbPruneConfig,
 }
@@ -360,7 +360,7 @@ pub struct LmbStrategy<A: Associator, S: UpdateScheduler> {
 impl<A: Associator, S: UpdateScheduler> LmbStrategy<A, S> {
     /// Create a new LMB strategy with the given components.
     pub fn new(associator: A, scheduler: S, prune_config: LmbPruneConfig) -> Self {
-        let updater = MarginalUpdater::with_thresholds(
+        let updater = UpdaterMarginal::with_thresholds(
             prune_config.gm_weight_threshold,
             prune_config.max_gm_components,
             prune_config.gm_merge_threshold,
@@ -394,7 +394,7 @@ impl<A: Associator, S: UpdateScheduler> LmbStrategy<A, S> {
 /// Helper function to avoid borrow checker issues.
 fn update_single_sensor<A: Associator, R: rand::Rng>(
     associator: &A,
-    updater: &MarginalUpdater,
+    updater: &UpdaterMarginal,
     association_config: &AssociationConfig,
     sensor: &SensorModel,
     measurements: &[DVector<f64>],
@@ -970,7 +970,7 @@ pub struct LmbmAssociationIntermediate {
 
 /// Single-sensor LMBM association strategy.
 #[derive(Debug, Clone, Default)]
-pub struct SingleSensorLmbmStrategy<A: Associator = super::traits::GibbsAssociator> {
+pub struct SingleSensorLmbmStrategy<A: Associator = super::traits::AssociatorGibbs> {
     pub associator: A,
 }
 
@@ -1041,7 +1041,7 @@ impl<A: Associator> SingleSensorLmbmStrategy<A> {
 
                 new_hyp.log_weight += log_likelihood_sum;
 
-                let updater = HardAssignmentUpdater::with_sample_index(sample_idx);
+                let updater = UpdaterHardAssignment::with_sample_index(sample_idx);
                 updater.update(&mut new_hyp.tracks, result, &matrices.posteriors);
 
                 for (track_idx, &meas_assignment) in assignments.iter().enumerate() {
@@ -1138,7 +1138,7 @@ impl<A: Associator> LmbmAssociator for SingleSensorLmbmStrategy<A> {
 /// Multi-sensor LMBM association strategy.
 #[derive(Debug, Clone, Default)]
 pub struct MultisensorLmbmStrategy<
-    A: MultisensorAssociator = super::multisensor::MultisensorGibbsAssociator,
+    A: AssociatorMultisensor = super::multisensor::AssociatorMultisensorGibbs,
 > {
     pub associator: A,
 }
@@ -1151,7 +1151,7 @@ struct MultisensorPosterior {
     covariance: DMatrix<f64>,
 }
 
-impl<A: MultisensorAssociator> MultisensorLmbmStrategy<A> {
+impl<A: AssociatorMultisensor> MultisensorLmbmStrategy<A> {
     /// Convert linear index to Cartesian coordinates (MATLAB-style, 1-indexed).
     fn linear_to_cartesian(mut ell: usize, page_sizes: &[usize]) -> Vec<usize> {
         let m = page_sizes.len();
@@ -1182,7 +1182,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmStrategy<A> {
     /// Generate multi-sensor association matrices.
     fn generate_association_matrices(
         tracks: &[super::types::Track],
-        measurements: &MultisensorMeasurements,
+        measurements: &MeasurementsMultisensor,
         sensors: &SensorConfig,
         motion: &MotionModel,
     ) -> (Vec<f64>, Vec<MultisensorPosterior>, Vec<usize>) {
@@ -1239,7 +1239,7 @@ impl<A: MultisensorAssociator> MultisensorLmbmStrategy<A> {
         obj_idx: usize,
         associations: &[usize],
         tracks: &[super::types::Track],
-        measurements: &MultisensorMeasurements,
+        measurements: &MeasurementsMultisensor,
         sensors: &SensorConfig,
         motion: &MotionModel,
     ) -> (f64, MultisensorPosterior) {
@@ -1421,8 +1421,8 @@ impl<A: MultisensorAssociator> MultisensorLmbmStrategy<A> {
     }
 }
 
-impl<A: MultisensorAssociator> LmbmAssociator for MultisensorLmbmStrategy<A> {
-    type Measurements = MultisensorMeasurements;
+impl<A: AssociatorMultisensor> LmbmAssociator for MultisensorLmbmStrategy<A> {
+    type Measurements = MeasurementsMultisensor;
 
     fn associate_and_update<R: Rng>(
         &self,
@@ -1688,8 +1688,8 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
 // LmbmStrategy for multi-sensor (MultisensorLmbmStrategy)
 // ============================================================================
 
-impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<MultisensorLmbmStrategy<A>> {
-    type Measurements = MultisensorMeasurements;
+impl<A: AssociatorMultisensor + Clone> UpdateStrategy for LmbmStrategy<MultisensorLmbmStrategy<A>> {
+    type Measurements = MeasurementsMultisensor;
 
     fn predict(&self, hypotheses: &mut Vec<Hypothesis>, ctx: &UpdateContext, timestep: usize) {
         if hypotheses.is_empty() {
@@ -1823,32 +1823,32 @@ impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<Multisens
 // ============================================================================
 
 use super::multisensor::fusion::{
-    ArithmeticAverageMerger, GeometricAverageMerger, ParallelUpdateMerger,
+    MergerAverageArithmetic, MergerAverageGeometric, MergerParallelUpdate,
 };
-use super::multisensor::traits::MultisensorGibbsAssociator;
-use super::traits::{GibbsAssociator, LbpAssociator};
+use super::multisensor::traits::AssociatorMultisensorGibbs;
+use super::traits::{AssociatorGibbs, AssociatorLbp};
 
 /// Single-sensor LMB strategy with LBP associator.
-pub type LmbStrategyLbp = LmbStrategy<LbpAssociator, SingleSensorScheduler>;
+pub type LmbStrategyLbp = LmbStrategy<AssociatorLbp, SingleSensorScheduler>;
 
 /// Multi-sensor LMB strategy with sequential (IC) update and LBP associator.
-pub type IcLmbStrategyLbp = LmbStrategy<LbpAssociator, SequentialScheduler>;
+pub type IcLmbStrategyLbp = LmbStrategy<AssociatorLbp, SequentialScheduler>;
 
 /// Multi-sensor LMB strategy with arithmetic average fusion and LBP associator.
-pub type AaLmbStrategyLbp = LmbStrategy<LbpAssociator, ParallelScheduler<ArithmeticAverageMerger>>;
+pub type AaLmbStrategyLbp = LmbStrategy<AssociatorLbp, ParallelScheduler<MergerAverageArithmetic>>;
 
 /// Multi-sensor LMB strategy with geometric average fusion and LBP associator.
-pub type GaLmbStrategyLbp = LmbStrategy<LbpAssociator, ParallelScheduler<GeometricAverageMerger>>;
+pub type GaLmbStrategyLbp = LmbStrategy<AssociatorLbp, ParallelScheduler<MergerAverageGeometric>>;
 
 /// Multi-sensor LMB strategy with parallel update fusion and LBP associator.
-pub type PuLmbStrategyLbp = LmbStrategy<LbpAssociator, ParallelScheduler<ParallelUpdateMerger>>;
+pub type PuLmbStrategyLbp = LmbStrategy<AssociatorLbp, ParallelScheduler<MergerParallelUpdate>>;
 
 /// Single-sensor LMBM strategy with Gibbs associator.
-pub type LmbmStrategyGibbs = LmbmStrategy<SingleSensorLmbmStrategy<GibbsAssociator>>;
+pub type LmbmStrategyGibbs = LmbmStrategy<SingleSensorLmbmStrategy<AssociatorGibbs>>;
 
 /// Multi-sensor LMBM strategy with Gibbs associator.
 pub type MultisensorLmbmStrategyGibbs =
-    LmbmStrategy<MultisensorLmbmStrategy<MultisensorGibbsAssociator>>;
+    LmbmStrategy<MultisensorLmbmStrategy<AssociatorMultisensorGibbs>>;
 
 // ============================================================================
 // Tests

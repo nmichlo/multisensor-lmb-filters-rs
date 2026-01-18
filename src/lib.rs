@@ -62,23 +62,23 @@ pub use lmb::{AssociationError, FilterError};
 pub use lmb::{Associator, Filter, Merger, Updater};
 
 // Associator implementations
-pub use lmb::{GibbsAssociator, LbpAssociator, MurtyAssociator};
+pub use lmb::{AssociatorGibbs, AssociatorLbp, AssociatorMurty};
 
 // Updater implementations
-pub use lmb::{HardAssignmentUpdater, MarginalUpdater};
+pub use lmb::{UpdaterHardAssignment, UpdaterMarginal};
 
 // Single-sensor filters
-pub use lmb::{LmbFilter, LmbmFilter};
+pub use lmb::{FilterLmb, FilterLmbm};
 
 // Multi-sensor filters
 pub use lmb::{
-    AaLmbFilter, ArithmeticAverageMerger, GaLmbFilter, GeometricAverageMerger, IcLmbFilter,
-    IteratedCorrectorMerger, MultisensorLmbmFilter, MultisensorMeasurements, ParallelUpdateMerger,
-    PuLmbFilter,
+    FilterLmbAa, FilterLmbGa, FilterLmbIc, FilterLmbPu, FilterLmbmMultisensor,
+    MeasurementsMultisensor, MergerAverageArithmetic, MergerAverageGeometric,
+    MergerIteratedCorrector, MergerParallelUpdate,
 };
 
 // Multi-sensor association
-pub use lmb::{MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator};
+pub use lmb::{AssociationMultisensorResult, AssociatorMultisensor, AssociatorMultisensorGibbs};
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

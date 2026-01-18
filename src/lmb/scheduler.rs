@@ -153,10 +153,10 @@ impl UpdateScheduler for SequentialScheduler {
 /// # Example
 ///
 /// ```
-/// use multisensor_lmb_filters_rs::lmb::{ParallelScheduler, ArithmeticAverageMerger, UpdateScheduler};
+/// use multisensor_lmb_filters_rs::lmb::{ParallelScheduler, MergerAverageArithmetic, UpdateScheduler};
 ///
 /// // Create merger with 2 sensors and max 100 components
-/// let merger = ArithmeticAverageMerger::uniform(2, 100);
+/// let merger = MergerAverageArithmetic::uniform(2, 100);
 /// let scheduler = ParallelScheduler::new(merger);
 /// assert!(!scheduler.is_sequential());
 /// assert_eq!(scheduler.name(), "Parallel(ArithmeticAverage)");
@@ -371,8 +371,8 @@ impl<M: Merger> FusionCapable for ParallelScheduler<M> {
 mod tests {
     use super::*;
     use crate::lmb::multisensor::{
-        ArithmeticAverageMerger, GeometricAverageMerger, IteratedCorrectorMerger,
-        ParallelUpdateMerger,
+        MergerAverageArithmetic, MergerAverageGeometric, MergerIteratedCorrector,
+        MergerParallelUpdate,
     };
 
     #[test]
@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn test_parallel_scheduler_aa() {
         // ArithmeticAverageMerger requires num_sensors and max_components
-        let merger = ArithmeticAverageMerger::uniform(2, 100);
+        let merger = MergerAverageArithmetic::uniform(2, 100);
         let scheduler = ParallelScheduler::new(merger);
         assert!(!scheduler.is_sequential());
         assert_eq!(scheduler.name(), "Parallel(ArithmeticAverage)");
@@ -404,7 +404,7 @@ mod tests {
     #[test]
     fn test_parallel_scheduler_ga() {
         // GeometricAverageMerger requires num_sensors
-        let merger = GeometricAverageMerger::uniform(2);
+        let merger = MergerAverageGeometric::uniform(2);
         let scheduler = ParallelScheduler::new(merger);
         assert!(!scheduler.is_sequential());
         assert_eq!(scheduler.name(), "Parallel(GeometricAverage)");
@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn test_parallel_scheduler_pu() {
         // ParallelUpdateMerger requires prior tracks (empty initially)
-        let merger = ParallelUpdateMerger::new(Vec::new());
+        let merger = MergerParallelUpdate::new(Vec::new());
         let scheduler = ParallelScheduler::new(merger);
         assert!(!scheduler.is_sequential());
         assert_eq!(scheduler.name(), "Parallel(ParallelUpdate)");
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn test_parallel_scheduler_ic() {
         // IC can be wrapped in ParallelScheduler (unusual but valid)
-        let merger = IteratedCorrectorMerger::new();
+        let merger = MergerIteratedCorrector::new();
         let scheduler = ParallelScheduler::new(merger);
         // ParallelScheduler is always parallel (merger just returns last result)
         assert!(!scheduler.is_sequential());
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn test_parallel_scheduler_merger_access() {
-        let merger = ArithmeticAverageMerger::uniform(2, 100);
+        let merger = MergerAverageArithmetic::uniform(2, 100);
         let mut scheduler = ParallelScheduler::new(merger);
 
         // Can access merger
@@ -472,7 +472,7 @@ mod tests {
         fn accepts_multisensor<S: MultisensorCapable>(_: &S) {}
         accepts_multisensor(&SequentialScheduler::new());
 
-        let aa = ParallelScheduler::new(ArithmeticAverageMerger::uniform(2, 100));
+        let aa = ParallelScheduler::new(MergerAverageArithmetic::uniform(2, 100));
         accepts_multisensor(&aa);
 
         // SingleSensorScheduler is NOT multisensor capable (won't compile)
@@ -485,10 +485,10 @@ mod tests {
             s.get_merger().name()
         }
 
-        let aa = ParallelScheduler::new(ArithmeticAverageMerger::uniform(2, 100));
+        let aa = ParallelScheduler::new(MergerAverageArithmetic::uniform(2, 100));
         assert_eq!(accepts_fusion(&aa), "ArithmeticAverage");
 
-        let ga = ParallelScheduler::new(GeometricAverageMerger::uniform(2));
+        let ga = ParallelScheduler::new(MergerAverageGeometric::uniform(2));
         assert_eq!(accepts_fusion(&ga), "GeometricAverage");
 
         // SequentialScheduler does NOT implement FusionCapable (won't compile)
@@ -502,10 +502,10 @@ mod tests {
 
         assert_send_sync::<SequentialScheduler>();
         assert_send_sync::<SingleSensorScheduler>();
-        assert_send_sync::<ParallelScheduler<ArithmeticAverageMerger>>();
-        assert_send_sync::<ParallelScheduler<GeometricAverageMerger>>();
-        assert_send_sync::<ParallelScheduler<ParallelUpdateMerger>>();
-        assert_send_sync::<ParallelScheduler<IteratedCorrectorMerger>>();
+        assert_send_sync::<ParallelScheduler<MergerAverageArithmetic>>();
+        assert_send_sync::<ParallelScheduler<MergerAverageGeometric>>();
+        assert_send_sync::<ParallelScheduler<MergerParallelUpdate>>();
+        assert_send_sync::<ParallelScheduler<MergerIteratedCorrector>>();
         assert_send_sync::<DynamicScheduler>();
     }
 

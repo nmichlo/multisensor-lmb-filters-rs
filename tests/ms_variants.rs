@@ -18,8 +18,8 @@ use std::fs;
 
 use multisensor_lmb_filters_rs::association::AssociationBuilder;
 use multisensor_lmb_filters_rs::lmb::{
-    AssociationConfig, Associator, DataAssociationMethod, GaussianComponent, LbpAssociator,
-    MarginalUpdater, SensorModel, Track, TrackLabel, Updater,
+    AssociationConfig, Associator, AssociatorLbp, DataAssociationMethod, GaussianComponent,
+    SensorModel, Track, TrackLabel, Updater, UpdaterMarginal,
 };
 
 use helpers::fixtures::{deserialize_matrix, deserialize_posterior_w, deserialize_w};
@@ -529,7 +529,7 @@ fn test_data_association_equivalence(variant: &str) {
             ..Default::default()
         };
 
-        let associator = LbpAssociator;
+        let associator = AssociatorLbp;
         let mut rng = rand::thread_rng();
         let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
@@ -585,12 +585,12 @@ fn test_update_output_equivalence(variant: &str) {
             ..Default::default()
         };
 
-        let associator = LbpAssociator;
+        let associator = AssociatorLbp;
         let mut rng = rand::thread_rng();
         let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
         // Use MATLAB's parameters: gm_weight=1e-6, max_components=20
-        let updater = MarginalUpdater::with_thresholds(1e-6, 20, f64::INFINITY);
+        let updater = UpdaterMarginal::with_thresholds(1e-6, 20, f64::INFINITY);
         updater.update(&mut tracks, &result, &matrices.posteriors);
         update_existence_from_marginals(&mut tracks, &result);
 
@@ -610,7 +610,7 @@ fn test_update_output_equivalence(variant: &str) {
 
 fn test_fusion_equivalence(variant: &str) {
     use multisensor_lmb_filters_rs::lmb::{
-        ArithmeticAverageMerger, GeometricAverageMerger, Merger, ParallelUpdateMerger,
+        Merger, MergerAverageArithmetic, MergerAverageGeometric, MergerParallelUpdate,
     };
 
     let fixture = load_variant_fixture(variant);
@@ -646,17 +646,17 @@ fn test_fusion_equivalence(variant: &str) {
     // Apply the appropriate merger
     let fused_tracks: Vec<Track> = match variant {
         "aa" => {
-            let merger = ArithmeticAverageMerger::with_weights(weights.clone(), 20);
+            let merger = MergerAverageArithmetic::with_weights(weights.clone(), 20);
             merger.merge(&per_sensor_tracks, Some(&weights))
         }
         "ga" => {
-            let merger = GeometricAverageMerger::with_weights(weights.clone());
+            let merger = MergerAverageGeometric::with_weights(weights.clone());
             merger.merge(&per_sensor_tracks, Some(&weights))
         }
         "pu" => {
             // PU merger needs predicted tracks (prior) for decorrelation
             let predicted_tracks = variant_objects_to_tracks(&fusion.input.predicted_objects);
-            let mut merger = ParallelUpdateMerger::new(Vec::new());
+            let mut merger = MergerParallelUpdate::new(Vec::new());
             merger.set_prior(predicted_tracks);
             merger.merge(&per_sensor_tracks, None)
         }

@@ -664,7 +664,7 @@ fn test_multisensor_lmb_sensor1_association_matrices_equivalence() {
 #[test]
 fn test_multisensor_lmb_sensor0_data_association_equivalence() {
     use multisensor_lmb_filters_rs::lmb::{
-        AssociationConfig, Associator, DataAssociationMethod, LbpAssociator,
+        AssociationConfig, Associator, AssociatorLbp, DataAssociationMethod,
     };
 
     let fixture = load_multisensor_lmb_fixture();
@@ -691,7 +691,7 @@ fn test_multisensor_lmb_sensor0_data_association_equivalence() {
         ..Default::default()
     };
 
-    let associator = LbpAssociator;
+    let associator = AssociatorLbp;
     let mut rng = rand::thread_rng();
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
@@ -721,7 +721,7 @@ fn test_multisensor_lmb_sensor0_data_association_equivalence() {
 #[test]
 fn test_multisensor_lmb_sensor1_data_association_equivalence() {
     use multisensor_lmb_filters_rs::lmb::{
-        AssociationConfig, Associator, DataAssociationMethod, LbpAssociator,
+        AssociationConfig, Associator, AssociatorLbp, DataAssociationMethod,
     };
 
     let fixture = load_multisensor_lmb_fixture();
@@ -748,7 +748,7 @@ fn test_multisensor_lmb_sensor1_data_association_equivalence() {
         ..Default::default()
     };
 
-    let associator = LbpAssociator;
+    let associator = AssociatorLbp;
     let mut rng = rand::thread_rng();
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
@@ -837,8 +837,8 @@ fn test_multisensor_lmb_cardinality_equivalence() {
 #[test]
 fn test_multisensor_lmb_sensor0_update_output_equivalence() {
     use multisensor_lmb_filters_rs::lmb::{
-        common_ops::update_existence_from_marginals, AssociationConfig, Associator,
-        DataAssociationMethod, LbpAssociator, MarginalUpdater, Updater,
+        common_ops::update_existence_from_marginals, AssociationConfig, Associator, AssociatorLbp,
+        DataAssociationMethod, Updater, UpdaterMarginal,
     };
 
     let fixture = load_multisensor_lmb_fixture();
@@ -865,13 +865,13 @@ fn test_multisensor_lmb_sensor0_update_output_equivalence() {
         ..Default::default()
     };
 
-    let associator = LbpAssociator;
+    let associator = AssociatorLbp;
     let mut rng = rand::thread_rng();
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
     // Apply marginal update (using MATLAB-equivalent parameters for multisensor)
     // Multisensor model uses max_components=20 (vs single-sensor's 5)
-    let updater = MarginalUpdater::with_thresholds(1e-6, 20, f64::INFINITY);
+    let updater = UpdaterMarginal::with_thresholds(1e-6, 20, f64::INFINITY);
     updater.update(&mut tracks, &result, &matrices.posteriors);
 
     // Update existence probabilities
@@ -889,8 +889,8 @@ fn test_multisensor_lmb_sensor0_update_output_equivalence() {
 #[test]
 fn test_multisensor_lmb_sensor1_update_output_equivalence() {
     use multisensor_lmb_filters_rs::lmb::{
-        common_ops::update_existence_from_marginals, AssociationConfig, Associator,
-        DataAssociationMethod, LbpAssociator, MarginalUpdater, Updater,
+        common_ops::update_existence_from_marginals, AssociationConfig, Associator, AssociatorLbp,
+        DataAssociationMethod, Updater, UpdaterMarginal,
     };
 
     let fixture = load_multisensor_lmb_fixture();
@@ -917,13 +917,13 @@ fn test_multisensor_lmb_sensor1_update_output_equivalence() {
         ..Default::default()
     };
 
-    let associator = LbpAssociator;
+    let associator = AssociatorLbp;
     let mut rng = rand::thread_rng();
     let result = associator.associate(&matrices, &config, &mut rng).unwrap();
 
     // Apply marginal update (using MATLAB-equivalent parameters for multisensor)
     // Multisensor model uses max_components=20 (vs single-sensor's 5)
-    let updater = MarginalUpdater::with_thresholds(1e-6, 20, f64::INFINITY);
+    let updater = UpdaterMarginal::with_thresholds(1e-6, 20, f64::INFINITY);
     updater.update(&mut tracks, &result, &matrices.posteriors);
 
     // Update existence probabilities

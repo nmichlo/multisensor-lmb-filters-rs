@@ -5,10 +5,10 @@
 //!
 //! # Available Strategies
 //!
-//! - [`ArithmeticAverageMerger`] - Simple weighted average (fast, robust)
-//! - [`GeometricAverageMerger`] - Covariance intersection (conservative)
-//! - [`ParallelUpdateMerger`] - Information-form fusion (optimal for independent sensors)
-//! - [`IteratedCorrectorMerger`] - Sequential sensor updates (order-dependent)
+//! - [`MergerAverageArithmetic`] - Simple weighted average (fast, robust)
+//! - [`MergerAverageGeometric`] - Covariance intersection (conservative)
+//! - [`MergerParallelUpdate`] - Information-form fusion (optimal for independent sensors)
+//! - [`MergerIteratedCorrector`] - Sequential sensor updates (order-dependent)
 
 use nalgebra::{DMatrix, DVector};
 
@@ -32,14 +32,14 @@ use super::super::types::{GaussianComponent, Track};
 /// AA fusion is fast and robust but doesn't account for correlation between
 /// sensors and may produce sub-optimal covariances.
 #[derive(Debug, Clone)]
-pub struct ArithmeticAverageMerger {
+pub struct MergerAverageArithmetic {
     /// Per-sensor fusion weights (should sum to 1.0)
     pub sensor_weights: Vec<f64>,
     /// Maximum GM components to keep after fusion
     pub max_components: usize,
 }
 
-impl ArithmeticAverageMerger {
+impl MergerAverageArithmetic {
     /// Create with uniform weights for given number of sensors.
     pub fn uniform(num_sensors: usize, max_components: usize) -> Self {
         Self {
@@ -57,7 +57,7 @@ impl ArithmeticAverageMerger {
     }
 }
 
-impl Merger for ArithmeticAverageMerger {
+impl Merger for MergerAverageArithmetic {
     fn merge(&self, per_sensor_tracks: &[Vec<Track>], weights: Option<&[f64]>) -> Vec<Track> {
         if per_sensor_tracks.is_empty() || per_sensor_tracks[0].is_empty() {
             return Vec::new();
@@ -123,12 +123,12 @@ impl Merger for ArithmeticAverageMerger {
 /// GA produces conservative (larger) covariances and is robust to unknown
 /// correlations between sensors.
 #[derive(Debug, Clone)]
-pub struct GeometricAverageMerger {
+pub struct MergerAverageGeometric {
     /// Per-sensor fusion weights (should sum to 1.0)
     pub sensor_weights: Vec<f64>,
 }
 
-impl GeometricAverageMerger {
+impl MergerAverageGeometric {
     /// Create with uniform weights for given number of sensors.
     pub fn uniform(num_sensors: usize) -> Self {
         Self {
@@ -169,7 +169,7 @@ impl GeometricAverageMerger {
     }
 }
 
-impl Merger for GeometricAverageMerger {
+impl Merger for MergerAverageGeometric {
     fn merge(&self, per_sensor_tracks: &[Vec<Track>], weights: Option<&[f64]>) -> Vec<Track> {
         if per_sensor_tracks.is_empty() || per_sensor_tracks[0].is_empty() {
             return Vec::new();
@@ -262,12 +262,12 @@ impl Merger for GeometricAverageMerger {
 ///
 /// PU requires access to the prior tracks and produces single-component results.
 #[derive(Debug, Clone)]
-pub struct ParallelUpdateMerger {
+pub struct MergerParallelUpdate {
     /// Prior tracks (before sensor updates)
     prior_tracks: Vec<Track>,
 }
 
-impl ParallelUpdateMerger {
+impl MergerParallelUpdate {
     /// Create with prior tracks for decorrelation.
     pub fn new(prior_tracks: Vec<Track>) -> Self {
         Self { prior_tracks }
@@ -279,7 +279,7 @@ impl ParallelUpdateMerger {
     }
 }
 
-impl Merger for ParallelUpdateMerger {
+impl Merger for MergerParallelUpdate {
     fn set_prior(&mut self, prior_tracks: Vec<Track>) {
         self.prior_tracks = prior_tracks;
     }
@@ -483,16 +483,16 @@ impl Merger for ParallelUpdateMerger {
 /// This is simpler but order-dependent: sensor order affects the result.
 /// IC is included for completeness and comparison with other strategies.
 #[derive(Debug, Clone, Default)]
-pub struct IteratedCorrectorMerger;
+pub struct MergerIteratedCorrector;
 
-impl IteratedCorrectorMerger {
+impl MergerIteratedCorrector {
     /// Create a new iterated corrector merger.
     pub fn new() -> Self {
         Self
     }
 }
 
-impl Merger for IteratedCorrectorMerger {
+impl Merger for MergerIteratedCorrector {
     fn merge(&self, per_sensor_tracks: &[Vec<Track>], _weights: Option<&[f64]>) -> Vec<Track> {
         // IC doesn't do parallel fusion - it processes sensors sequentially
         // Just return the last sensor's tracks (the final sequential result)

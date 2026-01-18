@@ -18,9 +18,9 @@
 
 use super::config::{AssociationConfig, BirthModel, MotionModel, SensorConfig, SensorModel};
 use super::multisensor::fusion::{
-    ArithmeticAverageMerger, GeometricAverageMerger, ParallelUpdateMerger,
+    MergerAverageArithmetic, MergerAverageGeometric, MergerParallelUpdate,
 };
-use super::multisensor::traits::MultisensorGibbsAssociator;
+use super::multisensor::traits::AssociatorMultisensorGibbs;
 use super::scheduler::{ParallelScheduler, SequentialScheduler, SingleSensorScheduler};
 use super::strategy::{
     AaLmbStrategyLbp, CommonPruneConfig, GaLmbStrategyLbp, IcLmbStrategyLbp, LmbPruneConfig,
@@ -28,7 +28,7 @@ use super::strategy::{
     MultisensorLmbmStrategy, MultisensorLmbmStrategyGibbs, PuLmbStrategyLbp,
     SingleSensorLmbmStrategy,
 };
-use super::traits::{GibbsAssociator, LbpAssociator};
+use super::traits::{AssociatorGibbs, AssociatorLbp};
 use super::unified::UnifiedFilter;
 
 // ============================================================================
@@ -53,7 +53,7 @@ pub fn lmb_filter(
     common_prune: CommonPruneConfig,
     lmb_prune: LmbPruneConfig,
 ) -> UnifiedFilter<LmbStrategyLbp> {
-    let strategy = LmbStrategy::new(LbpAssociator, SingleSensorScheduler::new(), lmb_prune);
+    let strategy = LmbStrategy::new(AssociatorLbp, SingleSensorScheduler::new(), lmb_prune);
     UnifiedFilter::new(
         motion,
         sensor.into(),
@@ -85,7 +85,7 @@ pub fn ic_lmb_filter(
     common_prune: CommonPruneConfig,
     lmb_prune: LmbPruneConfig,
 ) -> UnifiedFilter<IcLmbStrategyLbp> {
-    let strategy = LmbStrategy::new(LbpAssociator, SequentialScheduler::new(), lmb_prune);
+    let strategy = LmbStrategy::new(AssociatorLbp, SequentialScheduler::new(), lmb_prune);
     UnifiedFilter::new(motion, sensors, birth, association, common_prune, strategy)
 }
 
@@ -112,8 +112,8 @@ pub fn aa_lmb_filter(
     max_hypotheses: usize,
 ) -> UnifiedFilter<AaLmbStrategyLbp> {
     let num_sensors = sensors.num_sensors();
-    let merger = ArithmeticAverageMerger::uniform(num_sensors, max_hypotheses);
-    let strategy = LmbStrategy::new(LbpAssociator, ParallelScheduler::new(merger), lmb_prune);
+    let merger = MergerAverageArithmetic::uniform(num_sensors, max_hypotheses);
+    let strategy = LmbStrategy::new(AssociatorLbp, ParallelScheduler::new(merger), lmb_prune);
     UnifiedFilter::new(motion, sensors, birth, association, common_prune, strategy)
 }
 
@@ -138,8 +138,8 @@ pub fn ga_lmb_filter(
     lmb_prune: LmbPruneConfig,
 ) -> UnifiedFilter<GaLmbStrategyLbp> {
     let num_sensors = sensors.num_sensors();
-    let merger = GeometricAverageMerger::uniform(num_sensors);
-    let strategy = LmbStrategy::new(LbpAssociator, ParallelScheduler::new(merger), lmb_prune);
+    let merger = MergerAverageGeometric::uniform(num_sensors);
+    let strategy = LmbStrategy::new(AssociatorLbp, ParallelScheduler::new(merger), lmb_prune);
     UnifiedFilter::new(motion, sensors, birth, association, common_prune, strategy)
 }
 
@@ -164,8 +164,8 @@ pub fn pu_lmb_filter(
     common_prune: CommonPruneConfig,
     lmb_prune: LmbPruneConfig,
 ) -> UnifiedFilter<PuLmbStrategyLbp> {
-    let merger = ParallelUpdateMerger::new(Vec::new());
-    let strategy = LmbStrategy::new(LbpAssociator, ParallelScheduler::new(merger), lmb_prune);
+    let merger = MergerParallelUpdate::new(Vec::new());
+    let strategy = LmbStrategy::new(AssociatorLbp, ParallelScheduler::new(merger), lmb_prune);
     UnifiedFilter::new(motion, sensors, birth, association, common_prune, strategy)
 }
 
@@ -195,7 +195,7 @@ pub fn lmbm_filter(
     lmbm_prune: LmbmPruneConfig,
 ) -> UnifiedFilter<LmbmStrategyGibbs> {
     let inner = SingleSensorLmbmStrategy {
-        associator: GibbsAssociator,
+        associator: AssociatorGibbs,
     };
     let strategy = LmbmStrategy::new(inner, lmbm_prune);
     UnifiedFilter::new(
@@ -230,7 +230,7 @@ pub fn multisensor_lmbm_filter(
     lmbm_prune: LmbmPruneConfig,
 ) -> UnifiedFilter<MultisensorLmbmStrategyGibbs> {
     let inner = MultisensorLmbmStrategy {
-        associator: MultisensorGibbsAssociator,
+        associator: AssociatorMultisensorGibbs,
     };
     let strategy = LmbmStrategy::new(inner, lmbm_prune);
     UnifiedFilter::new(motion, sensors, birth, association, common_prune, strategy)

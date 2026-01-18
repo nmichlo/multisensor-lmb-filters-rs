@@ -1,6 +1,6 @@
 //! Multi-sensor associator traits and implementations.
 //!
-//! This module provides the [`MultisensorAssociator`] trait for multi-sensor
+//! This module provides the [`AssociatorMultisensor`] trait for multi-sensor
 //! joint data association. Unlike the single-sensor [`Associator`] trait which
 //! operates on a 2D cost matrix, multi-sensor association operates on a
 //! Cartesian product space of all sensor measurements.
@@ -26,7 +26,7 @@ use crate::common::rng::Uniform01;
 /// Contains sampled association events where each sample specifies which
 /// measurement (if any) each object is associated with for each sensor.
 #[derive(Debug, Clone)]
-pub struct MultisensorAssociationResult {
+pub struct AssociationMultisensorResult {
     /// Sampled association events.
     ///
     /// Each inner `Vec<usize>` is a flattened association matrix of shape
@@ -40,7 +40,7 @@ pub struct MultisensorAssociationResult {
     pub iterations: usize,
 }
 
-impl MultisensorAssociationResult {
+impl AssociationMultisensorResult {
     /// Create a new result with samples.
     pub fn new(samples: Vec<Vec<usize>>, iterations: usize) -> Self {
         Self {
@@ -72,10 +72,10 @@ impl MultisensorAssociationResult {
 ///
 /// # Implementation
 ///
-/// The primary implementation is [`MultisensorGibbsAssociator`] which uses
+/// The primary implementation is [`AssociatorMultisensorGibbs`] which uses
 /// Gibbs sampling to generate association samples. The samples explore the
 /// Cartesian product space of all possible sensor-object assignments.
-pub trait MultisensorAssociator: Send + Sync + Default {
+pub trait AssociatorMultisensor: Send + Sync + Default {
     /// Perform multi-sensor data association.
     ///
     /// # Arguments
@@ -92,7 +92,7 @@ pub trait MultisensorAssociator: Send + Sync + Default {
         log_likelihoods: &[f64],
         dimensions: &[usize],
         config: &AssociationConfig,
-    ) -> Result<MultisensorAssociationResult, AssociationError>;
+    ) -> Result<AssociationMultisensorResult, AssociationError>;
 
     /// Algorithm name for logging and debugging.
     fn name(&self) -> &'static str;
@@ -107,9 +107,9 @@ pub trait MultisensorAssociator: Send + Sync + Default {
 /// This is the standard method for multi-sensor LMBM filters where discrete
 /// samples are needed to generate posterior hypotheses.
 #[derive(Debug, Clone, Default)]
-pub struct MultisensorGibbsAssociator;
+pub struct AssociatorMultisensorGibbs;
 
-impl MultisensorGibbsAssociator {
+impl AssociatorMultisensorGibbs {
     /// Create a new Gibbs associator.
     pub fn new() -> Self {
         Self
@@ -244,19 +244,19 @@ impl MultisensorGibbsAssociator {
     }
 }
 
-impl MultisensorAssociator for MultisensorGibbsAssociator {
+impl AssociatorMultisensor for AssociatorMultisensorGibbs {
     fn associate<R: rand::Rng>(
         &self,
         rng: &mut R,
         log_likelihoods: &[f64],
         dimensions: &[usize],
         config: &AssociationConfig,
-    ) -> Result<MultisensorAssociationResult, AssociationError> {
+    ) -> Result<AssociationMultisensorResult, AssociationError> {
         let num_sensors = dimensions.len() - 1;
         let num_objects = dimensions[num_sensors];
 
         if num_objects == 0 {
-            return Ok(MultisensorAssociationResult::empty());
+            return Ok(AssociationMultisensorResult::empty());
         }
 
         // m[s] = number of measurements from sensor s
@@ -286,7 +286,7 @@ impl MultisensorAssociator for MultisensorGibbsAssociator {
             unique_samples.insert(sample);
         }
 
-        Ok(MultisensorAssociationResult::new(
+        Ok(AssociationMultisensorResult::new(
             unique_samples.into_iter().collect(),
             config.gibbs_samples,
         ))
@@ -303,13 +303,13 @@ mod tests {
 
     #[test]
     fn test_gibbs_associator_creation() {
-        let associator = MultisensorGibbsAssociator::new();
+        let associator = AssociatorMultisensorGibbs::new();
         assert_eq!(associator.name(), "MultisensorGibbs");
     }
 
     #[test]
     fn test_empty_association() {
-        let associator = MultisensorGibbsAssociator::new();
+        let associator = AssociatorMultisensorGibbs::new();
         let mut rng = rand::thread_rng();
         let config = AssociationConfig::default();
 
@@ -335,8 +335,8 @@ mod tests {
                 page_sizes[i] = page_sizes[i - 1] * dimensions[i - 1];
             }
 
-            let u = MultisensorGibbsAssociator::linear_to_cartesian(ell, &page_sizes);
-            let ell_back = MultisensorGibbsAssociator::cartesian_to_linear(&u, &dimensions);
+            let u = AssociatorMultisensorGibbs::linear_to_cartesian(ell, &page_sizes);
+            let ell_back = AssociatorMultisensorGibbs::cartesian_to_linear(&u, &dimensions);
 
             // ell is 1-indexed going in, 0-indexed coming out
             assert_eq!(ell_back, ell - 1, "Round-trip failed for ell={}", ell);
