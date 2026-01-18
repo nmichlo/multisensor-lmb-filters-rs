@@ -698,90 +698,6 @@ impl Default for AssociationConfig {
     }
 }
 
-/// Filter threshold configuration
-#[derive(Debug, Clone)]
-pub struct FilterThresholds {
-    /// Existence probability threshold for track confirmation
-    pub existence_threshold: f64,
-    /// GM component weight threshold for pruning
-    pub gm_weight_threshold: f64,
-    /// Maximum number of GM components to keep
-    pub max_gm_components: usize,
-    /// Minimum trajectory length for output
-    pub min_trajectory_length: usize,
-    /// Mahalanobis distance threshold for GM component merging (MATLAB-compatible).
-    /// Set to `f64::INFINITY` to disable merging (faster but not MATLAB-equivalent).
-    pub gm_merge_threshold: f64,
-}
-
-impl FilterThresholds {
-    /// Create new filter thresholds
-    pub fn new(
-        existence_threshold: f64,
-        gm_weight_threshold: f64,
-        max_gm_components: usize,
-        min_trajectory_length: usize,
-    ) -> Self {
-        Self {
-            existence_threshold,
-            gm_weight_threshold,
-            max_gm_components,
-            min_trajectory_length,
-            gm_merge_threshold: super::DEFAULT_GM_MERGE_THRESHOLD,
-        }
-    }
-
-    /// Create with custom merge threshold
-    pub fn with_merge_threshold(
-        existence_threshold: f64,
-        gm_weight_threshold: f64,
-        max_gm_components: usize,
-        min_trajectory_length: usize,
-        gm_merge_threshold: f64,
-    ) -> Self {
-        Self {
-            existence_threshold,
-            gm_weight_threshold,
-            max_gm_components,
-            min_trajectory_length,
-            gm_merge_threshold,
-        }
-    }
-}
-
-impl Default for FilterThresholds {
-    fn default() -> Self {
-        Self {
-            existence_threshold: 0.5,
-            gm_weight_threshold: 1e-4,
-            max_gm_components: 100,
-            min_trajectory_length: 3,
-            gm_merge_threshold: super::DEFAULT_GM_MERGE_THRESHOLD,
-        }
-    }
-}
-
-/// LMBM-specific configuration
-#[derive(Debug, Clone)]
-pub struct LmbmConfig {
-    /// Maximum number of posterior hypotheses
-    pub max_hypotheses: usize,
-    /// Hypothesis weight threshold
-    pub hypothesis_weight_threshold: f64,
-    /// Use EAP (Expected A Posteriori) for state extraction
-    pub use_eap: bool,
-}
-
-impl Default for LmbmConfig {
-    fn default() -> Self {
-        Self {
-            max_hypotheses: 1000,
-            hypothesis_weight_threshold: 1e-6,
-            use_eap: false,
-        }
-    }
-}
-
 // ============================================================================
 // Type-Safe Filter Configurations
 // ============================================================================
@@ -971,15 +887,6 @@ impl LmbmFilterConfig {
     #[inline]
     pub fn max_trajectory_length(&self) -> usize {
         self.common.max_trajectory_length
-    }
-
-    /// Convert to the legacy LmbmConfig for backward compatibility.
-    pub fn to_legacy_lmbm_config(&self) -> LmbmConfig {
-        LmbmConfig {
-            max_hypotheses: self.max_hypotheses,
-            hypothesis_weight_threshold: self.hypothesis_weight_threshold,
-            use_eap: self.use_eap,
-        }
     }
 }
 
@@ -1175,8 +1082,18 @@ pub struct LmbmConfigSnapshot {
     pub use_eap: bool,
 }
 
-impl From<&LmbmConfig> for LmbmConfigSnapshot {
-    fn from(c: &LmbmConfig) -> Self {
+impl From<&LmbmFilterConfig> for LmbmConfigSnapshot {
+    fn from(c: &LmbmFilterConfig) -> Self {
+        Self {
+            max_hypotheses: c.max_hypotheses,
+            hypothesis_weight_threshold: c.hypothesis_weight_threshold,
+            use_eap: c.use_eap,
+        }
+    }
+}
+
+impl From<&super::strategy::LmbmPruneConfig> for LmbmConfigSnapshot {
+    fn from(c: &super::strategy::LmbmPruneConfig) -> Self {
         Self {
             max_hypotheses: c.max_hypotheses,
             hypothesis_weight_threshold: c.hypothesis_weight_threshold,
@@ -1267,7 +1184,7 @@ impl FilterConfigSnapshot {
         association: &AssociationConfig,
         existence_threshold: f64,
         min_trajectory_length: usize,
-        lmbm_config: &LmbmConfig,
+        lmbm_config: &super::strategy::LmbmPruneConfig,
     ) -> Self {
         Self {
             filter_type: filter_type.to_string(),
@@ -1350,7 +1267,7 @@ impl FilterConfigSnapshot {
         association: &AssociationConfig,
         existence_threshold: f64,
         min_trajectory_length: usize,
-        lmbm_config: &LmbmConfig,
+        lmbm_config: &super::strategy::LmbmPruneConfig,
     ) -> Self {
         let sensor_snapshot =
             sensors
@@ -1524,17 +1441,6 @@ mod tests {
         assert_eq!(config.max_hypotheses, 500);
         assert!((config.hypothesis_weight_threshold - 1e-7).abs() < 1e-15);
         assert!(config.use_eap);
-    }
-
-    #[test]
-    fn test_lmbm_filter_config_to_legacy() {
-        let common = CommonConfig::default();
-        let config = LmbmFilterConfig::new(common, 200, 1e-4, true);
-
-        let legacy = config.to_legacy_lmbm_config();
-        assert_eq!(legacy.max_hypotheses, 200);
-        assert!((legacy.hypothesis_weight_threshold - 1e-4).abs() < 1e-15);
-        assert!(legacy.use_eap);
     }
 
     #[test]

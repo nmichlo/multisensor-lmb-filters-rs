@@ -26,8 +26,6 @@ fn _multisensor_lmb_filters_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Configuration
     m.add_class::<filters::PyAssociatorConfig>()?;
-    m.add_class::<filters::PyFilterThresholds>()?;
-    m.add_class::<filters::PyFilterLmbmConfig>()?;
 
     // Filters - Single-sensor
     m.add_class::<filters::PyFilterLmb>()?;

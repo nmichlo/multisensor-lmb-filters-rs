@@ -65,8 +65,8 @@ pub use types::{GaussianComponent, Hypothesis, Track, TrackLabel, TrajectoryHist
 
 // Configuration
 pub use config::{
-    AssociationConfig, BirthLocation, BirthModel, DataAssociationMethod, FilterThresholds,
-    LmbmConfig, MotionModel, MultisensorConfig, SensorModel,
+    AssociationConfig, BirthLocation, BirthModel, DataAssociationMethod, MotionModel,
+    MultisensorConfig, SensorModel,
 };
 
 // Model behavior traits (Phase 3 - Extensibility)

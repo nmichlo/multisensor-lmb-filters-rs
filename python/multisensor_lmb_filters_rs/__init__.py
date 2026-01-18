@@ -40,10 +40,8 @@ from multisensor_lmb_filters_rs._multisensor_lmb_filters_rs import (
     FilterIcLmb,
     FilterLmb,
     FilterLmbm,
-    FilterLmbmConfig,
     FilterMultisensorLmbm,
     FilterPuLmb,
-    FilterThresholds,
     GaussianComponent,
     MotionModel,
     SensorConfigMulti,
@@ -84,8 +82,6 @@ __all__ = [
     "BirthLocation",
     # Configuration
     "AssociatorConfig",
-    "FilterThresholds",
-    "FilterLmbmConfig",
     # Filters - Single-sensor
     "FilterLmb",
     "FilterLmbm",

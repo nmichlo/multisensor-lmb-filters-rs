@@ -6,7 +6,7 @@ use crate::common::rng::SimpleRng;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 
-use crate::lmb::config::{AssociationConfig, DataAssociationMethod, FilterThresholds, LmbmConfig};
+use crate::lmb::config::{AssociationConfig, DataAssociationMethod};
 use crate::lmb::errors::FilterError;
 use crate::lmb::multisensor::fusion::{
     ArithmeticAverageMerger, GeometricAverageMerger, ParallelUpdateMerger,
@@ -490,110 +490,6 @@ impl PyAssociatorConfig {
 }
 
 // =============================================================================
-// FilterThresholds
-// =============================================================================
-
-#[pyclass(name = "FilterThresholds")]
-#[derive(Clone)]
-pub struct PyFilterThresholds {
-    pub(crate) inner: FilterThresholds,
-}
-
-#[pymethods]
-impl PyFilterThresholds {
-    #[new]
-    #[pyo3(signature = (existence=0.5, gm_weight=1e-4, max_components=100, min_trajectory_length=3, gm_merge=f64::INFINITY))]
-    fn new(
-        existence: f64,
-        gm_weight: f64,
-        max_components: usize,
-        min_trajectory_length: usize,
-        gm_merge: f64,
-    ) -> Self {
-        Self {
-            inner: FilterThresholds::with_merge_threshold(
-                existence,
-                gm_weight,
-                max_components,
-                min_trajectory_length,
-                gm_merge,
-            ),
-        }
-    }
-
-    #[getter]
-    fn existence_threshold(&self) -> f64 {
-        self.inner.existence_threshold
-    }
-
-    #[getter]
-    fn gm_weight_threshold(&self) -> f64 {
-        self.inner.gm_weight_threshold
-    }
-
-    #[getter]
-    fn max_gm_components(&self) -> usize {
-        self.inner.max_gm_components
-    }
-
-    #[getter]
-    fn gm_merge_threshold(&self) -> f64 {
-        self.inner.gm_merge_threshold
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "FilterThresholds(existence={}, gm_weight={}, max_components={}, gm_merge={})",
-            self.inner.existence_threshold,
-            self.inner.gm_weight_threshold,
-            self.inner.max_gm_components,
-            self.inner.gm_merge_threshold
-        )
-    }
-}
-
-// =============================================================================
-// FilterLmbmConfig
-// =============================================================================
-
-#[pyclass(name = "FilterLmbmConfig")]
-#[derive(Clone)]
-pub struct PyFilterLmbmConfig {
-    pub(crate) inner: LmbmConfig,
-    /// Track existence threshold for pruning (default: 0.001)
-    pub(crate) existence_threshold: f64,
-}
-
-#[pymethods]
-impl PyFilterLmbmConfig {
-    #[new]
-    #[pyo3(signature = (max_hypotheses=1000, hypothesis_weight_threshold=1e-6, use_eap=false, existence_threshold=None))]
-    fn new(
-        max_hypotheses: usize,
-        hypothesis_weight_threshold: f64,
-        use_eap: bool,
-        existence_threshold: Option<f64>,
-    ) -> Self {
-        use crate::lmb::DEFAULT_EXISTENCE_THRESHOLD;
-        Self {
-            inner: LmbmConfig {
-                max_hypotheses,
-                hypothesis_weight_threshold,
-                use_eap,
-            },
-            existence_threshold: existence_threshold.unwrap_or(DEFAULT_EXISTENCE_THRESHOLD),
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "FilterLmbmConfig(max_hypotheses={}, use_eap={}, existence_threshold={})",
-            self.inner.max_hypotheses, self.inner.use_eap, self.existence_threshold
-        )
-    }
-}
-
-// =============================================================================
 // Helper: Create RNG from optional seed
 // =============================================================================
 
@@ -620,7 +516,6 @@ impl PyFilterLmb {
         sensor,
         birth,
         association=None,
-        thresholds=None,
         existence_threshold=None,
         gm_weight_threshold=None,
         max_gm_components=None,
@@ -633,7 +528,6 @@ impl PyFilterLmb {
         sensor: &PySensorModel,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
-        thresholds: Option<&PyFilterThresholds>,
         existence_threshold: Option<f64>,
         gm_weight_threshold: Option<f64>,
         max_gm_components: Option<usize>,
@@ -648,23 +542,11 @@ impl PyFilterLmb {
 
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
 
-        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
-        let base_thresh = thresholds.map(|t| &t.inner);
-        let existence = existence_threshold
-            .or_else(|| base_thresh.map(|t| t.existence_threshold))
-            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
-        let gm_weight = gm_weight_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
-            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
-        let max_components = max_gm_components
-            .or_else(|| base_thresh.map(|t| t.max_gm_components))
-            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
-        let min_traj_len = min_trajectory_length
-            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
-            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
-        let gm_merge = gm_merge_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
-            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
+        let existence = existence_threshold.unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold.unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components.unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length.unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold.unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         // Create the appropriate dynamic associator based on the config
         let associator = DynamicAssociator::from_config(&assoc);
@@ -723,41 +605,53 @@ pub struct PyFilterLmbm {
 #[pymethods]
 impl PyFilterLmbm {
     #[new]
-    #[pyo3(signature = (motion, sensor, birth, association=None, thresholds=None, lmbm_config=None, seed=None))]
+    #[pyo3(signature = (
+        motion,
+        sensor,
+        birth,
+        association=None,
+        existence_threshold=None,
+        min_trajectory_length=None,
+        max_hypotheses=None,
+        hypothesis_weight_threshold=None,
+        use_eap=None,
+        seed=None
+    ))]
     fn new(
         motion: &PyMotionModel,
         sensor: &PySensorModel,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
-        thresholds: Option<&PyFilterThresholds>,
-        lmbm_config: Option<&PyFilterLmbmConfig>,
+        existence_threshold: Option<f64>,
+        min_trajectory_length: Option<usize>,
+        max_hypotheses: Option<usize>,
+        hypothesis_weight_threshold: Option<f64>,
+        use_eap: Option<bool>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
-        use crate::lmb::DEFAULT_EXISTENCE_THRESHOLD;
+        use crate::lmb::{
+            DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_LMBM_MAX_HYPOTHESES,
+            DEFAULT_LMBM_WEIGHT_THRESHOLD, DEFAULT_MIN_TRAJECTORY_LENGTH,
+        };
 
         let assoc = association
             .map(|a| a.inner.clone())
             .unwrap_or_else(|| AssociationConfig::gibbs(1000));
-        let lmbm = lmbm_config.map(|c| c.inner.clone()).unwrap_or_default();
-        let existence_threshold = lmbm_config
-            .map(|c| c.existence_threshold)
-            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
 
         // Create the appropriate dynamic associator based on the config
         let associator = DynamicAssociator::from_config(&assoc);
         let inner_strategy = SingleSensorLmbmStrategy { associator };
         let lmbm_prune = LmbmPruneConfig {
-            max_hypotheses: lmbm.max_hypotheses,
-            hypothesis_weight_threshold: lmbm.hypothesis_weight_threshold,
-            use_eap: lmbm.use_eap,
+            max_hypotheses: max_hypotheses.unwrap_or(DEFAULT_LMBM_MAX_HYPOTHESES),
+            hypothesis_weight_threshold: hypothesis_weight_threshold
+                .unwrap_or(DEFAULT_LMBM_WEIGHT_THRESHOLD),
+            use_eap: use_eap.unwrap_or(false),
         };
         let strategy = LmbmStrategy::new(inner_strategy, lmbm_prune);
 
         let common_prune = CommonPruneConfig {
-            existence_threshold,
-            min_trajectory_length: thresholds
-                .map(|t| t.inner.min_trajectory_length)
-                .unwrap_or(3),
+            existence_threshold: existence_threshold.unwrap_or(DEFAULT_EXISTENCE_THRESHOLD),
+            min_trajectory_length: min_trajectory_length.unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH),
         };
 
         let inner = UnifiedFilter::new(
@@ -823,7 +717,6 @@ impl PyFilterAaLmb {
         sensors,
         birth,
         association=None,
-        thresholds=None,
         existence_threshold=None,
         gm_weight_threshold=None,
         max_gm_components=None,
@@ -836,7 +729,6 @@ impl PyFilterAaLmb {
         sensors: &PySensorConfigMulti,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
-        thresholds: Option<&PyFilterThresholds>,
         existence_threshold: Option<f64>,
         gm_weight_threshold: Option<f64>,
         max_gm_components: Option<usize>,
@@ -851,23 +743,11 @@ impl PyFilterAaLmb {
 
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
 
-        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
-        let base_thresh = thresholds.map(|t| &t.inner);
-        let existence = existence_threshold
-            .or_else(|| base_thresh.map(|t| t.existence_threshold))
-            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
-        let gm_weight = gm_weight_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
-            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
-        let max_components = max_gm_components
-            .or_else(|| base_thresh.map(|t| t.max_gm_components))
-            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
-        let min_traj_len = min_trajectory_length
-            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
-            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
-        let gm_merge = gm_merge_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
-            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
+        let existence = existence_threshold.unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold.unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components.unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length.unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold.unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         let num_sensors = sensors.inner.num_sensors();
         let merger = ArithmeticAverageMerger::uniform(num_sensors, max_components);
@@ -932,7 +812,6 @@ impl PyFilterGaLmb {
         sensors,
         birth,
         association=None,
-        thresholds=None,
         existence_threshold=None,
         gm_weight_threshold=None,
         max_gm_components=None,
@@ -945,7 +824,6 @@ impl PyFilterGaLmb {
         sensors: &PySensorConfigMulti,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
-        thresholds: Option<&PyFilterThresholds>,
         existence_threshold: Option<f64>,
         gm_weight_threshold: Option<f64>,
         max_gm_components: Option<usize>,
@@ -960,23 +838,11 @@ impl PyFilterGaLmb {
 
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
 
-        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
-        let base_thresh = thresholds.map(|t| &t.inner);
-        let existence = existence_threshold
-            .or_else(|| base_thresh.map(|t| t.existence_threshold))
-            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
-        let gm_weight = gm_weight_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
-            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
-        let max_components = max_gm_components
-            .or_else(|| base_thresh.map(|t| t.max_gm_components))
-            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
-        let min_traj_len = min_trajectory_length
-            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
-            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
-        let gm_merge = gm_merge_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
-            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
+        let existence = existence_threshold.unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold.unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components.unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length.unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold.unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         let num_sensors = sensors.inner.num_sensors();
         let merger = GeometricAverageMerger::uniform(num_sensors);
@@ -1041,7 +907,6 @@ impl PyFilterPuLmb {
         sensors,
         birth,
         association=None,
-        thresholds=None,
         existence_threshold=None,
         gm_weight_threshold=None,
         max_gm_components=None,
@@ -1054,7 +919,6 @@ impl PyFilterPuLmb {
         sensors: &PySensorConfigMulti,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
-        thresholds: Option<&PyFilterThresholds>,
         existence_threshold: Option<f64>,
         gm_weight_threshold: Option<f64>,
         max_gm_components: Option<usize>,
@@ -1069,23 +933,11 @@ impl PyFilterPuLmb {
 
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
 
-        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
-        let base_thresh = thresholds.map(|t| &t.inner);
-        let existence = existence_threshold
-            .or_else(|| base_thresh.map(|t| t.existence_threshold))
-            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
-        let gm_weight = gm_weight_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
-            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
-        let max_components = max_gm_components
-            .or_else(|| base_thresh.map(|t| t.max_gm_components))
-            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
-        let min_traj_len = min_trajectory_length
-            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
-            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
-        let gm_merge = gm_merge_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
-            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
+        let existence = existence_threshold.unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold.unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components.unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length.unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold.unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         // PU merger needs prior tracks - start with empty
         let merger = ParallelUpdateMerger::new(Vec::new());
@@ -1150,7 +1002,6 @@ impl PyFilterIcLmb {
         sensors,
         birth,
         association=None,
-        thresholds=None,
         existence_threshold=None,
         gm_weight_threshold=None,
         max_gm_components=None,
@@ -1163,7 +1014,6 @@ impl PyFilterIcLmb {
         sensors: &PySensorConfigMulti,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
-        thresholds: Option<&PyFilterThresholds>,
         existence_threshold: Option<f64>,
         gm_weight_threshold: Option<f64>,
         max_gm_components: Option<usize>,
@@ -1178,23 +1028,11 @@ impl PyFilterIcLmb {
 
         let assoc = association.map(|a| a.inner.clone()).unwrap_or_default();
 
-        // Use inline parameters if provided, otherwise fall back to thresholds object or defaults
-        let base_thresh = thresholds.map(|t| &t.inner);
-        let existence = existence_threshold
-            .or_else(|| base_thresh.map(|t| t.existence_threshold))
-            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
-        let gm_weight = gm_weight_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_weight_threshold))
-            .unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
-        let max_components = max_gm_components
-            .or_else(|| base_thresh.map(|t| t.max_gm_components))
-            .unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
-        let min_traj_len = min_trajectory_length
-            .or_else(|| base_thresh.map(|t| t.min_trajectory_length))
-            .unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
-        let gm_merge = gm_merge_threshold
-            .or_else(|| base_thresh.map(|t| t.gm_merge_threshold))
-            .unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
+        let existence = existence_threshold.unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
+        let gm_weight = gm_weight_threshold.unwrap_or(DEFAULT_GM_WEIGHT_THRESHOLD);
+        let max_components = max_gm_components.unwrap_or(DEFAULT_MAX_GM_COMPONENTS);
+        let min_traj_len = min_trajectory_length.unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH);
+        let gm_merge = gm_merge_threshold.unwrap_or(DEFAULT_GM_MERGE_THRESHOLD);
 
         let common_prune = CommonPruneConfig {
             existence_threshold: existence,
@@ -1250,41 +1088,53 @@ pub struct PyFilterMultisensorLmbm {
 #[pymethods]
 impl PyFilterMultisensorLmbm {
     #[new]
-    #[pyo3(signature = (motion, sensors, birth, association=None, thresholds=None, lmbm_config=None, seed=None))]
+    #[pyo3(signature = (
+        motion,
+        sensors,
+        birth,
+        association=None,
+        existence_threshold=None,
+        min_trajectory_length=None,
+        max_hypotheses=None,
+        hypothesis_weight_threshold=None,
+        use_eap=None,
+        seed=None
+    ))]
     fn new(
         motion: &PyMotionModel,
         sensors: &PySensorConfigMulti,
         birth: &PyBirthModel,
         association: Option<&PyAssociatorConfig>,
-        thresholds: Option<&PyFilterThresholds>,
-        lmbm_config: Option<&PyFilterLmbmConfig>,
+        existence_threshold: Option<f64>,
+        min_trajectory_length: Option<usize>,
+        max_hypotheses: Option<usize>,
+        hypothesis_weight_threshold: Option<f64>,
+        use_eap: Option<bool>,
         seed: Option<u64>,
     ) -> PyResult<Self> {
-        use crate::lmb::DEFAULT_EXISTENCE_THRESHOLD;
+        use crate::lmb::{
+            DEFAULT_EXISTENCE_THRESHOLD, DEFAULT_LMBM_MAX_HYPOTHESES,
+            DEFAULT_LMBM_WEIGHT_THRESHOLD, DEFAULT_MIN_TRAJECTORY_LENGTH,
+        };
 
         let assoc = association
             .map(|a| a.inner.clone())
             .unwrap_or_else(|| AssociationConfig::gibbs(1000));
-        let lmbm = lmbm_config.map(|c| c.inner.clone()).unwrap_or_default();
-        let existence_threshold = lmbm_config
-            .map(|c| c.existence_threshold)
-            .unwrap_or(DEFAULT_EXISTENCE_THRESHOLD);
 
         let inner_strategy = MultisensorLmbmStrategy {
             associator: MultisensorGibbsAssociator,
         };
         let lmbm_prune = LmbmPruneConfig {
-            max_hypotheses: lmbm.max_hypotheses,
-            hypothesis_weight_threshold: lmbm.hypothesis_weight_threshold,
-            use_eap: lmbm.use_eap,
+            max_hypotheses: max_hypotheses.unwrap_or(DEFAULT_LMBM_MAX_HYPOTHESES),
+            hypothesis_weight_threshold: hypothesis_weight_threshold
+                .unwrap_or(DEFAULT_LMBM_WEIGHT_THRESHOLD),
+            use_eap: use_eap.unwrap_or(false),
         };
         let strategy = LmbmStrategy::new(inner_strategy, lmbm_prune);
 
         let common_prune = CommonPruneConfig {
-            existence_threshold,
-            min_trajectory_length: thresholds
-                .map(|t| t.inner.min_trajectory_length)
-                .unwrap_or(3),
+            existence_threshold: existence_threshold.unwrap_or(DEFAULT_EXISTENCE_THRESHOLD),
+            min_trajectory_length: min_trajectory_length.unwrap_or(DEFAULT_MIN_TRAJECTORY_LENGTH),
         };
 
         let inner = UnifiedFilter::new(

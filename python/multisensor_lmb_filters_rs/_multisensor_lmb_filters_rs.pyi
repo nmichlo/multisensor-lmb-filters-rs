@@ -222,34 +222,6 @@ class AssociatorConfig:
     @staticmethod
     def murty(assignments: int = 100) -> AssociatorConfig: ...
 
-class FilterThresholds:
-    """Filter pruning thresholds."""
-
-    existence_threshold: float
-    gm_weight_threshold: float
-    max_gm_components: int
-    gm_merge_threshold: float
-
-    def __init__(
-        self,
-        existence: float = 0.5,
-        gm_weight: float = 1e-4,
-        max_components: int = 100,
-        min_trajectory_length: int = 3,
-        gm_merge: float = ...,  # Default is f64::INFINITY
-    ) -> None: ...
-
-class FilterLmbmConfig:
-    """LMBM-specific configuration."""
-
-    def __init__(
-        self,
-        max_hypotheses: int = 1000,
-        hypothesis_weight_threshold: float = 1e-6,
-        use_eap: bool = False,
-        existence_threshold: float | None = None,
-    ) -> None: ...
-
 # =============================================================================
 # Output Types
 # =============================================================================
@@ -306,7 +278,11 @@ class FilterLmb:
         sensor: SensorModel,
         birth: BirthModel,
         association: AssociatorConfig | None = None,
-        thresholds: FilterThresholds | None = None,
+        existence_threshold: float | None = None,
+        gm_weight_threshold: float | None = None,
+        max_gm_components: int | None = None,
+        min_trajectory_length: int | None = None,
+        gm_merge_threshold: float | None = None,
         seed: int | None = None,
     ) -> None: ...
     def step(
@@ -335,8 +311,11 @@ class FilterLmbm:
         sensor: SensorModel,
         birth: BirthModel,
         association: AssociatorConfig | None = None,
-        thresholds: FilterThresholds | None = None,
-        lmbm_config: FilterLmbmConfig | None = None,
+        existence_threshold: float | None = None,
+        min_trajectory_length: int | None = None,
+        max_hypotheses: int | None = None,
+        hypothesis_weight_threshold: float | None = None,
+        use_eap: bool | None = None,
         seed: int | None = None,
     ) -> None: ...
     def step(
@@ -368,7 +347,11 @@ class FilterAaLmb:
         sensors: SensorConfigMulti,
         birth: BirthModel,
         association: AssociatorConfig | None = None,
-        thresholds: FilterThresholds | None = None,
+        existence_threshold: float | None = None,
+        gm_weight_threshold: float | None = None,
+        max_gm_components: int | None = None,
+        min_trajectory_length: int | None = None,
+        gm_merge_threshold: float | None = None,
         seed: int | None = None,
     ) -> None: ...
     def step(
@@ -396,7 +379,11 @@ class FilterGaLmb:
         sensors: SensorConfigMulti,
         birth: BirthModel,
         association: AssociatorConfig | None = None,
-        thresholds: FilterThresholds | None = None,
+        existence_threshold: float | None = None,
+        gm_weight_threshold: float | None = None,
+        max_gm_components: int | None = None,
+        min_trajectory_length: int | None = None,
+        gm_merge_threshold: float | None = None,
         seed: int | None = None,
     ) -> None: ...
     def step(
@@ -424,7 +411,11 @@ class FilterPuLmb:
         sensors: SensorConfigMulti,
         birth: BirthModel,
         association: AssociatorConfig | None = None,
-        thresholds: FilterThresholds | None = None,
+        existence_threshold: float | None = None,
+        gm_weight_threshold: float | None = None,
+        max_gm_components: int | None = None,
+        min_trajectory_length: int | None = None,
+        gm_merge_threshold: float | None = None,
         seed: int | None = None,
     ) -> None: ...
     def step(
@@ -452,7 +443,11 @@ class FilterIcLmb:
         sensors: SensorConfigMulti,
         birth: BirthModel,
         association: AssociatorConfig | None = None,
-        thresholds: FilterThresholds | None = None,
+        existence_threshold: float | None = None,
+        gm_weight_threshold: float | None = None,
+        max_gm_components: int | None = None,
+        min_trajectory_length: int | None = None,
+        gm_merge_threshold: float | None = None,
         seed: int | None = None,
     ) -> None: ...
     def step(
@@ -481,8 +476,11 @@ class FilterMultisensorLmbm:
         sensors: SensorConfigMulti,
         birth: BirthModel,
         association: AssociatorConfig | None = None,
-        thresholds: FilterThresholds | None = None,
-        lmbm_config: FilterLmbmConfig | None = None,
+        existence_threshold: float | None = None,
+        min_trajectory_length: int | None = None,
+        max_hypotheses: int | None = None,
+        hypothesis_weight_threshold: float | None = None,
+        use_eap: bool | None = None,
         seed: int | None = None,
     ) -> None: ...
     def step(

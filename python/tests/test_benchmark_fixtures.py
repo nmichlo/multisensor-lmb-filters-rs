@@ -21,7 +21,6 @@ from multisensor_lmb_filters_rs import (
     FilterIcLmb,
     FilterLmb,
     FilterLmbm,
-    FilterLmbmConfig,
     FilterMultisensorLmbm,
     FilterPuLmb,
     MotionModel,

@@ -278,11 +278,11 @@ pub trait UpdateStrategy: Send + Sync + Clone {
         None
     }
 
-    /// Get LMBM configuration (for LMBM filters).
+    /// Get LMBM prune configuration (for LMBM filters).
     ///
     /// Returns `Some(config)` for LMBM strategies, `None` for LMB strategies.
     /// This avoids LSP violations where LMB would return a meaningless default.
-    fn lmbm_config(&self) -> Option<super::config::LmbmConfig> {
+    fn lmbm_config(&self) -> Option<LmbmPruneConfig> {
         None
     }
 
@@ -1650,12 +1650,8 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
         true
     }
 
-    fn lmbm_config(&self) -> Option<super::config::LmbmConfig> {
-        Some(super::config::LmbmConfig {
-            max_hypotheses: self.prune_config.max_hypotheses,
-            hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
-            use_eap: self.prune_config.use_eap,
-        })
+    fn lmbm_config(&self) -> Option<LmbmPruneConfig> {
+        Some(self.prune_config.clone())
     }
 
     fn capture_hypotheses(
@@ -1677,11 +1673,6 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
         association_config: &super::config::AssociationConfig,
         common_prune: &CommonPruneConfig,
     ) -> super::config::FilterConfigSnapshot {
-        let lmbm_cfg = super::config::LmbmConfig {
-            max_hypotheses: self.prune_config.max_hypotheses,
-            hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
-            use_eap: self.prune_config.use_eap,
-        };
         super::config::FilterConfigSnapshot::single_sensor_lmbm(
             self.name(),
             motion,
@@ -1690,7 +1681,7 @@ impl<A: Associator + Clone> UpdateStrategy for LmbmStrategy<SingleSensorLmbmStra
             association_config,
             common_prune.existence_threshold,
             common_prune.min_trajectory_length,
-            &lmbm_cfg,
+            &self.prune_config,
         )
     }
 }
@@ -1793,12 +1784,8 @@ impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<Multisens
         true
     }
 
-    fn lmbm_config(&self) -> Option<super::config::LmbmConfig> {
-        Some(super::config::LmbmConfig {
-            max_hypotheses: self.prune_config.max_hypotheses,
-            hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
-            use_eap: self.prune_config.use_eap,
-        })
+    fn lmbm_config(&self) -> Option<LmbmPruneConfig> {
+        Some(self.prune_config.clone())
     }
 
     fn capture_hypotheses(
@@ -1820,11 +1807,6 @@ impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<Multisens
         association_config: &super::config::AssociationConfig,
         common_prune: &CommonPruneConfig,
     ) -> super::config::FilterConfigSnapshot {
-        let lmbm_cfg = super::config::LmbmConfig {
-            max_hypotheses: self.prune_config.max_hypotheses,
-            hypothesis_weight_threshold: self.prune_config.hypothesis_weight_threshold,
-            use_eap: self.prune_config.use_eap,
-        };
         super::config::FilterConfigSnapshot::multi_sensor_lmbm(
             self.name(),
             motion,
@@ -1833,7 +1815,7 @@ impl<A: MultisensorAssociator + Clone> UpdateStrategy for LmbmStrategy<Multisens
             association_config,
             common_prune.existence_threshold,
             common_prune.min_trajectory_length,
-            &lmbm_cfg,
+            &self.prune_config,
         )
     }
 }
