@@ -982,26 +982,243 @@ uv run pytest python/tests/ -v  # All 87 Python tests pass at 1e-10 tolerance
 
 ---
 
-## Phase 10: API Cleanup
+## Phase 10: Complete API Migration (Delete All Backward Compat)
 
-**Goal**: Remove deprecated types, consolidate exports, clean up public API.
+**Goal**: Delete ALL backward compatibility code. Update ALL tests to use new APIs. Per the refactor principles: "Delete old code, don't keep for backward compat."
 
-### 1. Remove Deprecated Types
-- [ ] Remove `FilterParams` if unused
-- [ ] Remove any backward-compat type aliases (e.g., `LmbmHypothesis` alias if added)
-- [ ] Remove unused config types
+**CRITICAL**: This phase explicitly updates tests to new APIs - tests are NOT exempt from API migration.
 
-### 2. Consolidate Config Types
-- [ ] Merge `FilterThresholds` into `PruneConfig` or delete
-- [ ] Merge `LmbmConfig` fields into `PruneConfig`
-- [ ] Single source of truth for all filter parameters
+---
 
-### 3. Clean Up mod.rs Exports
-Final `src/lmb/mod.rs` should export:
+### 10.1: Delete Deprecated Rust Types
+
+**Files**: `src/lmb/types.rs`, `src/lmb/config.rs`, `src/lib.rs`
+
+| Type to DELETE | Location | Replacement |
+|----------------|----------|-------------|
+| `LmbmHypothesis` (deprecated alias) | `types.rs:L~650` | Use `Hypothesis` directly |
+| `FilterParams` | `config.rs` | Split into specific configs |
+| `FilterThresholds` | `config.rs` | `CommonPruneConfig` + `LmbPruneConfig` |
+| `LmbmConfig` | `config.rs` | `LmbmPruneConfig` |
+| `to_legacy_lmbm_config()` | `config.rs` | DELETE |
+| `#[allow(deprecated)] pub use lmb::LmbmHypothesis` | `lib.rs` | DELETE |
+
+- [ ] Delete `LmbmHypothesis` type alias from `types.rs`
+- [ ] Delete `FilterParams` struct from `config.rs`
+- [ ] Delete `FilterThresholds` struct from `config.rs`
+- [ ] Delete `LmbmConfig` struct from `config.rs`
+- [ ] Delete `to_legacy_lmbm_config()` method from `LmbmFilterConfig`
+- [ ] Delete deprecated re-export from `lib.rs`
+- [ ] Update `src/lmb/mod.rs` exports
+
+---
+
+### 10.2: Delete Old Python Config Classes
+
+**File**: `src/python/filters.rs`
+
+| Class to DELETE | Replacement |
+|-----------------|-------------|
+| `PyFilterThresholds` | Inline params on filter constructors |
+| `PyFilterLmbmConfig` | Inline params on filter constructors |
+| `PyAssociatorConfig` | Inline params on filter constructors |
+| `_LmbmHypothesis` | Rename to `_Hypothesis` |
+
+**New Python API** (filter constructors with inline params):
+
+```python
+# OLD API (DELETE)
+thresholds = FilterThresholds(max_components=5, gm_weight=1e-5)
+lmbm_config = FilterLmbmConfig(max_hypotheses=100, hypothesis_weight_threshold=1e-6)
+assoc = AssociatorConfig.lbp(max_iterations=100, tolerance=1e-3)
+filter = FilterLmb(motion, sensor, birth, assoc, thresholds=thresholds)
+
+# NEW API (all params inline)
+filter = FilterLmb(
+    motion, sensor, birth,
+    # Association params
+    associator="lbp",  # or "gibbs", "murty"
+    lbp_max_iterations=100,
+    lbp_tolerance=1e-3,
+    gibbs_num_samples=1000,
+    murty_num_assignments=100,
+    # Prune params (CommonPruneConfig)
+    existence_threshold=0.001,
+    min_trajectory_length=3,
+    # LMB-specific prune params (LmbPruneConfig)
+    gm_weight_threshold=1e-5,
+    max_gm_components=5,
+    gm_merge_threshold=float('inf'),
+    # Seed
+    seed=42,
+)
+
+# LMBM filters get LMBM-specific params
+filter = FilterLmbm(
+    motion, sensor, birth,
+    associator="gibbs",
+    gibbs_num_samples=1000,
+    # Prune params (CommonPruneConfig)
+    existence_threshold=0.001,
+    min_trajectory_length=3,
+    # LMBM-specific prune params (LmbmPruneConfig)
+    hypothesis_weight_threshold=1e-6,
+    max_hypotheses=100,
+    use_eap=False,
+    seed=42,
+)
+```
+
+- [ ] Update `PyFilterLmb::new()` to accept inline params
+- [ ] Update `PyFilterLmbm::new()` to accept inline params
+- [ ] Update `PyFilterIcLmb::new()` to accept inline params
+- [ ] Update `PyFilterAaLmb::new()` to accept inline params
+- [ ] Update `PyFilterGaLmb::new()` to accept inline params
+- [ ] Update `PyFilterPuLmb::new()` to accept inline params
+- [ ] Update `PyFilterMultisensorLmbm::new()` to accept inline params
+- [ ] DELETE `PyFilterThresholds` class
+- [ ] DELETE `PyFilterLmbmConfig` class
+- [ ] DELETE `PyAssociatorConfig` class
+- [ ] Rename `_LmbmHypothesis` to `_Hypothesis`
+
+---
+
+### 10.3: Update Python `__init__.py` Exports
+
+**File**: `python/multisensor_lmb_filters_rs/__init__.py`
+
+```python
+# DELETE these exports:
+# - FilterThresholds
+# - FilterLmbmConfig
+# - AssociatorConfig
+# - _LmbmHypothesis (rename to _Hypothesis)
+
+# KEEP these exports:
+__all__ = [
+    # Filters
+    "FilterLmb",
+    "FilterLmbm",
+    "FilterIcLmb",
+    "FilterAaLmb",
+    "FilterGaLmb",
+    "FilterPuLmb",
+    "FilterMultisensorLmbm",
+    # Models
+    "MotionModel",
+    "SensorModel",
+    "MultisensorConfig",
+    "BirthModel",
+    "BirthLocation",
+    # Internal types (underscore prefix)
+    "_Track",
+    "_GaussianComponent",
+    "_Hypothesis",  # Renamed from _LmbmHypothesis
+    "_StepOutput",
+    "_SensorUpdateOutput",
+]
+```
+
+- [ ] Remove `FilterThresholds` from exports
+- [ ] Remove `FilterLmbmConfig` from exports
+- [ ] Remove `AssociatorConfig` from exports
+- [ ] Rename `_LmbmHypothesis` to `_Hypothesis` in exports
+
+---
+
+### 10.4: Migrate ALL Python Tests to New API
+
+**CRITICAL**: Tests must use new API. No backward compat exemptions.
+
+**Files to update**:
+- `python/tests/test_equivalence.py` (~50 usages)
+- `python/tests/test_benchmark_fixtures.py` (~10 usages)
+- `python/tests/conftest.py` (~5 usages)
+
+#### Migration patterns:
+
+```python
+# OLD: FilterThresholds
+thresholds = FilterThresholds(max_components=5, gm_weight=1e-5)
+filter = FilterLmb(..., thresholds=thresholds)
+
+# NEW: Inline params
+filter = FilterLmb(..., max_gm_components=5, gm_weight_threshold=1e-5)
+```
+
+```python
+# OLD: FilterLmbmConfig
+lmbm_config = FilterLmbmConfig(max_hypotheses=100, hypothesis_weight_threshold=1e-6)
+filter = FilterLmbm(..., lmbm_config=lmbm_config)
+
+# NEW: Inline params
+filter = FilterLmbm(..., max_hypotheses=100, hypothesis_weight_threshold=1e-6)
+```
+
+```python
+# OLD: AssociatorConfig
+filter = FilterLmb(..., AssociatorConfig.lbp(max_iterations=100, tolerance=1e-3))
+
+# NEW: Inline params
+filter = FilterLmb(..., associator="lbp", lbp_max_iterations=100, lbp_tolerance=1e-3)
+```
+
+```python
+# OLD: _LmbmHypothesis
+from multisensor_lmb_filters_rs import _LmbmHypothesis
+hypothesis = _LmbmHypothesis.from_matlab(...)
+
+# NEW: _Hypothesis
+from multisensor_lmb_filters_rs import _Hypothesis
+hypothesis = _Hypothesis.from_matlab(...)
+```
+
+- [ ] Update `test_equivalence.py`: Replace all `FilterThresholds` usages
+- [ ] Update `test_equivalence.py`: Replace all `FilterLmbmConfig` usages
+- [ ] Update `test_equivalence.py`: Replace all `AssociatorConfig` usages
+- [ ] Update `test_equivalence.py`: Replace all `_LmbmHypothesis` with `_Hypothesis`
+- [ ] Update `test_benchmark_fixtures.py`: Same replacements
+- [ ] Update `conftest.py`: Replace `_LmbmHypothesis` references
+
+---
+
+### 10.5: Update Rust Test Files
+
+**Files**: `tests/ss_lmb.rs`, `tests/ss_lmbm.rs`, `tests/ms_lmb.rs`, `tests/ms_lmbm.rs`, `tests/ms_variants.rs`
+
+- [ ] Remove any uses of deprecated `LmbmHypothesis` alias
+- [ ] Update to use `Hypothesis` directly
+- [ ] Remove any uses of `FilterParams`, `FilterThresholds`
+
+---
+
+### 10.6: Clean Up Legacy Adapter Comments
+
+**File**: `src/lmb/traits.rs`
+
+The legacy adapters (`legacy_lbp`, `legacy_gibbs`, `legacy_murtys`, `RngAdapter`) are kept as internal implementation detail. Update comments to clarify they're intentional internal wrappers, not backward compat:
+
+```rust
+// Before: "use crate::common::association::gibbs as legacy_gibbs;"
+// After: "use crate::common::association::gibbs as internal_gibbs;"
+```
+
+- [ ] Rename `legacy_*` imports to `internal_*` (cosmetic, not functional)
+- [ ] Update comments to clarify these are internal implementations
+
+---
+
+### 10.7: Clean Up mod.rs Exports
+
+**File**: `src/lmb/mod.rs`
+
+Final exports (NO backward compat types):
+
 ```rust
 // Unified filter
 pub use unified::{UnifiedFilter, Hypothesis};
-pub use strategy::{UpdateStrategy, LmbStrategy, LmbmStrategy, PruneConfig};
+pub use strategy::{UpdateStrategy, LmbStrategy, LmbmStrategy};
+pub use strategy::{CommonPruneConfig, LmbPruneConfig, LmbmPruneConfig};
 
 // Type aliases
 pub use unified::{LmbFilter, IcLmbFilter, AaLmbFilter, GaLmbFilter, PuLmbFilter};
@@ -1022,11 +1239,408 @@ pub use multisensor::fusion::{ArithmeticAverageMerger, GeometricAverageMerger, P
 
 // Errors
 pub use errors::{FilterError, AssociationError};
+
+// DELETED: FilterParams, FilterThresholds, LmbmConfig, LmbmHypothesis
 ```
 
-### 4. Update Documentation
-- [ ] Update module-level docs in `mod.rs`
-- [ ] Update `lib.rs` examples to use new API
+- [ ] Remove `FilterParams` export
+- [ ] Remove `FilterThresholds` export
+- [ ] Remove `LmbmConfig` export
+- [ ] Remove `LmbmHypothesis` export
+- [ ] Add `CommonPruneConfig`, `LmbPruneConfig`, `LmbmPruneConfig` exports
+
+---
+
+### 10.8: Update lib.rs Exports
+
+**File**: `src/lib.rs`
+
+```rust
+// DELETED exports:
+// - FilterParams
+// - FilterThresholds
+// - LmbmConfig
+// - #[allow(deprecated)] LmbmHypothesis
+
+// NEW exports:
+pub use lmb::{CommonPruneConfig, LmbPruneConfig, LmbmPruneConfig};
+```
+
+- [ ] Remove deprecated exports
+- [ ] Add new config type exports
+
+---
+
+### 10.9: Update Documentation
+
+- [ ] Update `lib.rs` doc example to use new API (already uses factory functions, verify no old types)
+- [ ] Update any doc comments referencing old types
+
+---
+
+## Additional Code Smells from Architecture Review
+
+The following issues were identified during architecture review and should be addressed as part of Phase 10.
+
+---
+
+### 10.10: Eliminate Configuration Leakage (HIGH PRIORITY)
+
+**Problem**: 7+ `is_hypothesis_based()` checks scattered throughout `unified.rs` (lines ~350, ~378, ~405, ~450, ~502, ~518, ~551). Each check is a configuration leakage where filter behavior diverges based on strategy type rather than polymorphism.
+
+**File**: `src/lmb/unified.rs`
+
+**Pattern to eliminate**:
+```rust
+// BAD: Configuration leakage
+if self.strategy.is_hypothesis_based() {
+    // LMBM-specific code path
+} else {
+    // LMB-specific code path
+}
+```
+
+**Solution**: Each divergence point should be a trait method that strategies implement differently:
+
+```rust
+// GOOD: Polymorphism
+trait UpdateStrategy {
+    fn finalize_step(&self, hypotheses: &[Hypothesis], intermediate: &UpdateIntermediate) -> StepOutput;
+    fn build_detailed_output(&self, ...) -> StepDetailedOutput;
+    // ... other divergence points
+}
+```
+
+**Tasks**:
+- [ ] Audit all 7+ `is_hypothesis_based()` usage sites
+- [ ] For each site, create trait method that captures the divergent behavior
+- [ ] Implement method differently in `LmbStrategy` vs `LmbmStrategy`
+- [ ] Delete `is_hypothesis_based()` from trait
+
+---
+
+### 10.11: Integrate Zero-Copy MeasurementSource (HIGH PRIORITY)
+
+**Problem**: `MeasurementSource` trait was created in Phase 1 but never integrated. All filter `step()` methods still accept raw slices, forcing allocations.
+
+**Files**: `src/lmb/unified.rs`, `src/lmb/strategy.rs`, `src/lmb/measurements.rs`
+
+**Current** (Phase 1 created but unused):
+```rust
+// measurements.rs - EXISTS but unused
+pub trait MeasurementSource {
+    type Iter<'a>: Iterator<Item = DVector<f64>> where Self: 'a;
+    fn measurements(&self) -> Self::Iter<'_>;
+    fn len(&self) -> usize;
+}
+
+// unified.rs - Still uses raw slices
+pub fn step(&mut self, rng: &mut R, measurements: &[DVector<f64>], ts: usize) -> Result<...>
+```
+
+**After**:
+```rust
+// unified.rs - Uses trait for zero-copy
+pub fn step<M: MeasurementSource>(&mut self, rng: &mut R, measurements: &M, ts: usize) -> Result<...>
+```
+
+**Tasks**:
+- [ ] Update `UnifiedFilter::step()` to accept `impl MeasurementSource`
+- [ ] Update `UpdateStrategy::update()` to accept `impl MeasurementSource`
+- [ ] Update Python bindings to use zero-copy wrappers
+- [ ] Verify no allocations in hot path with benchmarks
+
+---
+
+### 10.12: Consolidate Python Filter Classes (HIGH PRIORITY)
+
+**Problem**: 7 nearly identical Python filter classes (`PyFilterLmb`, `PyFilterLmbm`, `PyFilterIcLmb`, etc.) with 489 lines of duplicated code. Phase 8.7 updated internals but kept class proliferation.
+
+**File**: `src/python/filters.rs`
+
+**Current** (7 classes × ~70 lines each):
+```python
+# Python API - 7 separate classes
+filter = FilterLmb(motion, sensor, birth, ...)
+filter = FilterLmbm(motion, sensor, birth, ...)
+filter = FilterIcLmb(motion, sensors, birth, ...)
+# ... 4 more
+```
+
+**After** (Strategy Object Pattern from original Phase 8.7 plan):
+```python
+# Python API - 1 Filter + 2 Strategy classes
+filter = Filter(motion, sensor, birth, strategy=LmbStrategy(...))
+filter = Filter(motion, sensor, birth, strategy=LmbmStrategy(...))
+filter = Filter(motion, sensors, birth, strategy=LmbStrategy(..., scheduler="ic"))
+```
+
+**Tasks**:
+- [ ] Create `PyLmbStrategy` class with LMB-specific params
+- [ ] Create `PyLmbmStrategy` class with LMBM-specific params
+- [ ] Create unified `PyFilter` class accepting any strategy
+- [ ] DELETE all 7 old filter classes
+- [ ] Update Python `__init__.py` exports
+- [ ] Update ALL Python tests to new API
+
+---
+
+### 10.13: Fix Strategy-Specific Defaults Returning 0 (HIGH PRIORITY)
+
+**Problem**: Trait methods like `gm_weight_threshold()`, `max_gm_components()`, `lmbm_config()` return 0 or empty when called on wrong strategy type. This violates LSP - calling these on LMBM returns meaningless values.
+
+**File**: `src/lmb/strategy.rs`
+
+**Current** (LSP violation):
+```rust
+impl UpdateStrategy for LmbmStrategy {
+    fn gm_weight_threshold(&self) -> f64 { 0.0 }  // Meaningless for LMBM
+    fn max_gm_components(&self) -> usize { 0 }    // Meaningless for LMBM
+}
+```
+
+**Options**:
+1. Return `Option<f64>` / `Option<usize>` (explicit absence)
+2. Remove from trait, make strategy-specific via downcast
+3. Use associated types to make config type-safe
+
+**Recommended**: Option 1 - Return `Option`:
+```rust
+trait UpdateStrategy {
+    fn gm_weight_threshold(&self) -> Option<f64> { None }
+    fn max_gm_components(&self) -> Option<usize> { None }
+    fn lmbm_config(&self) -> Option<&LmbmPruneConfig> { None }
+}
+
+impl UpdateStrategy for LmbStrategy {
+    fn gm_weight_threshold(&self) -> Option<f64> { Some(self.prune_config.gm_weight_threshold) }
+}
+```
+
+**Tasks**:
+- [ ] Change trait method signatures to return `Option<...>`
+- [ ] Update all call sites to handle `Option`
+- [ ] Update Python bindings to expose only relevant config
+
+---
+
+### 10.14: Consolidate impl Filter Blocks (MEDIUM PRIORITY)
+
+**Problem**: 5 nearly identical `impl Filter for UnifiedFilter<LmbStrategy<A, S>>` blocks in `unified.rs`. Each block has the same structure with minor differences in measurement types.
+
+**File**: `src/lmb/unified.rs`
+
+**Current** (5 nearly identical blocks):
+```rust
+impl<A: Associator> Filter for UnifiedFilter<LmbStrategy<A, SingleSensorScheduler>> { ... }
+impl<A: Associator> Filter for UnifiedFilter<LmbStrategy<A, SequentialScheduler>> { ... }
+impl<A: Associator, M: Merger> Filter for UnifiedFilter<LmbStrategy<A, ParallelScheduler<M>>> { ... }
+impl<A: LmbmAssociator> Filter for UnifiedFilter<LmbmStrategy<SingleSensorLmbmAssociator<A>>> { ... }
+impl Filter for UnifiedFilter<LmbmStrategy<MultisensorLmbmAssociator<MultisensorGibbsAssociator>>> { ... }
+```
+
+**Options**:
+1. Macro to generate impl blocks
+2. Blanket impl with associated type for measurements
+3. Keep as-is (explicit but verbose)
+
+**Tasks**:
+- [ ] Evaluate whether blanket impl is feasible
+- [ ] If not, create macro to reduce boilerplate
+- [ ] Document reason for keeping separate impls if necessary
+
+---
+
+### 10.15: Refactor step_detailed() (MEDIUM PRIORITY)
+
+**Problem**: `step_detailed()` in `unified.rs` is 113 lines. Complex method doing too many things.
+
+**File**: `src/lmb/unified.rs` (lines ~500-613)
+
+**Tasks**:
+- [ ] Extract `build_predicted_hypotheses()` helper
+- [ ] Extract `build_sensor_updates()` helper
+- [ ] Extract `build_cardinality_estimate()` helper
+- [ ] Extract `build_final_estimate()` helper
+- [ ] Reduce `step_detailed()` to orchestration of helpers
+- [ ] Target: < 50 lines for main method
+
+---
+
+### 10.16: Refactor UpdateContext (MEDIUM PRIORITY)
+
+**Problem**: `UpdateContext` bundles 5 references (motion, sensors, birth, association_config, common_prune). It's a "God Object" for passing state around.
+
+**File**: `src/lmb/strategy.rs`
+
+**Options**:
+1. Keep as-is (it's a parameter object, not a god object - debatable)
+2. Split into `PredictContext` and `UpdateContext`
+3. Pass individual params where needed
+
+**Tasks**:
+- [ ] Audit which methods actually need which fields
+- [ ] If clear split exists, create separate context types
+- [ ] Document rationale if keeping as-is
+
+---
+
+### 10.17: Make gm_merge_threshold Configurable (MEDIUM PRIORITY)
+
+**Problem**: `gm_merge_threshold` is hardcoded to `f64::INFINITY` in `LmbPruneConfig::default()`. This effectively disables GM merging.
+
+**File**: `src/lmb/strategy.rs`
+
+**Current**:
+```rust
+impl Default for LmbPruneConfig {
+    fn default() -> Self {
+        Self {
+            gm_weight_threshold: 1e-5,
+            max_gm_components: 100,
+            gm_merge_threshold: f64::INFINITY,  // Hardcoded - disables merging
+        }
+    }
+}
+```
+
+**Tasks**:
+- [ ] Add `gm_merge_threshold` param to factory functions
+- [ ] Add to Python filter constructors
+- [ ] Document what reasonable values are (e.g., Mahalanobis distance)
+- [ ] Consider whether default should be `INFINITY` or a reasonable value
+
+---
+
+### 10.18: Fix Python Accessor Mismatch (MEDIUM PRIORITY)
+
+**Problem**: `set_tracks()` exists on LMB filters but not LMBM filters. Inconsistent API.
+
+**File**: `src/python/filters.rs`
+
+**Tasks**:
+- [ ] Add `set_tracks()` to all Python filter classes (or `set_hypotheses()`)
+- [ ] Or document why LMBM doesn't support track injection
+- [ ] Ensure consistent API across all filter types
+
+---
+
+### 10.19: Replace unwrap() with expect() (LOW PRIORITY)
+
+**Problem**: Bare `unwrap()` calls provide no context on panic. Should use `expect("reason")`.
+
+**Files**: Various in `src/lmb/`
+
+**Tasks**:
+- [ ] Grep for `.unwrap()` in lmb module
+- [ ] Replace with `.expect("context")` or proper error handling
+- [ ] Prioritize hot paths and public API
+
+---
+
+### 10.20: Review Macro Usage (LOW PRIORITY)
+
+**Problem**: Macro boilerplate may obscure logic. Evaluate if macros add or reduce clarity.
+
+**Files**: `src/lmb/unified.rs` (impl_filter! macro?)
+
+**Tasks**:
+- [ ] Audit macro usage in lmb module
+- [ ] If macros obscure logic, consider replacing with explicit code
+- [ ] If macros help, document why
+
+---
+
+### 10.21: Extract Track Extraction Helper (LOW PRIORITY)
+
+**Problem**: Track extraction code (getting means/covariances from tracks) repeated 6x across codebase.
+
+**Files**: `src/lmb/unified.rs`, `src/lmb/strategy.rs`, `src/lmb/output.rs`
+
+**Tasks**:
+- [ ] Identify all track extraction patterns
+- [ ] Create shared `extract_track_states()` helper in `common_ops.rs`
+- [ ] Update all call sites to use helper
+
+---
+
+### 10.22: Make Merger/Scheduler Configurable (LOW PRIORITY)
+
+**Problem**: Merger and scheduler types are hardcoded in type aliases. Can't change at runtime.
+
+**Current**:
+```rust
+pub type AaLmbFilter = UnifiedFilter<LmbStrategy<LbpAssociator, ParallelScheduler<ArithmeticAverageMerger>>>;
+```
+
+**Options**:
+1. Keep as-is (compile-time selection is fine for most use cases)
+2. Add `DynamicScheduler` / `DynamicMerger` for runtime selection
+3. Use trait objects for runtime polymorphism
+
+**Tasks**:
+- [ ] Evaluate if runtime selection is actually needed
+- [ ] If needed, implement dynamic variants
+- [ ] Document when to use static vs dynamic selection
+
+---
+
+### Verification
+
+```bash
+# Must all pass with NO backward compat types:
+cargo test --release
+cargo clippy --all-targets
+uv run maturin develop --release
+uv run pytest python/tests/ -v
+```
+
+---
+
+### Phase 10 Priority Summary
+
+| Priority | Sections | Description |
+|----------|----------|-------------|
+| **HIGH** | 10.1-10.9 | Delete deprecated types, migrate tests |
+| **HIGH** | 10.10 | Eliminate `is_hypothesis_based()` configuration leakage |
+| **HIGH** | 10.11 | Integrate `MeasurementSource` zero-copy trait |
+| **HIGH** | 10.12 | Consolidate 7 Python filter classes → Strategy Object Pattern |
+| **HIGH** | 10.13 | Fix strategy-specific defaults returning 0 (LSP violation) |
+| **MEDIUM** | 10.14 | Consolidate 5 `impl Filter` blocks |
+| **MEDIUM** | 10.15 | Refactor `step_detailed()` (113 lines → <50) |
+| **MEDIUM** | 10.16 | Refactor `UpdateContext` god object |
+| **MEDIUM** | 10.17 | Make `gm_merge_threshold` configurable |
+| **MEDIUM** | 10.18 | Fix Python accessor mismatch (`set_tracks`) |
+| **LOW** | 10.19 | Replace `unwrap()` with `expect()` |
+| **LOW** | 10.20 | Review macro usage |
+| **LOW** | 10.21 | Extract track extraction helper |
+| **LOW** | 10.22 | Make merger/scheduler configurable |
+
+---
+
+### Summary of Deletions
+
+| Category | Items Deleted |
+|----------|---------------|
+| Rust types | `LmbmHypothesis`, `FilterParams`, `FilterThresholds`, `LmbmConfig` |
+| Rust methods | `to_legacy_lmbm_config()`, `is_hypothesis_based()` |
+| Python classes | `PyFilterThresholds`, `PyFilterLmbmConfig`, `PyAssociatorConfig`, 7 filter classes (Phase 10.12) |
+| Python exports | `FilterThresholds`, `FilterLmbmConfig`, `AssociatorConfig`, `_LmbmHypothesis`, `FilterLmb`, `FilterLmbm`, etc. (Phase 10.12) |
+| Test usages | ~65 instances across 3 test files |
+
+### API Changes Summary
+
+| Old API | New API |
+|---------|---------|
+| `FilterThresholds(...)` | Inline params on filter constructor |
+| `FilterLmbmConfig(...)` | Inline params on filter constructor |
+| `AssociatorConfig.lbp(...)` | `associator="lbp"` + inline params |
+| `_LmbmHypothesis` | `_Hypothesis` |
+| `LmbmHypothesis` (Rust) | `Hypothesis` |
+| 7 filter classes (`FilterLmb`, etc.) | `Filter` + strategy classes (Phase 10.12) |
+| `is_hypothesis_based()` | Polymorphic trait methods (Phase 10.10) |
+| Raw slice measurements | `impl MeasurementSource` (Phase 10.11) |
+| `gm_weight_threshold() -> f64` | `gm_weight_threshold() -> Option<f64>` (Phase 10.13) |
 
 ---
 
@@ -1240,14 +1854,24 @@ Phase 7C (API Simplify)     ─► ✅ COMPLETE (factory.rs, merged SensorSet, s
 Phase 7D (Dead Code)        ─► ✅ COMPLETE (deleted ~500 LOC, ONE way to create filters)
          │
          ▼
-Phase 8 (Full Unification)  ─► Delete core.rs + core_lmbm.rs, create UnifiedFilter<S: UpdateStrategy>
+Phase 8 (Full Unification)  ─► ✅ COMPLETE Delete core.rs + core_lmbm.rs, create UnifiedFilter<S>
          │
-         ├─► 8.7 (Python Bindings + API Simplification):
-         │       - Wrap UnifiedFilter<...>
-         │       - 7 filter classes → 1 Filter + 2 Strategies (LmbStrategy, LmbmStrategy)
-         │       - 14 public types (Strategy Object Pattern)
          ▼
-Phase 10 (API Cleanup)      ─► Remove deprecated types, clean exports
+Phase 10 (Complete API Migration + Architecture Cleanup)
+         │
+         ├─► 10.1-10.9: Delete deprecated types, migrate all tests to new APIs
+         │
+         ├─► 10.10: Eliminate is_hypothesis_based() configuration leakage (HIGH)
+         │
+         ├─► 10.11: Integrate MeasurementSource zero-copy trait (HIGH)
+         │
+         ├─► 10.12: Consolidate 7 Python filter classes → Strategy Object Pattern (HIGH)
+         │
+         ├─► 10.13: Fix strategy-specific defaults returning 0 (HIGH)
+         │
+         ├─► 10.14-10.18: Medium priority architecture cleanup
+         │
+         ├─► 10.19-10.22: Low priority cleanup
          │
          ▼
 Phase 11 (Python Tests)     ─► Parameterize tests
@@ -1272,13 +1896,22 @@ Phase 12 (NORFAIR)          ─► (Future) Implement NorfairStrategy : UpdateSt
    - Custom motion/sensor: Implement behavior traits
    - Custom association: Implement `Associator` trait
 9. **Future-Ready**: Clear path for NORFAIR/SORT/ByteTrack via `UpdateStrategy` trait
-10. **Python API Simplified** (Phase 8.7 - Strategy Object Pattern):
+10. **Python API Simplified** (Phase 10.12 - Strategy Object Pattern):
     - 1 unified `Filter` class + 2 strategy classes (`LmbStrategy`, `LmbmStrategy`)
     - Old 7 filter classes DELETED, old 2 config classes DELETED
     - 14 public types total (down from 21)
     - Internal `_` types not exported in `__init__.py`
     - Type-safe: `LmbStrategy` only accepts LMB params, `LmbmStrategy` only accepts LMBM params
     - Future-proof: Adding `NorfairStrategy` doesn't require changing `Filter` class
+11. **No Configuration Leakage** (Phase 10.10):
+    - Zero `is_hypothesis_based()` checks in unified.rs
+    - All divergent behavior captured in polymorphic trait methods
+12. **Zero-Copy Measurements** (Phase 10.11):
+    - All `step()` methods accept `impl MeasurementSource`
+    - No forced allocations in hot path
+13. **Type-Safe Config Accessors** (Phase 10.13):
+    - Strategy-specific config returns `Option<...>` (not 0 for wrong strategy)
+    - LSP compliance restored
 
 ---
 
