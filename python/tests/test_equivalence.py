@@ -633,7 +633,6 @@ class TestLmbmFixtureEquivalence:
         from multisensor_lmb_filters_rs import (
             AssociatorConfig,
             FilterLmbm,
-            FilterLmbmConfig,
             _Hypothesis,
         )
 
@@ -654,19 +653,16 @@ class TestLmbmFixtureEquivalence:
 
         # Get normalization parameters from fixture
         step5_input = lmbm_fixture["step5_normalization"]["input"]
-        lmbm_config = FilterLmbmConfig(
-            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
-            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
-            use_eap=use_eap,
-            existence_threshold=step5_input["model_existence_threshold"],
-        )
 
         filter = FilterLmbm(
             motion,
             sensor,
             birth,
             AssociatorConfig.gibbs(num_samples),
-            lmbm_config=lmbm_config,
+            existence_threshold=step5_input["model_existence_threshold"],
+            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
+            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
+            use_eap=use_eap,
             seed=gibbs_seed,
         )
 
@@ -724,7 +720,6 @@ class TestLmbmFixtureEquivalence:
         from multisensor_lmb_filters_rs import (
             AssociatorConfig,
             FilterLmbm,
-            FilterLmbmConfig,
             _Hypothesis,
         )
 
@@ -738,19 +733,16 @@ class TestLmbmFixtureEquivalence:
         gibbs_seed = gibbs_input["rng_seed"]
 
         step5_input = lmbm_fixture["step5_normalization"]["input"]
-        lmbm_config = FilterLmbmConfig(
-            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
-            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
-            use_eap=False,
-            existence_threshold=step5_input["model_existence_threshold"],
-        )
 
         filter = FilterLmbm(
             motion,
             sensor,
             birth,
             AssociatorConfig.gibbs(num_samples),
-            lmbm_config=lmbm_config,
+            existence_threshold=step5_input["model_existence_threshold"],
+            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
+            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
+            use_eap=False,
             seed=gibbs_seed,
         )
 
@@ -794,7 +786,6 @@ class TestLmbmFixtureEquivalence:
         from multisensor_lmb_filters_rs import (
             AssociatorConfig,
             FilterLmbm,
-            FilterLmbmConfig,
             _Hypothesis,
         )
 
@@ -808,19 +799,16 @@ class TestLmbmFixtureEquivalence:
         gibbs_seed = gibbs_input["rng_seed"]
 
         step5_input = lmbm_fixture["step5_normalization"]["input"]
-        lmbm_config = FilterLmbmConfig(
-            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
-            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
-            use_eap=False,
-            existence_threshold=step5_input["model_existence_threshold"],
-        )
 
         filter = FilterLmbm(
             motion,
             sensor,
             birth,
             AssociatorConfig.gibbs(num_samples),
-            lmbm_config=lmbm_config,
+            existence_threshold=step5_input["model_existence_threshold"],
+            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
+            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
+            use_eap=False,
             seed=gibbs_seed,
         )
 
@@ -863,7 +851,6 @@ class TestLmbmFixtureEquivalence:
         from multisensor_lmb_filters_rs import (
             AssociatorConfig,
             FilterLmbm,
-            FilterLmbmConfig,
             _Hypothesis,
         )
 
@@ -875,19 +862,15 @@ class TestLmbmFixtureEquivalence:
         gibbs_input = lmbm_fixture["step3a_gibbs"]["input"]
         step5_input = lmbm_fixture["step5_normalization"]["input"]
 
-        lmbm_config = FilterLmbmConfig(
-            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
-            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
-            use_eap=False,
-            existence_threshold=step5_input["model_existence_threshold"],
-        )
-
         filter = FilterLmbm(
             motion,
             sensor,
             birth,
             AssociatorConfig.gibbs(gibbs_input["numberOfSamples"]),
-            lmbm_config=lmbm_config,
+            existence_threshold=step5_input["model_existence_threshold"],
+            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
+            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
+            use_eap=False,
             seed=gibbs_input["rng_seed"],
         )
 
@@ -1511,7 +1494,6 @@ class TestMultisensorLmbmFixtureEquivalence:
     def test_multisensor_lmbm_extraction_full_equivalence(self, multisensor_lmbm_fixture):
         """Verify multisensor LMBM extraction cardinality and indices."""
         from multisensor_lmb_filters_rs import (
-            FilterLmbmConfig,
             FilterMultisensorLmbm,
             _Hypothesis,
         )
@@ -1527,18 +1509,15 @@ class TestMultisensorLmbmFixtureEquivalence:
 
         # Get normalization parameters from fixture
         step5_input = multisensor_lmbm_fixture["step5_normalization"]["input"]
-        lmbm_config = FilterLmbmConfig(
-            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
-            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
-            use_eap=use_eap,
-            existence_threshold=step5_input["model_existence_threshold"],
-        )
 
         filter = FilterMultisensorLmbm(
             motion,
             sensor_config,
             birth,
-            lmbm_config=lmbm_config,
+            existence_threshold=step5_input["model_existence_threshold"],
+            max_hypotheses=step5_input["model_maximum_number_of_posterior_hypotheses"],
+            hypothesis_weight_threshold=step5_input["model_posterior_hypothesis_weight_threshold"],
+            use_eap=use_eap,
             seed=multisensor_lmbm_fixture["seed"],
         )
 

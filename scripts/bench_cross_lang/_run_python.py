@@ -26,7 +26,6 @@ from multisensor_lmb_filters_rs import (
     FilterIcLmb,
     FilterLmb,
     FilterLmbm,
-    FilterLmbmConfig,
     FilterMultisensorLmbm,
     FilterPuLmb,
     FilterThresholds,
@@ -52,9 +51,6 @@ FILTER_CLASSES = {
 THRESHOLDS = FilterThresholds(
     existence=1e-3, gm_weight=1e-4, max_components=100, gm_merge=float("inf")
 )
-
-# LMBM config - must match Rust benchmark settings!
-LMBM_CONFIG = FilterLmbmConfig(max_hypotheses=25, hypothesis_weight_threshold=1e-3)
 
 
 def get_associator(filter_name: str) -> AssociatorConfig:
@@ -129,7 +125,7 @@ def create_filter(filter_name: str, motion, sensor, multi_sensor, birth):
     filter_cls, is_multi = FILTER_CLASSES[filter_name]
     assoc = get_associator(filter_name)
 
-    # LMBM filters need lmbm_config to match Rust benchmark settings
+    # LMBM filters need inline config to match Rust benchmark settings
     if filter_cls in (FilterLmbm, FilterMultisensorLmbm):
         return filter_cls(
             motion,
@@ -137,7 +133,8 @@ def create_filter(filter_name: str, motion, sensor, multi_sensor, birth):
             birth,
             assoc,
             THRESHOLDS,
-            lmbm_config=LMBM_CONFIG,
+            max_hypotheses=25,
+            hypothesis_weight_threshold=1e-3,
         ), is_multi
     else:
         return filter_cls(

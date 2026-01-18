@@ -22,7 +22,6 @@ Configuration:
     BirthLocation - Birth location specification
     AssociatorConfig - Data association configuration
     FilterThresholds - Filter pruning thresholds
-    FilterLmbmConfig - LMBM-specific configuration
 
 Output Types:
     TrackEstimate - Single track state estimate
