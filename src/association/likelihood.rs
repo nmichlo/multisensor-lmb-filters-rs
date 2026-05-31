@@ -149,6 +149,22 @@ pub fn compute_likelihood(
     // Z = C × temp + R_k = C × Σ × Cᵀ + R_k
     workspace.innovation_cov = c * &workspace.temp_matrix + noise;
 
+    // Guard a degenerate innovation covariance before it poisons the update:
+    // det(Z) <= 0 or non-finite makes ln|Z| NaN and Z⁻¹ meaningless, which would
+    // inject NaN into the association cost matrix. This branch never fires on the
+    // well-conditioned MATLAB-equivalence fixtures, so the happy path below is
+    // unchanged; on a degenerate input we mark the association impossible
+    // (log-ratio = -inf) and return the prior as the (unused) posterior.
+    let z_det = workspace.innovation_cov.determinant();
+    if !(z_det > 0.0) || !z_det.is_finite() {
+        return LikelihoodResult {
+            log_likelihood_ratio: f64::NEG_INFINITY,
+            posterior_mean: prior_mean.clone(),
+            posterior_covariance: prior_cov.clone(),
+            kalman_gain: DMatrix::zeros(x_dim, z_dim),
+        };
+    }
+
     // Invert Z (with numerical stability check)
     workspace.innovation_cov_inv = workspace
         .innovation_cov
@@ -169,8 +185,8 @@ pub fn compute_likelihood(
         .innovation
         .dot(&(&workspace.innovation_cov_inv * &workspace.innovation));
 
-    // Log-likelihood
-    let log_det = workspace.innovation_cov.determinant().ln();
+    // Log-likelihood (reuse the determinant already computed above)
+    let log_det = z_det.ln();
     let log_norm = -0.5 * (z_dim as f64 * (2.0 * PI).ln() + log_det);
     let log_lik = log_norm - 0.5 * mahal;
 
@@ -223,6 +239,15 @@ pub fn compute_log_likelihood(
     // Innovation covariance: Z = C × Σ × Cᵀ + R_k
     let innovation_cov = c * prior_cov * c.transpose() + noise;
 
+    // Guard a degenerate innovation covariance (see compute_likelihood): det(Z) <= 0
+    // or non-finite would make ln|Z| NaN. Fixture-neutral; only fires on degenerate
+    // inputs. This also catches an indefinite-but-invertible Z that try_inverse below
+    // would otherwise accept.
+    let z_det = innovation_cov.determinant();
+    if !(z_det > 0.0) || !z_det.is_finite() {
+        return f64::NEG_INFINITY;
+    }
+
     // Invert Z
     let innovation_cov_inv = match innovation_cov.clone().try_inverse() {
         Some(inv) => inv,
@@ -235,8 +260,8 @@ pub fn compute_log_likelihood(
     // Mahalanobis distance
     let mahal = innovation.dot(&(&innovation_cov_inv * &innovation));
 
-    // Log-likelihood
-    let log_det = innovation_cov.determinant().ln();
+    // Log-likelihood (reuse the determinant already computed above)
+    let log_det = z_det.ln();
     let log_norm = -0.5 * (z_dim as f64 * (2.0 * PI).ln() + log_det);
     let log_lik = log_norm - 0.5 * mahal;
 
@@ -304,6 +329,47 @@ mod tests {
         // Perfect measurement match should give positive log-likelihood ratio
         // (measurement exactly at predicted position)
         assert!(log_lik.is_finite());
+    }
+
+    #[test]
+    fn test_degenerate_innovation_covariance_is_guarded() {
+        // A measurement-noise override that cancels the predicted innovation
+        // covariance yields det(Z) = 0, which would make ln|Z| = -inf and the
+        // Mahalanobis solve meaningless. The guard must turn this into a clean
+        // "impossible association" (-inf log-ratio) with a finite posterior,
+        // never NaN.
+        let sensor = create_test_sensor();
+        let mut ws = LikelihoodWorkspace::new(4, 2);
+        let prior_mean = DVector::from_vec(vec![0.0, 0.0, 0.0, 0.0]);
+        let prior_cov = DMatrix::identity(4, 4);
+        let measurement = DVector::from_vec(vec![0.1, 0.1]);
+        // C*Σ*Cᵀ = I₂ for this 2D position sensor; this noise drives Z to 0.
+        let bad_noise = DMatrix::from_row_slice(2, 2, &[-1.0, 0.0, 0.0, -1.0]);
+
+        let result = compute_likelihood(
+            &prior_mean,
+            &prior_cov,
+            &measurement,
+            &sensor,
+            &mut ws,
+            Some(&bad_noise),
+            None,
+            None,
+        );
+        assert_eq!(result.log_likelihood_ratio, f64::NEG_INFINITY);
+        assert!(result.posterior_mean.iter().all(|v| v.is_finite()));
+        assert!(result.posterior_covariance.iter().all(|v| v.is_finite()));
+
+        let log_lik = compute_log_likelihood(
+            &prior_mean,
+            &prior_cov,
+            &measurement,
+            &sensor,
+            Some(&bad_noise),
+            None,
+            None,
+        );
+        assert_eq!(log_lik, f64::NEG_INFINITY);
     }
 
     #[test]
