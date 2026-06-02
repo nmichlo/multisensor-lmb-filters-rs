@@ -33,8 +33,9 @@ serde_json = "1.0"
 # Logging
 log = "0.4"
 
-# CLI (for examples)
-clap = { version = "4.5", features = ["derive"] }
+# CLI — only used by the `benchmark_single` bin, gated behind the `cli` feature
+# so library consumers (and the lib/bench builds) don't compile clap.
+clap = { version = "4.5", features = ["derive"], optional = true }
 
 # Profiling (optional)
 hotpath = { version = "0.7", optional = true }
@@ -56,6 +57,9 @@ harness = false
 
 [features]
 default = []
+# CLI deps for the benchmark_single bin (clap). Off by default so library
+# consumers don't pay clap's compile cost.
+cli = ["dep:clap"]
 python = ["dep:pyo3", "dep:numpy"]
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
 hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
@@ -63,6 +67,7 @@ hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
 [[bin]]
 name = "benchmark_single"
 path = "scripts/bench_cross_lang/_run_rust.rs"
+required-features = ["cli"]
 
 [profile.release]
 lto = true
