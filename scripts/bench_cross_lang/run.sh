@@ -414,7 +414,8 @@ run_benchmark() {
 
 if [[ "$LANGUAGES" == *"rust"* ]]; then
     echo "Building Rust benchmark runner..."
-    cargo build --release --bin benchmark_single 2>&1 | tail -3
+    # clap is gated behind the `cli` feature so library builds skip it.
+    cargo build --release --bin benchmark_single --features cli 2>&1 | tail -3
     echo ""
 fi
 
