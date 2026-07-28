@@ -123,6 +123,26 @@ pub fn compute_likelihood(
     sensor: &SensorModel,
     workspace: &mut LikelihoodWorkspace,
 ) -> LikelihoodResult {
+    compute_likelihood_with_measurement_covariance(
+        prior_mean,
+        prior_cov,
+        measurement,
+        sensor,
+        &sensor.measurement_noise,
+        workspace,
+    )
+}
+
+/// Computes a likelihood and posterior using covariance supplied for one
+/// measurement instead of the sensor-wide covariance model.
+pub fn compute_likelihood_with_measurement_covariance(
+    prior_mean: &DVector<f64>,
+    prior_cov: &DMatrix<f64>,
+    measurement: &DVector<f64>,
+    sensor: &SensorModel,
+    measurement_covariance: &DMatrix<f64>,
+    workspace: &mut LikelihoodWorkspace,
+) -> LikelihoodResult {
     let x_dim = prior_mean.len();
     let z_dim = measurement.len();
 
@@ -135,7 +155,7 @@ pub fn compute_likelihood(
 
     // Z = C × temp + Q = C × Σ × Cᵀ + Q
     workspace.innovation_cov =
-        &sensor.observation_matrix * &workspace.temp_matrix + &sensor.measurement_noise;
+        &sensor.observation_matrix * &workspace.temp_matrix + measurement_covariance;
 
     // Invert Z (with numerical stability check)
     workspace.innovation_cov_inv = workspace

@@ -14,5 +14,7 @@ pub mod likelihood;
 // Re-export existing algorithms from common (will be moved later)
 pub use crate::common::association::{gibbs, hungarian, lbp, murtys};
 
-pub use builder::{AssociationBuilder, AssociationMatrices, PosteriorGrid};
+pub use builder::{
+    validate_measurement_covariances, AssociationBuilder, AssociationMatrices, PosteriorGrid,
+};
 pub use likelihood::{compute_likelihood, LikelihoodResult, LikelihoodWorkspace};
