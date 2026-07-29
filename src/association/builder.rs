@@ -287,8 +287,9 @@ impl<'a> AssociationBuilder<'a> {
         &mut self,
         measurements: &[DVector<f64>],
         measurement_covariances: &[DMatrix<f64>],
-    ) -> AssociationMatrices {
-        self.build_with_optional_covariances(measurements, Some(measurement_covariances))
+    ) -> Result<AssociationMatrices, String> {
+        validate_measurement_covariances(measurements, measurement_covariances)?;
+        Ok(self.build_with_optional_covariances(measurements, Some(measurement_covariances)))
     }
 
     fn build_with_optional_covariances(
@@ -557,12 +558,14 @@ mod tests {
         let measurements = vec![DVector::from_vec(vec![2.0, 2.0])];
 
         let mut low_noise_builder = AssociationBuilder::new(&tracks, &sensor);
-        let low_noise =
-            low_noise_builder.build_with_covariances(&measurements, &[DMatrix::identity(2, 2)]);
+        let low_noise = low_noise_builder
+            .build_with_covariances(&measurements, &[DMatrix::identity(2, 2)])
+            .unwrap();
 
         let mut high_noise_builder = AssociationBuilder::new(&tracks, &sensor);
         let high_noise = high_noise_builder
-            .build_with_covariances(&measurements, &[DMatrix::identity(2, 2) * 100.0]);
+            .build_with_covariances(&measurements, &[DMatrix::identity(2, 2) * 100.0])
+            .unwrap();
 
         assert_ne!(
             low_noise.log_likelihood_ratios[(0, 0)],
@@ -576,6 +579,30 @@ mod tests {
         let covariances = vec![DMatrix::from_row_slice(2, 2, &[1.0, 2.0, 2.0, 1.0])];
 
         assert!(validate_measurement_covariances(&measurements, &covariances).is_err());
+    }
+
+    #[test]
+    fn test_covariance_builder_does_not_panic_for_misaligned_covariances() {
+        let tracks = vec![create_test_track()];
+        let sensor = create_test_sensor();
+        let measurements = vec![DVector::from_vec(vec![0.0, 0.0])];
+        let mut builder = AssociationBuilder::new(&tracks, &sensor);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = builder.build_with_covariances(&measurements, &[]);
+        }));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_covariance_builder_reports_misaligned_covariances() {
+        let tracks = vec![create_test_track()];
+        let sensor = create_test_sensor();
+        let measurements = vec![DVector::from_vec(vec![0.0, 0.0])];
+        let mut builder = AssociationBuilder::new(&tracks, &sensor);
+
+        assert!(builder.build_with_covariances(&measurements, &[]).is_err());
     }
 
     fn create_test_sensor() -> SensorModel {

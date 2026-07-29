@@ -298,7 +298,9 @@ impl<A: Associator> LmbFilter<A> {
         if !measurements.is_empty() {
             let mut builder = AssociationBuilder::new(&self.tracks, &self.sensor);
             let matrices = match measurement_covariances {
-                Some(covariances) => builder.build_with_covariances(measurements, covariances),
+                Some(covariances) => builder
+                    .build_with_covariances(measurements, covariances)
+                    .map_err(FilterError::InvalidInput)?,
                 None => builder.build(measurements),
             };
 

@@ -189,7 +189,9 @@ impl<A: Associator> LmbmFilter<A> {
                 let tracks = &self.hypotheses[0].tracks;
                 let mut builder = AssociationBuilder::new(tracks, &self.sensor);
                 let matrices = match measurement_covariances {
-                    Some(covariances) => builder.build_with_covariances(measurements, covariances),
+                    Some(covariances) => builder
+                        .build_with_covariances(measurements, covariances)
+                        .map_err(FilterError::InvalidInput)?,
                     None => builder.build(measurements),
                 };
                 let log_likelihood = self.build_log_likelihood_matrix(&matrices);
