@@ -17,23 +17,21 @@ import sys
 import time
 
 import numpy as np
-from multisensor_lmb_filters_rs import (
-    AssociatorConfig,
-    BirthLocation,
-    BirthModel,
-    FilterAaLmb,
-    FilterGaLmb,
-    FilterIcLmb,
-    FilterLmb,
-    FilterLmbm,
-    FilterLmbmConfig,
-    FilterMultisensorLmbm,
-    FilterPuLmb,
-    FilterThresholds,
-    MotionModel,
-    SensorConfigMulti,
-    SensorModel,
-)
+from multisensor_lmb_filters_rs import AssociatorConfig
+from multisensor_lmb_filters_rs import BirthLocation
+from multisensor_lmb_filters_rs import BirthModel
+from multisensor_lmb_filters_rs import FilterAaLmb
+from multisensor_lmb_filters_rs import FilterGaLmb
+from multisensor_lmb_filters_rs import FilterIcLmb
+from multisensor_lmb_filters_rs import FilterLmb
+from multisensor_lmb_filters_rs import FilterLmbm
+from multisensor_lmb_filters_rs import FilterLmbmConfig
+from multisensor_lmb_filters_rs import FilterMultisensorLmbm
+from multisensor_lmb_filters_rs import FilterPuLmb
+from multisensor_lmb_filters_rs import FilterThresholds
+from multisensor_lmb_filters_rs import MotionModel
+from multisensor_lmb_filters_rs import SensorConfigMulti
+from multisensor_lmb_filters_rs import SensorModel
 
 # Filter configuration: (class, is_multi_sensor)
 FILTER_CLASSES = {
@@ -49,9 +47,7 @@ FILTER_CLASSES = {
     "MS-LMBM-Gibbs": (FilterMultisensorLmbm, True),
 }
 
-THRESHOLDS = FilterThresholds(
-    existence=1e-3, gm_weight=1e-4, max_components=100, gm_merge=float("inf")
-)
+THRESHOLDS = FilterThresholds(existence=1e-3, gm_weight=1e-4, max_components=100, gm_merge=float("inf"))
 
 # LMBM config - must match Rust benchmark settings!
 LMBM_CONFIG = FilterLmbmConfig(max_hypotheses=25, hypothesis_weight_threshold=1e-3)
@@ -75,17 +71,13 @@ def preprocess(scenario: dict):
     n_sensors = scenario["num_sensors"]
 
     # Motion model: constant velocity 2D
-    motion = MotionModel.constant_velocity_2d(
-        m["dt"], m["process_noise_std"], m["survival_probability"]
-    )
+    motion = MotionModel.constant_velocity_2d(m["dt"], m["process_noise_std"], m["survival_probability"])
 
     # Observation volume
     obs_vol = (bounds[1] - bounds[0]) * (bounds[3] - bounds[2])
 
     # Sensor model
-    sensor = SensorModel.position_2d(
-        m["measurement_noise_std"], m["detection_probability"], m["clutter_rate"], obs_vol
-    )
+    sensor = SensorModel.position_2d(m["measurement_noise_std"], m["detection_probability"], m["clutter_rate"], obs_vol)
 
     # Birth model
     birth_locs = [
@@ -140,9 +132,7 @@ def create_filter(filter_name: str, motion, sensor, multi_sensor, birth):
             lmbm_config=LMBM_CONFIG,
         ), is_multi
     else:
-        return filter_cls(
-            motion, multi_sensor if is_multi else sensor, birth, assoc, THRESHOLDS
-        ), is_multi
+        return filter_cls(motion, multi_sensor if is_multi else sensor, birth, assoc, THRESHOLDS), is_multi
 
 
 def main():

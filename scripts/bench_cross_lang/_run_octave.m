@@ -427,7 +427,7 @@ function printJsonArray(arr, indent)
     end
     elemIndent = repmat(' ', 1, indent + 2);
     closeIndent = repmat(' ', 1, indent);
-    
+
     fprintf('[\n');
     for i = 1:length(arr)
         fprintf('%s', elemIndent);
@@ -448,19 +448,19 @@ function s = formatFloat(val)
     % - Decimal notation for 1e-5 <= |val| < 1e16 approx
     % - Scientific notation otherwise
     % - Exponent format: 1e-6 not 1e-06
-    
+
     if val == 0
         s = '0.0';
         return;
     end
-    
+
     if ~isfinite(val)
         s = 'null'; % Or whatever is appropriate, though config usually has finite numbers
         return;
     end
-    
+
     absVal = abs(val);
-    
+
     % 1. Determine shortest precision (15, 16, or 17) that round-trips
     % Use exact equality check because we want the shortest string that
     % parses back to the exact same double value (bitwise identical).
@@ -471,13 +471,13 @@ function s = formatFloat(val)
             s = sprintf('%.17g', val);
         end
     end
-    
+
     % 2. Enforce Notation Style matching Rust serde_json
     % Rust tends to use decimal for >= 1e-5 (0.00001) and < 1e16??
     % We know 2.5e-5 (0.000025) is decimal. 1e-6 is scientific.
-    
+
     useDecimal = (absVal >= 1e-5 && absVal < 1e16);
-    
+
     % If format chose scientific but we want decimal (e.g. 2.5e-5)
     if useDecimal && (~isempty(strfind(s, 'e')) || ~isempty(strfind(s, 'E')))
         % Force decimal. precision needed?
@@ -494,7 +494,7 @@ function s = formatFloat(val)
         end
     % If format chose decimal but we want scientific (e.g. very small or very large)
     elseif ~useDecimal && ~(~isempty(strfind(s, 'e')) || ~isempty(strfind(s, 'E')))
-         s = sprintf('%.17g', val); % Re-format with general to force scientific if needed? 
+         s = sprintf('%.17g', val); % Re-format with general to force scientific if needed?
     end
 
     % 3. Cleanup

@@ -53,4 +53,3 @@ htmlcov/
 /benchmarks/*.log
 /benchmarks/results/*
 !/benchmarks/results/cache.csv
-

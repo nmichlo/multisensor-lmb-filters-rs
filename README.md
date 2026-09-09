@@ -141,28 +141,26 @@ uv add multisensor-lmb-filters-rs
 
 ```python
 import numpy as np
-from multisensor_lmb_filters_rs import (
-    FilterLmb, MotionModel, SensorModel, BirthModel, AssociatorConfig
-)
+from multisensor_lmb_filters_rs import FilterLmb, MotionModel, SensorModel, BirthModel, AssociatorConfig
 
 # 1. Define how objects move (constant velocity model)
 motion = MotionModel.constant_velocity_2d(
-    dt=1.0,              # Time between frames (seconds)
-    process_noise=0.1,   # How unpredictable is motion
-    survival_prob=0.99   # Probability object persists to next frame
+    dt=1.0,  # Time between frames (seconds)
+    process_noise=0.1,  # How unpredictable is motion
+    survival_prob=0.99,  # Probability object persists to next frame
 )
 
 # 2. Define your sensor characteristics
 sensor = SensorModel.position_2d(
-    noise_std=1.0,       # Measurement noise (pixels or meters)
+    noise_std=1.0,  # Measurement noise (pixels or meters)
     detection_prob=0.9,  # Probability of detecting an object
-    clutter_rate=10.0    # Expected false detections per frame
+    clutter_rate=10.0,  # Expected false detections per frame
 )
 
 # 3. Define where new objects can appear
 birth = BirthModel.uniform_2d(
     region=[0, 100, 0, 100],  # [x_min, x_max, y_min, y_max]
-    birth_prob=0.1            # Probability of new object per location
+    birth_prob=0.1,  # Probability of new object per location
 )
 
 # 4. Choose association method
@@ -186,7 +184,6 @@ for t in range(100):
 ### Multi-Sensor Example (Python)
 
 ```python
-
 ...
 
 # Define each sensor with its characteristics
@@ -388,17 +385,17 @@ from multisensor_lmb_filters_rs import AssociatorConfig
 # Loopy Belief Propagation - RECOMMENDED DEFAULT
 config = AssociatorConfig.lbp(
     max_iterations=1000,  # Max LBP iterations
-    tolerance=1e-6        # Convergence threshold
+    tolerance=1e-6,  # Convergence threshold
 )
 
 # Gibbs Sampling - for dense/ambiguous scenes
 config = AssociatorConfig.gibbs(
-    num_samples=1000      # Number of samples to draw
+    num_samples=1000  # Number of samples to draw
 )
 
 # Murty's K-best - exact solution for small problems
 config = AssociatorConfig.murty(
-    k_best=100            # Number of top hypotheses
+    k_best=100  # Number of top hypotheses
 )
 ```
 

@@ -12,21 +12,19 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from conftest import (
-    TOLERANCE,
-    compare_array,
-    compare_scalar,
-    compare_tracks,
-    load_fixture,
-    load_prior_tracks,
-    make_birth_model_empty,
-    make_birth_model_from_fixture,
-    make_motion_model,
-    make_multisensor_config,
-    make_sensor_model,
-    measurements_to_numpy,
-    nested_measurements_to_numpy,
-)
+from conftest import TOLERANCE
+from conftest import compare_array
+from conftest import compare_scalar
+from conftest import compare_tracks
+from conftest import load_fixture
+from conftest import load_prior_tracks
+from conftest import make_birth_model_empty
+from conftest import make_birth_model_from_fixture
+from conftest import make_motion_model
+from conftest import make_multisensor_config
+from conftest import make_sensor_model
+from conftest import measurements_to_numpy
+from conftest import nested_measurements_to_numpy
 
 
 class TestLmbFixtureEquivalence:
@@ -34,7 +32,8 @@ class TestLmbFixtureEquivalence:
 
     def test_lmb_prediction_equivalence(self, lmb_fixture):
         """Verify LMB prediction step matches MATLAB exactly."""
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmb
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -71,7 +70,8 @@ class TestLmbFixtureEquivalence:
         - posteriorParameters[i].Sigma: Posterior covariances
         """
         from conftest import compare_association_matrices
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmb
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -95,13 +95,12 @@ class TestLmbFixtureEquivalence:
 
         # Use comprehensive comparison that validates ALL fields:
         # C, L, R, P, eta, and posteriorParameters (w, mu, Sigma)
-        compare_association_matrices(
-            "step2", expected_assoc, output.association_matrices, TOLERANCE
-        )
+        compare_association_matrices("step2", expected_assoc, output.association_matrices, TOLERANCE)
 
     def test_lmb_lbp_result_equivalence(self, lmb_fixture):
         """Verify LBP association result matches MATLAB exactly."""
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmb
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -125,9 +124,7 @@ class TestLmbFixtureEquivalence:
 
         # Compare posterior existence (r in MATLAB)
         # Note: MATLAB r is posterior existence from LBP, not miss weights
-        compare_array(
-            "step3a.r", expected_lbp["r"], output.association_result.posterior_existence, TOLERANCE
-        )
+        compare_array("step3a.r", expected_lbp["r"], output.association_result.posterior_existence, TOLERANCE)
 
         # Compare marginal weights W (MATLAB W is [miss, meas1, meas2, ...])
         # Our marginal_weights is just [meas1, meas2, ...]
@@ -151,7 +148,8 @@ class TestLmbFixtureEquivalence:
         - Uses rng_seed = seed + 2000 = 2042
         - Calls lmbGibbsSampling with model.numberOfSamples
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmb
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -163,9 +161,7 @@ class TestLmbFixtureEquivalence:
         num_samples = gibbs_input["numberOfSamples"]
         gibbs_seed = gibbs_input["rng_seed"]
 
-        filter = FilterLmb(
-            motion, sensor, birth, AssociatorConfig.gibbs(num_samples), seed=gibbs_seed
-        )
+        filter = FilterLmb(motion, sensor, birth, AssociatorConfig.gibbs(num_samples), seed=gibbs_seed)
 
         prior_tracks = load_prior_tracks(lmb_fixture)
         filter.set_tracks(prior_tracks)
@@ -207,7 +203,8 @@ class TestLmbFixtureEquivalence:
         MATLAB fixture generation (generateLmbStepByStepData.m lines 172-191):
         - Calls lmbMurtysAlgorithm with model.numberOfAssignments
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmb
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -218,9 +215,7 @@ class TestLmbFixtureEquivalence:
         murty_input = lmb_fixture["step3c_murtys"]["input"]
         num_assignments = murty_input["numberOfAssignments"]
 
-        filter = FilterLmb(
-            motion, sensor, birth, AssociatorConfig.murty(num_assignments), seed=lmb_fixture["seed"]
-        )
+        filter = FilterLmb(motion, sensor, birth, AssociatorConfig.murty(num_assignments), seed=lmb_fixture["seed"])
 
         prior_tracks = load_prior_tracks(lmb_fixture)
         filter.set_tracks(prior_tracks)
@@ -260,7 +255,9 @@ class TestLmbFixtureEquivalence:
         component weights and weight-based pruning) produces results identical
         to MATLAB's computePosteriorLmbSpatialDistributions implementation.
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb, FilterThresholds
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmb
+        from multisensor_lmb_filters_rs import FilterThresholds
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -290,7 +287,8 @@ class TestLmbFixtureEquivalence:
 
     def test_lmb_cardinality_equivalence(self, lmb_fixture):
         """Verify LMB cardinality extraction matches MATLAB exactly."""
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmb
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -311,8 +309,7 @@ class TestLmbFixtureEquivalence:
         expected_card = lmb_fixture["step5_cardinality"]["output"]
 
         assert output.cardinality.n_estimated == expected_card["n_estimated"], (
-            f"cardinality.n_estimated: expected {expected_card['n_estimated']}, "
-            f"got {output.cardinality.n_estimated}"
+            f"cardinality.n_estimated: expected {expected_card['n_estimated']}, got {output.cardinality.n_estimated}"
         )
 
         # Compare MAP indices (convert to 0-indexed if MATLAB is 1-indexed)
@@ -320,13 +317,14 @@ class TestLmbFixtureEquivalence:
         # MATLAB uses 1-indexed, convert to 0-indexed
         expected_indices_0 = [i - 1 for i in expected_indices] if expected_indices else []
         actual_indices = list(output.cardinality.map_indices)
-        assert (
-            actual_indices == expected_indices_0
-        ), f"cardinality.map_indices: expected {expected_indices_0}, got {actual_indices}"
+        assert actual_indices == expected_indices_0, (
+            f"cardinality.map_indices: expected {expected_indices_0}, got {actual_indices}"
+        )
 
     def test_lmb_determinism(self, lmb_fixture):
         """Same seed produces identical results."""
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmb
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -361,7 +359,9 @@ class TestLmbmFixtureEquivalence:
 
     def test_lmbm_prediction_full_equivalence(self, lmbm_fixture):
         """Verify LMBM prediction ALL fields: w, r, mu, Sigma, birthTime, birthLocation."""
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmbm
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -415,14 +415,14 @@ class TestLmbmFixtureEquivalence:
         compare_array("step1.Sigma", expected["Sigma"], np.array(actual.sigma), TOLERANCE)
 
         # birthTime
-        assert (
-            list(actual.birth_time) == expected["birthTime"]
-        ), f"step1.birthTime: expected {expected['birthTime']}, got {list(actual.birth_time)}"
+        assert list(actual.birth_time) == expected["birthTime"], (
+            f"step1.birthTime: expected {expected['birthTime']}, got {list(actual.birth_time)}"
+        )
 
         # birthLocation
-        assert (
-            list(actual.birth_location) == expected["birthLocation"]
-        ), f"step1.birthLocation: expected {expected['birthLocation']}, got {list(actual.birth_location)}"
+        assert list(actual.birth_location) == expected["birthLocation"], (
+            f"step1.birthLocation: expected {expected['birthLocation']}, got {list(actual.birth_location)}"
+        )
 
     def test_lmbm_association_matrices_equivalence(self, lmbm_fixture):
         """Verify LMBM association matrices match MATLAB exactly.
@@ -435,7 +435,9 @@ class TestLmbmFixtureEquivalence:
         Note: posteriorParameters.r/mu/Sigma are not exposed in the Python API
         for LMBM (different structure than LMB). See Rust tests for full validation.
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmbm
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -449,9 +451,7 @@ class TestLmbmFixtureEquivalence:
         num_samples = gibbs_input["numberOfSamples"]
         gibbs_seed = gibbs_input["rng_seed"]
 
-        filter = FilterLmbm(
-            motion, sensor, birth, AssociatorConfig.gibbs(num_samples), seed=gibbs_seed
-        )
+        filter = FilterLmbm(motion, sensor, birth, AssociatorConfig.gibbs(num_samples), seed=gibbs_seed)
 
         # Load PRIOR hypothesis - step_detailed will run prediction to add birth tracks
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
@@ -476,9 +476,7 @@ class TestLmbmFixtureEquivalence:
         assert output.association_matrices is not None, "Association matrices should exist"
 
         # Compare C, L, P matrices
-        compare_array(
-            "step2.cost", expected_assoc["C"], output.association_matrices.cost, TOLERANCE
-        )
+        compare_array("step2.cost", expected_assoc["C"], output.association_matrices.cost, TOLERANCE)
         compare_array(
             "step2.likelihood",
             expected_assoc["L"],
@@ -503,9 +501,7 @@ class TestLmbmFixtureEquivalence:
                 if len(actual_pp) == len(expected_pp):
                     from conftest import compare_posterior_parameters
 
-                    compare_posterior_parameters(
-                        "step2.posteriorParameters", expected_pp, actual_pp, TOLERANCE
-                    )
+                    compare_posterior_parameters("step2.posteriorParameters", expected_pp, actual_pp, TOLERANCE)
                 # else: Skip comparison due to track count mismatch (births added)
 
     def test_lmbm_gibbs_v_matrix_equivalence(self, lmbm_fixture):
@@ -517,7 +513,9 @@ class TestLmbmFixtureEquivalence:
         Note: MATLAB returns unique(V, 'rows') - only distinct samples are kept.
         We load the PRIOR hypothesis and let prediction run to match the fixture flow.
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmbm
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -531,9 +529,7 @@ class TestLmbmFixtureEquivalence:
         num_samples = gibbs_input["numberOfSamples"]
         gibbs_seed = gibbs_input["rng_seed"]
 
-        filter = FilterLmbm(
-            motion, sensor, birth, AssociatorConfig.gibbs(num_samples), seed=gibbs_seed
-        )
+        filter = FilterLmbm(motion, sensor, birth, AssociatorConfig.gibbs(num_samples), seed=gibbs_seed)
 
         # Load PRIOR hypothesis - step_detailed will run prediction to add birth tracks
         prior_hyp = lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
@@ -581,7 +577,9 @@ class TestLmbmFixtureEquivalence:
 
         Murty's algorithm finds the K-best assignments deterministically.
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmbm
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -630,12 +628,10 @@ class TestLmbmFixtureEquivalence:
         The cardinality_estimate and extraction_indices from step6 are the
         key outputs that determine which tracks are extracted as estimates.
         """
-        from multisensor_lmb_filters_rs import (
-            AssociatorConfig,
-            FilterLmbm,
-            FilterLmbmConfig,
-            _LmbmHypothesis,
-        )
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmbm
+        from multisensor_lmb_filters_rs import FilterLmbmConfig
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -696,8 +692,7 @@ class TestLmbmFixtureEquivalence:
 
         # Verify exact cardinality match
         assert output.cardinality.n_estimated == expected_cardinality, (
-            f"Cardinality mismatch: expected {expected_cardinality}, "
-            f"got {output.cardinality.n_estimated}"
+            f"Cardinality mismatch: expected {expected_cardinality}, got {output.cardinality.n_estimated}"
         )
 
         # Verify extraction indices match (convert MATLAB 1-indexed to 0-indexed)
@@ -705,8 +700,7 @@ class TestLmbmFixtureEquivalence:
         actual_indices = sorted(output.cardinality.map_indices)
         expected_sorted = sorted(expected_indices_0indexed)
         assert actual_indices == expected_sorted, (
-            f"Extraction indices mismatch: expected {expected_sorted} (0-indexed), "
-            f"got {actual_indices}"
+            f"Extraction indices mismatch: expected {expected_sorted} (0-indexed), got {actual_indices}"
         )
 
     def test_lmbm_step4_hypothesis_equivalence(self, lmbm_fixture):
@@ -721,12 +715,10 @@ class TestLmbmFixtureEquivalence:
         - birthTime, birthLocation: track labels
         """
         from conftest import compare_lmbm_hypotheses
-        from multisensor_lmb_filters_rs import (
-            AssociatorConfig,
-            FilterLmbm,
-            FilterLmbmConfig,
-            _LmbmHypothesis,
-        )
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmbm
+        from multisensor_lmb_filters_rs import FilterLmbmConfig
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -773,9 +765,7 @@ class TestLmbmFixtureEquivalence:
         # ═══════════════════════════════════════════════════════════════
         expected_hyps = lmbm_fixture["step4_hypothesis"]["output"]["new_hypotheses"]
 
-        assert (
-            output.pre_normalization_hypotheses is not None
-        ), "pre_normalization_hypotheses should exist for LMBM"
+        assert output.pre_normalization_hypotheses is not None, "pre_normalization_hypotheses should exist for LMBM"
 
         compare_lmbm_hypotheses(
             "step4_hypothesis",
@@ -791,12 +781,10 @@ class TestLmbmFixtureEquivalence:
         - normalized_hypotheses: after weight normalization and gating
         - objects_likely_to_exist: which tracks have weighted existence > threshold
         """
-        from multisensor_lmb_filters_rs import (
-            AssociatorConfig,
-            FilterLmbm,
-            FilterLmbmConfig,
-            _LmbmHypothesis,
-        )
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmbm
+        from multisensor_lmb_filters_rs import FilterLmbmConfig
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -844,15 +832,13 @@ class TestLmbmFixtureEquivalence:
         expected_step5 = lmbm_fixture["step5_normalization"]["output"]
         expected_ole = expected_step5["objects_likely_to_exist"]
 
-        assert (
-            output.objects_likely_to_exist is not None
-        ), "objects_likely_to_exist should exist for LMBM"
+        assert output.objects_likely_to_exist is not None, "objects_likely_to_exist should exist for LMBM"
 
         # Compare objects_likely_to_exist mask
         actual_ole = list(output.objects_likely_to_exist)
-        assert (
-            actual_ole == expected_ole
-        ), f"objects_likely_to_exist mismatch: expected {expected_ole}, got {actual_ole}"
+        assert actual_ole == expected_ole, (
+            f"objects_likely_to_exist mismatch: expected {expected_ole}, got {actual_ole}"
+        )
 
         # Note: normalized_hypotheses have tracks pruned based on objects_likely_to_exist,
         # so we can't directly compare with fixture's normalized_hypotheses which have
@@ -860,12 +846,10 @@ class TestLmbmFixtureEquivalence:
 
     def test_lmbm_normalized_hypotheses_full_equivalence(self, lmbm_fixture):
         """Verify LMBM normalized hypotheses ALL fields: w (individual), r, mu, Sigma."""
-        from multisensor_lmb_filters_rs import (
-            AssociatorConfig,
-            FilterLmbm,
-            FilterLmbmConfig,
-            _LmbmHypothesis,
-        )
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmbm
+        from multisensor_lmb_filters_rs import FilterLmbmConfig
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -908,16 +892,12 @@ class TestLmbmFixtureEquivalence:
         # Verify normalized hypotheses - ALL fields
         expected_hyps = lmbm_fixture["step5_normalization"]["output"]["normalized_hypotheses"]
 
-        assert (
-            output.normalized_hypotheses is not None
-        ), "normalized_hypotheses should exist for LMBM"
+        assert output.normalized_hypotheses is not None, "normalized_hypotheses should exist for LMBM"
 
         # Compare ALL hypotheses with ALL fields
         from conftest import compare_lmbm_hypotheses
 
-        compare_lmbm_hypotheses(
-            "step5.normalized_hypotheses", expected_hyps, output.normalized_hypotheses, TOLERANCE
-        )
+        compare_lmbm_hypotheses("step5.normalized_hypotheses", expected_hyps, output.normalized_hypotheses, TOLERANCE)
 
     def test_lmbm_runs_on_fixture(self, lmbm_fixture):
         """LMBM filter runs on fixture data and produces valid output."""
@@ -962,9 +942,7 @@ class TestMultisensorLmbFixtureEquivalence:
         # ═══════════════════════════════════════════════════════════════
         # STEP 1: Verify predicted tracks match MATLAB
         # ═══════════════════════════════════════════════════════════════
-        expected_predicted = multisensor_lmb_fixture["step1_prediction"]["output"][
-            "predicted_objects"
-        ]
+        expected_predicted = multisensor_lmb_fixture["step1_prediction"]["output"]["predicted_objects"]
         compare_tracks("step1_predicted", expected_predicted, output.predicted_tracks, TOLERANCE)
 
     def test_ic_lmb_cardinality_equivalence(self, multisensor_lmb_fixture):
@@ -1051,7 +1029,9 @@ class TestMultisensorLmbPerSensorEquivalence:
         - max_components=20, gm_weight=1e-6 (thresholds)
         - max_iterations=1000, tolerance=1e-6 (LBP association)
         """
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterIcLmb, FilterThresholds
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterIcLmb
+        from multisensor_lmb_filters_rs import FilterThresholds
 
         model = multisensor_lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -1093,18 +1073,10 @@ class TestMultisensorLmbPerSensorEquivalence:
         assert actual.association_matrices is not None, "Association matrices should exist"
 
         compare_array("sensor0.C", expected_assoc["C"], actual.association_matrices.cost, TOLERANCE)
-        compare_array(
-            "sensor0.L", expected_assoc["L"], actual.association_matrices.likelihood, TOLERANCE
-        )
-        compare_array(
-            "sensor0.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE
-        )
-        compare_array(
-            "sensor0.P", expected_assoc["P"], actual.association_matrices.sampling_prob, TOLERANCE
-        )
-        compare_array(
-            "sensor0.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE
-        )
+        compare_array("sensor0.L", expected_assoc["L"], actual.association_matrices.likelihood, TOLERANCE)
+        compare_array("sensor0.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE)
+        compare_array("sensor0.P", expected_assoc["P"], actual.association_matrices.sampling_prob, TOLERANCE)
+        compare_array("sensor0.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE)
 
     def test_sensor0_posterior_parameters_equivalence(self, multisensor_lmb_fixture):
         """Verify sensor 0 posteriorParameters (w, mu, Sigma) match MATLAB."""
@@ -1136,9 +1108,7 @@ class TestMultisensorLmbPerSensorEquivalence:
         assert actual.association_result is not None, "Association result should exist"
 
         # Compare posterior existence (r)
-        compare_array(
-            "sensor0.r", expected_da["r"], actual.association_result.posterior_existence, TOLERANCE
-        )
+        compare_array("sensor0.r", expected_da["r"], actual.association_result.posterior_existence, TOLERANCE)
 
         # Compare marginal weights W (MATLAB W is [miss, meas1, meas2, ...])
         expected_w = expected_da["W"]
@@ -1176,18 +1146,10 @@ class TestMultisensorLmbPerSensorEquivalence:
         assert actual.association_matrices is not None
 
         compare_array("sensor1.C", expected_assoc["C"], actual.association_matrices.cost, TOLERANCE)
-        compare_array(
-            "sensor1.L", expected_assoc["L"], actual.association_matrices.likelihood, TOLERANCE
-        )
-        compare_array(
-            "sensor1.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE
-        )
-        compare_array(
-            "sensor1.P", expected_assoc["P"], actual.association_matrices.sampling_prob, TOLERANCE
-        )
-        compare_array(
-            "sensor1.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE
-        )
+        compare_array("sensor1.L", expected_assoc["L"], actual.association_matrices.likelihood, TOLERANCE)
+        compare_array("sensor1.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE)
+        compare_array("sensor1.P", expected_assoc["P"], actual.association_matrices.sampling_prob, TOLERANCE)
+        compare_array("sensor1.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE)
 
     def test_sensor1_posterior_parameters_equivalence(self, multisensor_lmb_fixture):
         """Verify sensor 1 posteriorParameters (w, mu, Sigma) match MATLAB."""
@@ -1218,9 +1180,7 @@ class TestMultisensorLmbPerSensorEquivalence:
         actual = output.sensor_updates[1]
         assert actual.association_result is not None
 
-        compare_array(
-            "sensor1.r", expected_da["r"], actual.association_result.posterior_existence, TOLERANCE
-        )
+        compare_array("sensor1.r", expected_da["r"], actual.association_result.posterior_existence, TOLERANCE)
 
         expected_w = expected_da["W"]
         expected_marginals = [row[1:] for row in expected_w]
@@ -1266,18 +1226,14 @@ class TestMultisensorLmbPerSensorEquivalence:
 
         # Verify sensor_updates exists and has correct structure
         assert output.sensor_updates is not None, f"{filter_cls_name}: sensor_updates should exist"
-        assert (
-            len(output.sensor_updates) == model["numberOfSensors"]
-        ), f"{filter_cls_name}: should have {model['numberOfSensors']} sensor updates"
+        assert len(output.sensor_updates) == model["numberOfSensors"], (
+            f"{filter_cls_name}: should have {model['numberOfSensors']} sensor updates"
+        )
 
         for i, su in enumerate(output.sensor_updates):
             assert su.sensor_index == i, f"{filter_cls_name}: sensor {i} index mismatch"
-            assert (
-                su.association_matrices is not None
-            ), f"{filter_cls_name}: sensor {i} matrices missing"
-            assert (
-                su.association_result is not None
-            ), f"{filter_cls_name}: sensor {i} result missing"
+            assert su.association_matrices is not None, f"{filter_cls_name}: sensor {i} matrices missing"
+            assert su.association_result is not None, f"{filter_cls_name}: sensor {i} result missing"
             assert len(su.updated_tracks) > 0, f"{filter_cls_name}: sensor {i} no updated tracks"
 
 
@@ -1317,7 +1273,8 @@ class TestSensorUpdateOutputStructure:
 
     def test_single_sensor_has_no_sensor_updates(self, lmb_fixture):
         """Verify single-sensor filters have sensor_updates=None."""
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterLmb
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterLmb
 
         model = lmb_fixture["model"]
         motion = make_motion_model(model)
@@ -1355,16 +1312,15 @@ class TestMultisensorLmbmFixtureEquivalence:
 
     def test_multisensor_lmbm_prediction_full_equivalence(self, multisensor_lmbm_fixture):
         """Verify multisensor LMBM prediction ALL fields: w, r, mu, Sigma, birthTime, birthLocation."""
-        from multisensor_lmb_filters_rs import FilterMultisensorLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import FilterMultisensorLmbm
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = multisensor_lmbm_fixture["model"]
         motion = make_motion_model(model)
         sensor_config = make_multisensor_config(model)
         birth = make_birth_model_from_fixture(multisensor_lmbm_fixture)
 
-        filter = FilterMultisensorLmbm(
-            motion, sensor_config, birth, seed=multisensor_lmbm_fixture["seed"]
-        )
+        filter = FilterMultisensorLmbm(motion, sensor_config, birth, seed=multisensor_lmbm_fixture["seed"])
 
         # Load prior hypothesis
         prior_hyp = multisensor_lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
@@ -1391,9 +1347,9 @@ class TestMultisensorLmbmFixtureEquivalence:
         actual = output.predicted_hypotheses[0]
 
         # Compare w (hypothesis weight - MATLAB stores linear, Python .weight returns linear)
-        assert (
-            abs(actual.weight - expected["w"]) < TOLERANCE
-        ), f"ms_lmbm_step1.w: expected {expected['w']}, got {actual.weight}"
+        assert abs(actual.weight - expected["w"]) < TOLERANCE, (
+            f"ms_lmbm_step1.w: expected {expected['w']}, got {actual.weight}"
+        )
 
         # Compare r (existence probabilities)
         compare_array("ms_lmbm_step1.r", expected["r"], np.array(actual.r), TOLERANCE)
@@ -1417,27 +1373,26 @@ class TestMultisensorLmbmFixtureEquivalence:
             )
 
         # Compare birthTime
-        assert (
-            list(actual.birth_time) == expected["birthTime"]
-        ), f"ms_lmbm_step1.birthTime: expected {expected['birthTime']}, got {list(actual.birth_time)}"
+        assert list(actual.birth_time) == expected["birthTime"], (
+            f"ms_lmbm_step1.birthTime: expected {expected['birthTime']}, got {list(actual.birth_time)}"
+        )
 
         # Compare birthLocation
-        assert (
-            list(actual.birth_location) == expected["birthLocation"]
-        ), f"ms_lmbm_step1.birthLocation: expected {expected['birthLocation']}, got {list(actual.birth_location)}"
+        assert list(actual.birth_location) == expected["birthLocation"], (
+            f"ms_lmbm_step1.birthLocation: expected {expected['birthLocation']}, got {list(actual.birth_location)}"
+        )
 
     def test_multisensor_lmbm_association_full_equivalence(self, multisensor_lmbm_fixture):
         """Verify multisensor LMBM association L matrix and posteriorParameters."""
-        from multisensor_lmb_filters_rs import FilterMultisensorLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import FilterMultisensorLmbm
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = multisensor_lmbm_fixture["model"]
         motion = make_motion_model(model)
         sensor_config = make_multisensor_config(model)
         birth = make_birth_model_from_fixture(multisensor_lmbm_fixture)
 
-        filter = FilterMultisensorLmbm(
-            motion, sensor_config, birth, seed=multisensor_lmbm_fixture["seed"]
-        )
+        filter = FilterMultisensorLmbm(motion, sensor_config, birth, seed=multisensor_lmbm_fixture["seed"])
 
         prior_hyp = multisensor_lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
         hypothesis = _LmbmHypothesis.from_matlab(
@@ -1464,16 +1419,15 @@ class TestMultisensorLmbmFixtureEquivalence:
 
     def test_multisensor_lmbm_gibbs_full_equivalence(self, multisensor_lmbm_fixture):
         """Verify multisensor LMBM Gibbs sampling produces correct number of samples."""
-        from multisensor_lmb_filters_rs import FilterMultisensorLmbm, _LmbmHypothesis
+        from multisensor_lmb_filters_rs import FilterMultisensorLmbm
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = multisensor_lmbm_fixture["model"]
         motion = make_motion_model(model)
         sensor_config = make_multisensor_config(model)
         birth = make_birth_model_from_fixture(multisensor_lmbm_fixture)
 
-        filter = FilterMultisensorLmbm(
-            motion, sensor_config, birth, seed=multisensor_lmbm_fixture["seed"]
-        )
+        filter = FilterMultisensorLmbm(motion, sensor_config, birth, seed=multisensor_lmbm_fixture["seed"])
 
         prior_hyp = multisensor_lmbm_fixture["step1_prediction"]["input"]["prior_hypothesis"]
         hypothesis = _LmbmHypothesis.from_matlab(
@@ -1491,30 +1445,23 @@ class TestMultisensorLmbmFixtureEquivalence:
 
         # Verify Gibbs sample count
         # Note: Multisensor uses 'step3_gibbs' instead of 'step3a_gibbs'
-        gibbs_step = multisensor_lmbm_fixture.get(
-            "step3a_gibbs", multisensor_lmbm_fixture.get("step3_gibbs")
-        )
+        gibbs_step = multisensor_lmbm_fixture.get("step3a_gibbs", multisensor_lmbm_fixture.get("step3_gibbs"))
         expected_gibbs = gibbs_step["output"]
         if "V" in expected_gibbs:
             expected_v = np.array(expected_gibbs["V"], dtype=np.int32)
             expected_num_samples = expected_v.shape[0]
 
-            if (
-                output.association_result is not None
-                and output.association_result.assignments is not None
-            ):
+            if output.association_result is not None and output.association_result.assignments is not None:
                 actual_unique_samples = np.unique(output.association_result.assignments, axis=0)
-                assert (
-                    len(actual_unique_samples) == expected_num_samples
-                ), f"Sample count mismatch: expected {expected_num_samples}, got {len(actual_unique_samples)}"
+                assert len(actual_unique_samples) == expected_num_samples, (
+                    f"Sample count mismatch: expected {expected_num_samples}, got {len(actual_unique_samples)}"
+                )
 
     def test_multisensor_lmbm_extraction_full_equivalence(self, multisensor_lmbm_fixture):
         """Verify multisensor LMBM extraction cardinality and indices."""
-        from multisensor_lmb_filters_rs import (
-            FilterLmbmConfig,
-            FilterMultisensorLmbm,
-            _LmbmHypothesis,
-        )
+        from multisensor_lmb_filters_rs import FilterLmbmConfig
+        from multisensor_lmb_filters_rs import FilterMultisensorLmbm
+        from multisensor_lmb_filters_rs import _LmbmHypothesis
 
         model = multisensor_lmbm_fixture["model"]
         motion = make_motion_model(model)
@@ -1562,16 +1509,16 @@ class TestMultisensorLmbmFixtureEquivalence:
         expected_indices = expected_step6["extraction_indices"]
 
         assert output.cardinality is not None, "Cardinality should exist"
-        assert (
-            output.cardinality.n_estimated == expected_cardinality
-        ), f"Cardinality mismatch: expected {expected_cardinality}, got {output.cardinality.n_estimated}"
+        assert output.cardinality.n_estimated == expected_cardinality, (
+            f"Cardinality mismatch: expected {expected_cardinality}, got {output.cardinality.n_estimated}"
+        )
 
         # Verify extraction indices (convert MATLAB 1-indexed to 0-indexed)
         expected_indices_0indexed = sorted([i - 1 for i in expected_indices])
         actual_indices = sorted(output.cardinality.map_indices)
-        assert (
-            actual_indices == expected_indices_0indexed
-        ), f"Extraction indices mismatch: expected {expected_indices_0indexed}, got {actual_indices}"
+        assert actual_indices == expected_indices_0indexed, (
+            f"Extraction indices mismatch: expected {expected_indices_0indexed}, got {actual_indices}"
+        )
 
     def test_multisensor_lmbm_runs_on_fixture(self, multisensor_lmbm_fixture):
         """Multi-sensor LMBM filter runs on fixture data."""
@@ -1584,9 +1531,7 @@ class TestMultisensorLmbmFixtureEquivalence:
 
         measurements = nested_measurements_to_numpy(multisensor_lmbm_fixture["measurements"])
 
-        filter = FilterMultisensorLmbm(
-            motion, sensor_config, birth, seed=multisensor_lmbm_fixture["seed"]
-        )
+        filter = FilterMultisensorLmbm(motion, sensor_config, birth, seed=multisensor_lmbm_fixture["seed"])
         output = filter.step_detailed(measurements, timestep=multisensor_lmbm_fixture["timestep"])
 
         assert output.cardinality.n_estimated >= 0
@@ -1617,15 +1562,14 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
         - max_iterations=1000 (model.maximumNumberOfLbpIterations)
         - tolerance=1e-6 (model.lbpConvergenceTolerance)
         """
-        from conftest import (
-            get_multisensor_filter_class,
-            load_prior_tracks_from_variant_fixture,
-            make_birth_model_from_fixture,
-            make_motion_model,
-            make_multisensor_config,
-            nested_measurements_to_numpy,
-        )
-        from multisensor_lmb_filters_rs import AssociatorConfig, FilterThresholds
+        from conftest import get_multisensor_filter_class
+        from conftest import load_prior_tracks_from_variant_fixture
+        from conftest import make_birth_model_from_fixture
+        from conftest import make_motion_model
+        from conftest import make_multisensor_config
+        from conftest import nested_measurements_to_numpy
+        from multisensor_lmb_filters_rs import AssociatorConfig
+        from multisensor_lmb_filters_rs import FilterThresholds
 
         model = fixture["model"]
         motion = make_motion_model(model)
@@ -1693,32 +1637,26 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
                 continue  # No measurements for this sensor
 
             actual = output.sensor_updates[sensor_idx]
-            assert (
-                actual.association_matrices is not None
-            ), f"{variant.upper()}-LMB sensor{sensor_idx}: matrices missing"
+            assert actual.association_matrices is not None, (
+                f"{variant.upper()}-LMB sensor{sensor_idx}: matrices missing"
+            )
 
             prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
-            compare_array(
-                f"{prefix}.C", expected_assoc["C"], actual.association_matrices.cost, TOLERANCE
-            )
+            compare_array(f"{prefix}.C", expected_assoc["C"], actual.association_matrices.cost, TOLERANCE)
             compare_array(
                 f"{prefix}.L",
                 expected_assoc["L"],
                 actual.association_matrices.likelihood,
                 TOLERANCE,
             )
-            compare_array(
-                f"{prefix}.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE
-            )
+            compare_array(f"{prefix}.R", expected_assoc["R"], actual.association_matrices.miss_prob, TOLERANCE)
             compare_array(
                 f"{prefix}.P",
                 expected_assoc["P"],
                 actual.association_matrices.sampling_prob,
                 TOLERANCE,
             )
-            compare_array(
-                f"{prefix}.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE
-            )
+            compare_array(f"{prefix}.eta", expected_assoc["eta"], actual.association_matrices.eta, TOLERANCE)
 
     def test_per_sensor_posterior_parameters_equivalence(self, ms_lmb_variant_fixture):
         """Verify per-sensor posteriorParameters (w, mu, Sigma) match MATLAB for all variants."""
@@ -1764,9 +1702,7 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
                 continue
 
             actual = output.sensor_updates[sensor_idx]
-            assert (
-                actual.association_result is not None
-            ), f"{variant.upper()}-LMB sensor{sensor_idx}: result missing"
+            assert actual.association_result is not None, f"{variant.upper()}-LMB sensor{sensor_idx}: result missing"
 
             prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
             compare_array(
@@ -1802,9 +1738,7 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
 
             actual = output.sensor_updates[sensor_idx]
             prefix = f"{variant.upper()}-LMB.sensor{sensor_idx}"
-            compare_fused_tracks(
-                f"{prefix}.updated_tracks", expected_tracks, actual.updated_tracks, TOLERANCE
-            )
+            compare_fused_tracks(f"{prefix}.updated_tracks", expected_tracks, actual.updated_tracks, TOLERANCE)
 
     def test_fusion_equivalence(self, ms_lmb_variant_fixture):
         """Verify fusion step matches MATLAB for parallel variants (AA/GA/PU).
@@ -1852,8 +1786,7 @@ class TestMultisensorLmbVariantsStepByStepEquivalence:
         expected_indices_0 = sorted([i - 1 for i in expected_indices]) if expected_indices else []
         actual_indices = sorted(list(output.cardinality.map_indices))
         assert actual_indices == expected_indices_0, (
-            f"{variant.upper()}-LMB.cardinality.map_indices: "
-            f"expected {expected_indices_0}, got {actual_indices}"
+            f"{variant.upper()}-LMB.cardinality.map_indices: expected {expected_indices_0}, got {actual_indices}"
         )
 
 

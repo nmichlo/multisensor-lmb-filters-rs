@@ -120,18 +120,14 @@ def compare_array(name: str, expected: list, actual: np.ndarray, tol: float = TO
             expected_arr = expected_squeezed
             actual = actual_squeezed
         else:
-            raise AssertionError(
-                f"{name}: shape mismatch - expected {expected_arr.shape}, got {actual.shape}"
-            )
+            raise AssertionError(f"{name}: shape mismatch - expected {expected_arr.shape}, got {actual.shape}")
 
     # Check values
     diff = np.abs(expected_arr - actual)
     max_diff = np.max(diff)
     if max_diff > tol:
         idx = np.unravel_index(np.argmax(diff), diff.shape)
-        raise AssertionError(
-            f"{name}[{idx}]: expected {expected_arr[idx]}, got {actual[idx]}, diff={max_diff}"
-        )
+        raise AssertionError(f"{name}[{idx}]: expected {expected_arr[idx]}, got {actual[idx]}, diff={max_diff}")
 
 
 def compare_track_estimate(name: str, expected: dict, actual, tol: float = TOLERANCE):
@@ -145,9 +141,7 @@ def compare_track_estimate(name: str, expected: dict, actual, tol: float = TOLER
         exp_birth_loc = expected.get("birthLocation", 0)
 
     if actual.label.birth_time != exp_birth_time:
-        raise AssertionError(
-            f"{name}.label.birth_time: expected {exp_birth_time}, got {actual.label.birth_time}"
-        )
+        raise AssertionError(f"{name}.label.birth_time: expected {exp_birth_time}, got {actual.label.birth_time}")
     if actual.label.birth_location != exp_birth_loc:
         raise AssertionError(
             f"{name}.label.birth_location: expected {exp_birth_loc}, got {actual.label.birth_location}"
@@ -182,9 +176,7 @@ def compare_state_estimate(
     # Compare individual tracks if expected data is available
     if expected_tracks is not None and len(expected_tracks) > 0:
         if len(actual.tracks) != len(expected_tracks):
-            raise AssertionError(
-                f"{name}.tracks count: expected {len(expected_tracks)}, got {len(actual.tracks)}"
-            )
+            raise AssertionError(f"{name}.tracks count: expected {len(expected_tracks)}, got {len(actual.tracks)}")
 
         for i, (exp_track, act_track) in enumerate(zip(expected_tracks, actual.tracks)):
             compare_track_estimate(f"{name}.tracks[{i}]", exp_track, act_track, tol)
@@ -222,7 +214,8 @@ def make_sensor_model(model: dict, obs_volume: float = 40000.0):
 
 def make_multisensor_config(model: dict, obs_volume: float = 40000.0):
     """Create SensorConfigMulti from fixture model dict (multi-sensor)."""
-    from multisensor_lmb_filters_rs import SensorConfigMulti, SensorModel
+    from multisensor_lmb_filters_rs import SensorConfigMulti
+    from multisensor_lmb_filters_rs import SensorModel
 
     num_sensors = model["numberOfSensors"]
     sensors = []
@@ -248,7 +241,8 @@ def make_birth_model(
 
     Uses the first Gaussian component from each object as a birth location.
     """
-    from multisensor_lmb_filters_rs import BirthLocation, BirthModel
+    from multisensor_lmb_filters_rs import BirthLocation
+    from multisensor_lmb_filters_rs import BirthModel
 
     locations = []
     for i, obj in enumerate(prior_objects[:5]):  # Take first 5 objects as birth locations
@@ -341,7 +335,8 @@ def make_birth_model_from_fixture(fixture: dict):
     Handles both LMB fixtures (predicted_objects list) and LMBM fixtures
     (predicted_hypothesis with parallel arrays).
     """
-    from multisensor_lmb_filters_rs import BirthLocation, BirthModel
+    from multisensor_lmb_filters_rs import BirthLocation
+    from multisensor_lmb_filters_rs import BirthModel
 
     timestep = fixture["timestep"]
     prediction_output = fixture["step1_prediction"]["output"]
@@ -432,9 +427,7 @@ def compare_tracks(name: str, expected: list, actual: list, tol: float = TOLERAN
         AssertionError: On first mismatch with detailed error message
     """
     if len(expected) != len(actual):
-        raise AssertionError(
-            f"{name}: track count mismatch - expected {len(expected)}, got {len(actual)}"
-        )
+        raise AssertionError(f"{name}: track count mismatch - expected {len(expected)}, got {len(actual)}")
 
     for i, (exp, act) in enumerate(zip(expected, actual)):
         prefix = f"{name}[{i}]"
@@ -520,9 +513,7 @@ def compare_posterior_parameters(name: str, expected: list, actual: list, tol: f
             Flattened posterior covariances
     """
     if len(expected) != len(actual):
-        raise AssertionError(
-            f"{name}: count mismatch - expected {len(expected)}, got {len(actual)}"
-        )
+        raise AssertionError(f"{name}: count mismatch - expected {len(expected)}, got {len(actual)}")
 
     for i, (exp, act) in enumerate(zip(expected, actual)):
         prefix = f"{name}[{i}]"
@@ -595,9 +586,7 @@ def compare_lmbm_hypotheses(name: str, expected: list, actual: list, tol: float 
         tol: Numerical tolerance
     """
     if len(expected) != len(actual):
-        raise AssertionError(
-            f"{name}: count mismatch - expected {len(expected)}, got {len(actual)}"
-        )
+        raise AssertionError(f"{name}: count mismatch - expected {len(expected)}, got {len(actual)}")
 
     for i, (exp, act) in enumerate(zip(expected, actual)):
         compare_lmbm_hypothesis(f"{name}[{i}]", exp, act, tol)
@@ -680,9 +669,7 @@ def compare_fused_tracks(name: str, expected: list, actual: list, tol: float = T
         tol: Numerical tolerance
     """
     if len(expected) != len(actual):
-        raise AssertionError(
-            f"{name}: track count mismatch - expected {len(expected)}, got {len(actual)}"
-        )
+        raise AssertionError(f"{name}: track count mismatch - expected {len(expected)}, got {len(actual)}")
 
     for i, (exp, act) in enumerate(zip(expected, actual)):
         prefix = f"{name}[{i}]"

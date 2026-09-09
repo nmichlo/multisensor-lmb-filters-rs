@@ -803,8 +803,8 @@ impl Updater for MarginalUpdater {
             // Build weighted components for pruning
             let weighted_components: Vec<_> = new_weights
                 .into_iter()
-                .zip(new_means.into_iter())
-                .zip(new_covs.into_iter())
+                .zip(new_means)
+                .zip(new_covs)
                 .map(|((w, m), c)| (w, m, c))
                 .collect();
 
