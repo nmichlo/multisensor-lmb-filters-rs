@@ -744,7 +744,7 @@ METHOD
             # Parse avg,std from val and baseline
             local avg=$(echo "$val" | cut -d',' -f1)
             local std=$(echo "$val" | cut -d',' -f2)
-            
+
             if [[ -z "$baseline" || "$baseline" == "TIMEOUT" || "$baseline" == "ERROR" || "$baseline" == "SKIP" ]]; then
                 # No baseline, just show value
                 printf "%.2f \u00b1 %.2f (N/A)" "$avg" "$std"
@@ -822,7 +822,7 @@ METHOD
                         octave_result="$octave_avg,$octave_std"
                     fi
                 fi
-                
+
                 rust_result=""
                 if [[ -n "$rust_avg" ]]; then
                     if [[ "$rust_avg" == "TIMEOUT" || "$rust_avg" == "ERROR" || "$rust_avg" == "SKIP" ]]; then
@@ -831,7 +831,7 @@ METHOD
                         rust_result="$rust_avg,$rust_std"
                     fi
                 fi
-                
+
                 python_result=""
                 if [[ -n "$python_avg" ]]; then
                     if [[ "$python_avg" == "TIMEOUT" || "$python_avg" == "ERROR" || "$python_avg" == "SKIP" ]]; then

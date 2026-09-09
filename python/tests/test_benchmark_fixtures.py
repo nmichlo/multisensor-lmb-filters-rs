@@ -12,23 +12,21 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from multisensor_lmb_filters_rs import (
-    AssociatorConfig,
-    BirthLocation,
-    BirthModel,
-    FilterAaLmb,
-    FilterGaLmb,
-    FilterIcLmb,
-    FilterLmb,
-    FilterLmbm,
-    FilterLmbmConfig,
-    FilterMultisensorLmbm,
-    FilterPuLmb,
-    FilterThresholds,
-    MotionModel,
-    SensorConfigMulti,
-    SensorModel,
-)
+from multisensor_lmb_filters_rs import AssociatorConfig
+from multisensor_lmb_filters_rs import BirthLocation
+from multisensor_lmb_filters_rs import BirthModel
+from multisensor_lmb_filters_rs import FilterAaLmb
+from multisensor_lmb_filters_rs import FilterGaLmb
+from multisensor_lmb_filters_rs import FilterIcLmb
+from multisensor_lmb_filters_rs import FilterLmb
+from multisensor_lmb_filters_rs import FilterLmbm
+from multisensor_lmb_filters_rs import FilterLmbmConfig
+from multisensor_lmb_filters_rs import FilterMultisensorLmbm
+from multisensor_lmb_filters_rs import FilterPuLmb
+from multisensor_lmb_filters_rs import FilterThresholds
+from multisensor_lmb_filters_rs import MotionModel
+from multisensor_lmb_filters_rs import SensorConfigMulti
+from multisensor_lmb_filters_rs import SensorModel
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
@@ -53,9 +51,7 @@ def build_filter_from_fixture(fixture: dict, scenario: dict):
     n_sensors = fixture["num_sensors"]
 
     # Motion model from fixture
-    motion = MotionModel.constant_velocity_2d(
-        model["dt"], model["process_noise_std"], model["survival_probability"]
-    )
+    motion = MotionModel.constant_velocity_2d(model["dt"], model["process_noise_std"], model["survival_probability"])
 
     # Sensor model from fixture
     bounds = model["bounds"]
@@ -139,11 +135,7 @@ def run_filter(filt, scenario: dict, is_multi: bool, num_steps: int) -> list[dic
         if is_multi:
             meas = [np.array(s) if s else np.empty((0, 2)) for s in step["sensor_readings"]]
         else:
-            meas = (
-                np.array(step["sensor_readings"][0])
-                if step["sensor_readings"][0]
-                else np.empty((0, 2))
-            )
+            meas = np.array(step["sensor_readings"][0]) if step["sensor_readings"][0] else np.empty((0, 2))
 
         result = filt.step(meas, t)
         results.append(
@@ -182,9 +174,7 @@ def compare_results(rust_results: list, fixture: dict) -> list[str]:
                 dists = np.linalg.norm(matlab_means - r_mean, axis=1)
                 min_idx = np.argmin(dists)
                 if dists[min_idx] > MEAN_TOLERANCE:
-                    errors.append(
-                        f"Step {t}: unmatched Rust track at [{r_mean[0]:.1f}, {r_mean[1]:.1f}]"
-                    )
+                    errors.append(f"Step {t}: unmatched Rust track at [{r_mean[0]:.1f}, {r_mean[1]:.1f}]")
                 matlab_means = np.delete(matlab_means, min_idx, axis=0)
 
     return errors

@@ -1,6 +1,7 @@
 """Type stubs for multisensor_lmb_filters_rs native module."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
+from collections.abc import Sequence
 
 import numpy as np
 from numpy.typing import NDArray

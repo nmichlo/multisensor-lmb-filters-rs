@@ -175,11 +175,11 @@ def get_legend_label(lang, has_timeout=False, has_skip=False):
 def format_time_label(val, pos):
     """Format Y-axis labels as standard time units."""
     if val < 1:
-        return f"{val*1000:.0f}µs"
+        return f"{val * 1000:.0f}µs"
     elif val < 1000:
         return f"{val:.0f}ms"
     else:
-        return f"{val/1000:.0f}s"
+        return f"{val / 1000:.0f}s"
 
 
 def plot_filter_data(ax, data, x_col, languages=None):
@@ -302,8 +302,7 @@ def plot_by_language(df: pd.DataFrame, lang: str, output_dir: Path):
 
     # Track filter status for legends
     filter_status = {
-        f: {"has_data": False, "timeout": False, "skip": False}
-        for f in SINGLE_SENSOR_FILTERS + MULTI_SENSOR_FILTERS
+        f: {"has_data": False, "timeout": False, "skip": False} for f in SINGLE_SENSOR_FILTERS + MULTI_SENSOR_FILTERS
     }
 
     # Single-sensor filters (left)
@@ -424,22 +423,16 @@ def _add_split_legends(ax, filters, filter_status, y_offset=0):
         seen_bases.add(base)
 
         # Check if any filter with this base has data
-        base_has_data = any(
-            filter_status[f]["has_data"] for f in filters if FILTER_CONFIG[f]["base"] == base
-        )
+        base_has_data = any(filter_status[f]["has_data"] for f in filters if FILTER_CONFIG[f]["base"] == base)
         label = base
         if not base_has_data:
-            base_has_timeout = any(
-                filter_status[f]["timeout"] for f in filters if FILTER_CONFIG[f]["base"] == base
-            )
+            base_has_timeout = any(filter_status[f]["timeout"] for f in filters if FILTER_CONFIG[f]["base"] == base)
             if base_has_timeout:
                 label += " (T/O)"
             else:
                 label += " (N/A)"
 
-        handle = Line2D(
-            [0], [0], color=fconfig["color"], marker="o", linestyle="-", linewidth=2, markersize=6
-        )
+        handle = Line2D([0], [0], color=fconfig["color"], marker="o", linestyle="-", linewidth=2, markersize=6)
         base_handles.append(handle)
         base_labels.append(label)
 
@@ -518,9 +511,7 @@ def plot_by_sensors(df: pd.DataFrame, sensors: int, output_dir: Path):
             has_status_col = status_col in filter_data.columns if not filter_data.empty else False
 
             ok_mask = filter_data[status_col] == "OK" if has_status_col else pd.Series(dtype=bool)
-            ok_data = (
-                filter_data[ok_mask].sort_values("objects") if ok_mask.any() else pd.DataFrame()
-            )
+            ok_data = filter_data[ok_mask].sort_values("objects") if ok_mask.any() else pd.DataFrame()
 
             has_timeout = has_status_col and (filter_data[status_col] == "TIMEOUT").any()
             has_skip = has_status_col and (filter_data[status_col] == "SKIP").any()
@@ -568,16 +559,12 @@ def plot_by_sensors(df: pd.DataFrame, sensors: int, output_dir: Path):
         seen_bases.add(base)
 
         # Check if any filter with this base has data
-        base_has_data = any(
-            filter_status[f]["has_data"] for f in filters if FILTER_CONFIG[f]["base"] == base
-        )
+        base_has_data = any(filter_status[f]["has_data"] for f in filters if FILTER_CONFIG[f]["base"] == base)
         label = base
         if not base_has_data:
             label += " (N/A)"
 
-        handle = Line2D(
-            [0], [0], color=fconfig["color"], marker="o", linestyle="-", linewidth=2, markersize=6
-        )
+        handle = Line2D([0], [0], color=fconfig["color"], marker="o", linestyle="-", linewidth=2, markersize=6)
         base_handles.append(handle)
         base_labels.append(label)
 
@@ -594,9 +581,7 @@ def plot_by_sensors(df: pd.DataFrame, sensors: int, output_dir: Path):
     lang_labels = []
     for lang in ["octave", "rust", "python"]:
         style = LANG_STYLES[lang]
-        handle = Line2D(
-            [0], [0], color="gray", marker="", linestyle=style["linestyle"], linewidth=2
-        )
+        handle = Line2D([0], [0], color="gray", marker="", linestyle=style["linestyle"], linewidth=2)
         lang_handles.append(handle)
         lang_labels.append(style["label"])
 
@@ -674,8 +659,7 @@ def plot_speedup(df: pd.DataFrame, baseline: str, compare: str, output_dir: Path
 
     # Track filter status for legends
     filter_status = {
-        f: {"has_data": False, "timeout": False, "skip": False}
-        for f in SINGLE_SENSOR_FILTERS + MULTI_SENSOR_FILTERS
+        f: {"has_data": False, "timeout": False, "skip": False} for f in SINGLE_SENSOR_FILTERS + MULTI_SENSOR_FILTERS
     }
 
     # Single-sensor

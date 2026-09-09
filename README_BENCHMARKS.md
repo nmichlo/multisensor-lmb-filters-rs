@@ -174,4 +174,3 @@ Methodology Details:
 - **ERROR** indicates a runtime error (check logs for details)
 - **SKIP** means a previous scenario timed out, so harder scenarios were skipped
 - **-** means not applicable (e.g., single-sensor LMB on multi-sensor scenario) or not run
-
