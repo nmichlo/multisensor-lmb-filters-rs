@@ -1,4 +1,4 @@
 [submodule "vendor/multisensor-lmb-filters"]
 	path = vendor/multisensor-lmb-filters
-	url = ssh://git@github.com/nmichlo/multisensor-lmb-filters
+	url = git@github.com:nmichlo/multisensor-lmb-filters.git
 	branch = nathan/hooks_and_fixtures

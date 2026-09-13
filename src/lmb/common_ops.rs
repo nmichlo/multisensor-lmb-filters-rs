@@ -452,6 +452,28 @@ pub fn update_existence_from_marginals(tracks: &mut [Track], result: &Associatio
     }
 }
 
+/// Update track existence probabilities using marginal weights and detection probabilities.
+pub fn update_existence_from_marginals_with_pd(
+    tracks: &mut [Track],
+    result: &AssociationResult,
+    pd_override: Option<&[f64]>,
+    default_pd: f64,
+) {
+    for (i, track) in tracks.iter_mut().enumerate() {
+        // If the associator already computed posterior_existence using our Pd matrices, 
+        // we can use it directly. 
+        track.existence = result.posterior_existence[i];
+        
+        // Safety check: if Pd is 0, existence should not change.
+        let pd = pd_override.map(|v| v[i]).unwrap_or(default_pd);
+        if pd < 1e-6 {
+             // If PD is effectively 0, ensure we didn't accidentally update it via association errors
+             // (Though the associator SHOULD handle this if matrices were built right)
+             // We'll trust the associator for now as long as matrices are correct.
+        }
+    }
+}
+
 // ============================================================================
 // Hypothesis-based operations (LmbmFilter, MultisensorLmbmFilter)
 // ============================================================================

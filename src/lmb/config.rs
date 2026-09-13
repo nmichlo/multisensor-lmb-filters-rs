@@ -81,7 +81,8 @@ impl MotionModel {
 pub struct SensorModel {
     /// Observation matrix (C)
     pub observation_matrix: DMatrix<f64>,
-    /// Measurement noise covariance (Q)
+    /// Default measurement noise covariance (R).
+    /// Used when a `Measurement` does not carry a per-detection override.
     pub measurement_noise: DMatrix<f64>,
     /// Detection probability
     pub detection_probability: f64,
@@ -89,6 +90,11 @@ pub struct SensorModel {
     pub clutter_rate: f64,
     /// Observation space volume
     pub observation_volume: f64,
+    /// Optional Mahalanobis distance gate threshold.
+    /// When set, track-measurement pairs with d² > gate_threshold are skipped
+    /// during association, avoiding expensive Kalman updates.
+    /// Typical value: χ²₃(0.999) ≈ 16.27 for 3D, χ²₂(0.999) ≈ 13.82 for 2D.
+    pub gate_threshold: Option<f64>,
 }
 
 impl SensorModel {
@@ -106,7 +112,16 @@ impl SensorModel {
             detection_probability,
             clutter_rate,
             observation_volume,
+            gate_threshold: None,
         }
+    }
+
+    /// Set the Mahalanobis gate threshold.
+    ///
+    /// Returns `self` for builder-style chaining.
+    pub fn with_gate_threshold(mut self, threshold: f64) -> Self {
+        self.gate_threshold = Some(threshold);
+        self
     }
 
     /// Get measurement dimension

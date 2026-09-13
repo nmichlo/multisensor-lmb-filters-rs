@@ -435,6 +435,120 @@ impl<A: Associator, M: Merger> MultisensorLmbFilter<A, M> {
             objects_likely_to_exist: None,
         })
     }
+
+    pub fn step_with_covariances<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &[Vec<crate::lmb::Measurement>],
+        timestep: usize,
+    ) -> Result<StateEstimate, FilterError> {
+        self.step_with_visibility(rng, measurements, None, timestep)
+    }
+
+    /// Step the filter with per-detection covariance overrides and per-track visibility masks.
+    ///
+    /// Per-track visibility allows for spatially-varying detection probability (FOV awareness).
+    /// `visibility[sensor_idx][track_idx]` stores the Pd for that pair.
+    pub fn step_with_visibility<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &[Vec<crate::lmb::Measurement>],
+        visibility: Option<&[Vec<f64>]>,
+        timestep: usize,
+    ) -> Result<StateEstimate, FilterError> {
+        let num_sensors = self.num_sensors();
+
+        if measurements.len() != num_sensors {
+            return Err(FilterError::InvalidInput(format!(
+                "Expected {} sensors, got {}",
+                num_sensors,
+                measurements.len()
+            )));
+        }
+
+        // STEP 1: Prediction
+        predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
+
+        // STEP 2: Initialize trajectory recording for new birth tracks
+        self.init_birth_trajectories(super::super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+
+        // STEP 3: Measurement update with per-detection covariances
+        let has_any_measurements = measurements.iter().any(|m| !m.is_empty());
+
+        if !self.tracks.is_empty() {
+            let is_sequential = self.merger.is_sequential();
+            let mut per_sensor_tracks: Vec<Vec<Track>> = Vec::with_capacity(num_sensors);
+            let mut current_tracks = self.tracks.clone();
+
+            for (sensor_idx, (sensor, sensor_measurements)) in
+                self.sensors.sensors.iter().zip(measurements.iter()).enumerate()
+            {
+                let mut sensor_tracks = if is_sequential {
+                    current_tracks.clone()
+                } else {
+                    self.tracks.clone()
+                };
+
+                let sensor_visibility = visibility.map(|v| &v[sensor_idx]);
+
+                if !sensor_measurements.is_empty() {
+                    let mut builder = AssociationBuilder::new(&sensor_tracks, sensor);
+                    if let Some(pd) = sensor_visibility {
+                        builder = builder.with_detection_probabilities(pd);
+                    }
+                    
+                    // Use build_with_covariances to pass per-detection R_k
+                    let matrices = builder.build_with_covariances(sensor_measurements);
+
+                    let result = self
+                        .associator
+                        .associate(&matrices, &self.association_config, rng)
+                        .map_err(FilterError::Association)?;
+
+                    self.updater
+                        .update(&mut sensor_tracks, &result, &matrices.posteriors);
+
+                    super::super::common_ops::update_existence_from_marginals_with_pd(
+                        &mut sensor_tracks,
+                        &result,
+                        sensor_visibility.map(|v| v.as_slice()),
+                        sensor.detection_probability,
+                    );
+                } else {
+                    for (track_idx, track) in sensor_tracks.iter_mut().enumerate() {
+                        let p_d = sensor_visibility
+                            .map(|v| v[track_idx])
+                            .unwrap_or(sensor.detection_probability);
+                            
+                        track.existence = crate::components::update::update_existence_no_detection(
+                            track.existence,
+                            p_d,
+                        );
+                    }
+                }
+
+                if is_sequential {
+                    current_tracks = sensor_tracks.clone();
+                }
+
+                per_sensor_tracks.push(sensor_tracks);
+            }
+
+            self.merger.set_prior(self.tracks.clone());
+            self.tracks = self.merger.merge(&per_sensor_tracks, None);
+        } else if !has_any_measurements {
+            self.update_existence_no_measurements();
+        }
+
+        // STEP 5: Track gating
+        self.gate_tracks();
+
+        // STEP 6: Update trajectories
+        self.update_trajectories(timestep);
+
+        // STEP 7: Extract estimates
+        Ok(self.extract_estimates(timestep))
+    }
 }
 
 /// Multi-sensor measurements: one measurement set per sensor.

@@ -335,6 +335,7 @@ fn model_to_multisensor_config(model: &MultisensorLmbmModelData) -> MultisensorC
             detection_probability: p_d,
             clutter_rate,
             observation_volume: 100.0, // Not specified in fixture, use default
+            gate_threshold: None,
         };
 
         sensors.push(sensor);

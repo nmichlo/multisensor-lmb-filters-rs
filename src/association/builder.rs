@@ -11,6 +11,7 @@ use nalgebra::{DMatrix, DVector};
 
 use crate::common::linalg::normalize_log_weights;
 use crate::lmb::{SensorModel, Track};
+use crate::lmb::types::Measurement;
 
 use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
 
@@ -252,6 +253,7 @@ pub struct AssociationBuilder<'a> {
     tracks: &'a [Track],
     sensor: &'a SensorModel,
     workspace: LikelihoodWorkspace,
+    detection_probabilities: Option<&'a [f64]>,
 }
 
 impl<'a> AssociationBuilder<'a> {
@@ -263,7 +265,14 @@ impl<'a> AssociationBuilder<'a> {
             tracks,
             sensor,
             workspace: LikelihoodWorkspace::new(x_dim, z_dim),
+            detection_probabilities: None,
         }
+    }
+
+    /// Set per-track detection probabilities.
+    pub fn with_detection_probabilities(mut self, pd: &'a [f64]) -> Self {
+        self.detection_probabilities = Some(pd);
+        self
     }
 
     /// Build association matrices from current tracks and given measurements.
@@ -275,22 +284,32 @@ impl<'a> AssociationBuilder<'a> {
     /// For multi-component GM tracks, the likelihood is computed as a weighted sum
     /// over all components, matching MATLAB's generateLmbAssociationMatrices.m.
     pub fn build(&mut self, measurements: &[DVector<f64>]) -> AssociationMatrices {
+        // Wrap plain vectors into Measurements with no covariance override
+        let wrapped: Vec<Measurement> = Measurement::from_vectors(measurements);
+        self.build_with_covariances(&wrapped)
+    }
+
+    /// Build association matrices with per-detection covariance overrides.
+    ///
+    /// Each `Measurement` can carry an optional `noise_covariance` that overrides
+    /// the sensor's default `measurement_noise` during likelihood computation.
+    /// This allows heterogeneous sensor noise (e.g., range-dependent uncertainty).
+    ///
+    /// If `sensor.gate_threshold` is set, a Mahalanobis distance pre-check is
+    /// performed before the full likelihood computation. Pairs exceeding the
+    /// threshold are assigned -∞ likelihood, avoiding expensive Kalman updates.
+    pub fn build_with_covariances(&mut self, measurements: &[Measurement]) -> AssociationMatrices {
         let n = self.tracks.len();
         let m = measurements.len();
 
-        // Initialize matrices - work in LOG SPACE to avoid underflow
-        // log_l_matrix stores log-likelihood ratios: log(sum_k(r * w[k] * likelihood_ratio[k]))
-        // We use log-sum-exp to accumulate over components in log-space.
         let mut log_l_matrix = DMatrix::from_element(n, m, f64::NEG_INFINITY);
         let mut posteriors = PosteriorGrid::new(n, m);
 
-        let p_d = self.sensor.detection_probability;
         let _clutter_density = self.sensor.clutter_density();
 
         // Compute likelihoods for all (track, measurement) pairs
-        // Matching MATLAB: iterate over ALL GM components and sum weighted likelihoods
-        // Using log-sum-exp: log(sum_k exp(log_term_k)) to avoid underflow.
         for (i, track) in self.tracks.iter().enumerate() {
+            let p_d = self.detection_probabilities.map(|pd| pd[i]).unwrap_or(self.sensor.detection_probability);
             let num_components = track.components.len();
 
             // track_means[j][k] = posterior mean for measurement j, component k
@@ -307,6 +326,10 @@ impl<'a> AssociationBuilder<'a> {
 
             // For each measurement, compute posteriors for ALL components
             for (j, measurement) in measurements.iter().enumerate() {
+                let meas_vec = &measurement.vector;
+                let noise_override = measurement.noise_covariance.as_ref();
+                let c_override: Option<&DMatrix<f64>> = measurement.c_matrix.as_ref();
+
                 let mut meas_means = Vec::with_capacity(num_components);
                 let mut meas_covs = Vec::with_capacity(num_components);
                 let mut meas_gains = Vec::with_capacity(num_components);
@@ -323,17 +346,56 @@ impl<'a> AssociationBuilder<'a> {
                 // We use log-sum-exp to avoid underflow when log_term is very negative (e.g., -1000)
                 let mut log_terms = Vec::with_capacity(num_components);
 
+                // Optional Mahalanobis gating: quick rejection of implausible pairs.
+                // Use the per-measurement C/R if provided, falling back to sensor defaults.
+                let gated_out = if let Some(gate_thresh) = self.sensor.gate_threshold {
+                    // Use the primary (highest-weight) component for gating
+                    if let Some(primary) = track.components.iter().max_by(
+                        |a, b| a.weight.partial_cmp(&b.weight).unwrap_or(std::cmp::Ordering::Equal)
+                    ) {
+                        let noise = noise_override.unwrap_or(&self.sensor.measurement_noise);
+                        let c = c_override.unwrap_or(&self.sensor.observation_matrix);
+                        let innovation = meas_vec - c * &primary.mean;
+                        let innov_cov = c * &primary.covariance * c.transpose() + noise;
+                        if let Some(inv) = innov_cov.try_inverse() {
+                            let mahal = innovation.dot(&(&inv * &innovation));
+                            mahal > gate_thresh
+                        } else {
+                            true // Singular covariance → gate out
+                        }
+                    } else {
+                        true
+                    }
+                } else {
+                    false // No gating
+                };
+
                 for component in track.components.iter() {
                     let prior_mean = &component.mean;
                     let prior_cov = &component.covariance;
                     let comp_weight = component.weight;
 
+                    if gated_out {
+                        // Skip Kalman update, assign -∞ likelihood
+                        let x_dim = prior_mean.len();
+                        let z_dim = meas_vec.len();
+                        log_terms.push(f64::NEG_INFINITY);
+                        log_comp_weights.push(f64::NEG_INFINITY);
+                        meas_means.push(prior_mean.clone());
+                        meas_covs.push(prior_cov.clone());
+                        meas_gains.push(DMatrix::zeros(x_dim, z_dim));
+                        continue;
+                    }
+
                     let result = compute_likelihood(
                         prior_mean,
                         prior_cov,
-                        measurement,
+                        meas_vec,
                         self.sensor,
                         &mut self.workspace,
+                        noise_override,
+                        Some(p_d),
+                        c_override,
                     );
 
                     // compute_likelihood returns: log(p_D / lambda * gaussian)
@@ -398,6 +460,7 @@ impl<'a> AssociationBuilder<'a> {
 
         for (i, track) in self.tracks.iter().enumerate() {
             let r = track.existence;
+            let p_d = self.detection_probabilities.map(|pd| pd[i]).unwrap_or(self.sensor.detection_probability);
 
             // eta[i] = 1 - p_D × r[i]
             eta[i] = 1.0 - p_d * r;
@@ -451,6 +514,15 @@ impl<'a> AssociationBuilder<'a> {
     ) -> AssociationMatrices {
         // Same computation, sensor_idx can be used for logging/debugging
         self.build(measurements)
+    }
+
+    /// Build matrices for one sensor in multi-sensor case with per-detection covariances
+    pub fn build_for_sensor_with_covariances(
+        &mut self,
+        measurements: &[Measurement],
+        _sensor_idx: usize,
+    ) -> AssociationMatrices {
+        self.build_with_covariances(measurements)
     }
 }
 

@@ -62,6 +62,86 @@ impl GaussianComponent {
     }
 }
 
+/// A measurement with optional per-detection noise covariance override.
+///
+/// In heterogeneous sensor networks, each detection can have different measurement
+/// uncertainty depending on range, angle, sensor mode, etc. This struct wraps a
+/// measurement vector with an optional covariance matrix that overrides the default
+/// `SensorModel.measurement_noise` during likelihood computation.
+///
+/// When `noise_covariance` is `None`, the sensor's default measurement noise is used.
+///
+/// # Example
+/// ```rust,ignore
+/// use nalgebra::{DVector, DMatrix};
+/// use multisensor_lmb_filters_rs::lmb::Measurement;
+///
+/// // Detection with known per-detection covariance
+/// let m = Measurement::with_covariance(
+///     DVector::from_vec(vec![100.0, 200.0, 50.0]),
+///     DMatrix::from_diagonal(&DVector::from_vec(vec![4.0, 4.0, 100.0])),
+/// );
+///
+/// // Detection using sensor default noise
+/// let m_default = Measurement::new(DVector::from_vec(vec![100.0, 200.0, 50.0]));
+/// ```
+#[derive(Debug, Clone)]
+pub struct Measurement {
+    /// The measurement vector (e.g., [x, y, z] position)
+    pub vector: DVector<f64>,
+    /// Optional per-detection measurement noise covariance (R_k).
+    /// When `Some(R_k)`, overrides `SensorModel.measurement_noise` for this detection.
+    /// When `None`, the sensor's default measurement noise is used.
+    pub noise_covariance: Option<DMatrix<f64>>,
+    /// Optional per-detection observation matrix (C_k).
+    /// When `Some(C_k)`, overrides `SensorModel.observation_matrix` for this detection.
+    /// Use this for nonlinear/time-varying observation models, e.g. a linearised Doppler
+    /// row appended to the standard position-observation C matrix.
+    /// When `None`, the sensor's default observation matrix is used.
+    pub c_matrix: Option<DMatrix<f64>>,
+}
+
+impl Measurement {
+    /// Create a measurement using the sensor's default noise covariance and observation matrix.
+    pub fn new(vector: DVector<f64>) -> Self {
+        Self {
+            vector,
+            noise_covariance: None,
+            c_matrix: None,
+        }
+    }
+
+    /// Create a measurement with a per-detection noise covariance override.
+    pub fn with_covariance(vector: DVector<f64>, noise_covariance: DMatrix<f64>) -> Self {
+        Self {
+            vector,
+            noise_covariance: Some(noise_covariance),
+            c_matrix: None,
+        }
+    }
+
+    /// Create a measurement with per-detection observation matrix and noise covariance overrides.
+    ///
+    /// Use when both C and R differ from the sensor defaults (e.g., a radar detection that
+    /// includes a Doppler row whose direction depends on the target bearing at detection time).
+    pub fn with_observation(
+        vector: DVector<f64>,
+        c_matrix: DMatrix<f64>,
+        noise_covariance: DMatrix<f64>,
+    ) -> Self {
+        Self {
+            vector,
+            noise_covariance: Some(noise_covariance),
+            c_matrix: Some(c_matrix),
+        }
+    }
+
+    /// Convert a slice of plain `DVector` measurements into `Measurement` with no overrides.
+    pub fn from_vectors(vectors: &[DVector<f64>]) -> Vec<Self> {
+        vectors.iter().map(|v| Self::new(v.clone())).collect()
+    }
+}
+
 /// Core track type - uses DVector/DMatrix for Python binding compatibility
 ///
 /// A track represents a potential object being tracked. It has:

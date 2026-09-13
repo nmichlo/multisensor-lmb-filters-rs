@@ -58,7 +58,7 @@ pub mod cardinality;
 // Re-export all public types from submodules
 
 // Types
-pub use types::{GaussianComponent, LmbmHypothesis, Track, TrackLabel, TrajectoryHistory};
+pub use types::{GaussianComponent, LmbmHypothesis, Measurement, Track, TrackLabel, TrajectoryHistory};
 
 // Configuration
 pub use config::{
