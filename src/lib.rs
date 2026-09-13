@@ -106,7 +106,8 @@ pub use lmb::{LmbFilter, LmbmFilter};
 // Multi-sensor filters
 pub use lmb::{
     AaLmbFilter, ArithmeticAverageMerger, GaLmbFilter, GeometricAverageMerger, IcLmbFilter,
-    IteratedCorrectorMerger, MultisensorLmbFilter, MultisensorLmbmFilter, MultisensorMeasurements,
+    IteratedCorrectorMerger, MultisensorLmbFilter, MultisensorLmbmFilter,
+    MultisensorLmbmStepResult, MultisensorMeasurementCovariances, MultisensorMeasurements,
     ParallelUpdateMerger, PuLmbFilter,
 };
 

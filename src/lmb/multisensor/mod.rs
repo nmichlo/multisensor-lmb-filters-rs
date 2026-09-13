@@ -38,7 +38,9 @@ pub use lmb::{
 };
 
 // Re-export from lmbm.rs
-pub use lmbm::MultisensorLmbmFilter;
+pub use lmbm::{
+    MultisensorLmbmFilter, MultisensorLmbmStepResult, MultisensorMeasurementCovariances,
+};
 
 // Re-export from traits.rs
 pub use traits::{MultisensorAssociationResult, MultisensorAssociator, MultisensorGibbsAssociator};

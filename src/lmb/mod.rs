@@ -96,7 +96,8 @@ pub use multisensor::{
     AaLmbFilter, ArithmeticAverageMerger, GaLmbFilter, GeometricAverageMerger, IcLmbFilter,
     IteratedCorrectorMerger, MultisensorAssociationResult, MultisensorAssociator,
     MultisensorGibbsAssociator, MultisensorLmbFilter, MultisensorLmbmFilter,
-    MultisensorMeasurements, ParallelUpdateMerger, PuLmbFilter,
+    MultisensorLmbmStepResult, MultisensorMeasurementCovariances, MultisensorMeasurements,
+    ParallelUpdateMerger, PuLmbFilter,
 };
 
 // Utilities (re-exported from common)

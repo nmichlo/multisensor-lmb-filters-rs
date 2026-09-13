@@ -12,7 +12,9 @@ use nalgebra::{DMatrix, DVector};
 use crate::common::linalg::normalize_log_weights;
 use crate::lmb::{SensorModel, Track};
 
-use super::likelihood::{compute_likelihood, LikelihoodWorkspace};
+use super::likelihood::{
+    compute_likelihood, compute_likelihood_with_measurement_covariance, LikelihoodWorkspace,
+};
 
 /// Pre-computed Kalman posteriors for all (track, measurement) pairs.
 ///
@@ -275,6 +277,26 @@ impl<'a> AssociationBuilder<'a> {
     /// For multi-component GM tracks, the likelihood is computed as a weighted sum
     /// over all components, matching MATLAB's generateLmbAssociationMatrices.m.
     pub fn build(&mut self, measurements: &[DVector<f64>]) -> AssociationMatrices {
+        self.build_with_optional_covariances(measurements, None)
+    }
+
+    /// Build association matrices with one covariance matrix for each measurement.
+    ///
+    /// The covariance order must exactly match `measurements`.
+    pub fn build_with_covariances(
+        &mut self,
+        measurements: &[DVector<f64>],
+        measurement_covariances: &[DMatrix<f64>],
+    ) -> Result<AssociationMatrices, String> {
+        validate_measurement_covariances(measurements, measurement_covariances)?;
+        Ok(self.build_with_optional_covariances(measurements, Some(measurement_covariances)))
+    }
+
+    fn build_with_optional_covariances(
+        &mut self,
+        measurements: &[DVector<f64>],
+        measurement_covariances: Option<&[DMatrix<f64>]>,
+    ) -> AssociationMatrices {
         let n = self.tracks.len();
         let m = measurements.len();
 
@@ -328,13 +350,23 @@ impl<'a> AssociationBuilder<'a> {
                     let prior_cov = &component.covariance;
                     let comp_weight = component.weight;
 
-                    let result = compute_likelihood(
-                        prior_mean,
-                        prior_cov,
-                        measurement,
-                        self.sensor,
-                        &mut self.workspace,
-                    );
+                    let result = match measurement_covariances {
+                        Some(covariances) => compute_likelihood_with_measurement_covariance(
+                            prior_mean,
+                            prior_cov,
+                            measurement,
+                            self.sensor,
+                            &covariances[j],
+                            &mut self.workspace,
+                        ),
+                        None => compute_likelihood(
+                            prior_mean,
+                            prior_cov,
+                            measurement,
+                            self.sensor,
+                            &mut self.workspace,
+                        ),
+                    };
 
                     // compute_likelihood returns: log(p_D / lambda * gaussian)
                     // Full log-likelihood for this component: log(r * w[k] * exp(log_likelihood_ratio))
@@ -454,6 +486,55 @@ impl<'a> AssociationBuilder<'a> {
     }
 }
 
+/// Validates that every covariance is finite, symmetric, positive definite, and
+/// aligned with its measurement.
+pub fn validate_measurement_covariances(
+    measurements: &[DVector<f64>],
+    measurement_covariances: &[DMatrix<f64>],
+) -> Result<(), String> {
+    if measurements.len() != measurement_covariances.len() {
+        return Err(format!(
+            "Expected {} measurement covariances, got {}",
+            measurements.len(),
+            measurement_covariances.len()
+        ));
+    }
+
+    for (index, (measurement, covariance)) in
+        measurements.iter().zip(measurement_covariances).enumerate()
+    {
+        let dimension = measurement.len();
+
+        if covariance.nrows() != dimension || covariance.ncols() != dimension {
+            return Err(format!(
+                "Measurement covariance {index} must be {dimension}x{dimension}"
+            ));
+        }
+
+        if covariance.iter().any(|value| !value.is_finite()) {
+            return Err(format!(
+                "Measurement covariance {index} contains a non-finite value"
+            ));
+        }
+
+        for row in 0..dimension {
+            for column in 0..dimension {
+                if (covariance[(row, column)] - covariance[(column, row)]).abs() > 1.0e-9 {
+                    return Err(format!("Measurement covariance {index} is not symmetric"));
+                }
+            }
+        }
+
+        if covariance.clone().cholesky().is_none() {
+            return Err(format!(
+                "Measurement covariance {index} is not positive definite"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,6 +549,60 @@ mod tests {
             DVector::from_vec(vec![0.0, 0.0, 1.0, 1.0]),
             DMatrix::identity(4, 4) * 10.0,
         )
+    }
+
+    #[test]
+    fn test_measurement_covariances_change_association_likelihood() {
+        let tracks = vec![create_test_track()];
+        let sensor = crate::lmb::config::SensorModel::position_sensor_2d(1.0, 0.9, 10.0, 100.0);
+        let measurements = vec![DVector::from_vec(vec![2.0, 2.0])];
+
+        let mut low_noise_builder = AssociationBuilder::new(&tracks, &sensor);
+        let low_noise = low_noise_builder
+            .build_with_covariances(&measurements, &[DMatrix::identity(2, 2)])
+            .unwrap();
+
+        let mut high_noise_builder = AssociationBuilder::new(&tracks, &sensor);
+        let high_noise = high_noise_builder
+            .build_with_covariances(&measurements, &[DMatrix::identity(2, 2) * 100.0])
+            .unwrap();
+
+        assert_ne!(
+            low_noise.log_likelihood_ratios[(0, 0)],
+            high_noise.log_likelihood_ratios[(0, 0)]
+        );
+    }
+
+    #[test]
+    fn test_measurement_covariances_must_be_positive_definite() {
+        let measurements = vec![DVector::from_vec(vec![0.0, 0.0])];
+        let covariances = vec![DMatrix::from_row_slice(2, 2, &[1.0, 2.0, 2.0, 1.0])];
+
+        assert!(validate_measurement_covariances(&measurements, &covariances).is_err());
+    }
+
+    #[test]
+    fn test_covariance_builder_does_not_panic_for_misaligned_covariances() {
+        let tracks = vec![create_test_track()];
+        let sensor = create_test_sensor();
+        let measurements = vec![DVector::from_vec(vec![0.0, 0.0])];
+        let mut builder = AssociationBuilder::new(&tracks, &sensor);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = builder.build_with_covariances(&measurements, &[]);
+        }));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_covariance_builder_reports_misaligned_covariances() {
+        let tracks = vec![create_test_track()];
+        let sensor = create_test_sensor();
+        let measurements = vec![DVector::from_vec(vec![0.0, 0.0])];
+        let mut builder = AssociationBuilder::new(&tracks, &sensor);
+
+        assert!(builder.build_with_covariances(&measurements, &[]).is_err());
     }
 
     fn create_test_sensor() -> SensorModel {

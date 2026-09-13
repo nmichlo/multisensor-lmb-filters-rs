@@ -12,9 +12,9 @@
 //! association + measurement incorporation) at each timestep, outputting
 //! state estimates for objects believed to exist.
 
-use nalgebra::DVector;
+use nalgebra::{DMatrix, DVector};
 
-use crate::association::AssociationBuilder;
+use crate::association::{validate_measurement_covariances, AssociationBuilder};
 use crate::components::prediction::predict_tracks;
 
 use super::super::builder::{FilterBuilder, LmbFilterBuilder};
@@ -269,6 +269,58 @@ impl<A: Associator> LmbFilter<A> {
         )
     }
 
+    /// Advances the filter using covariance supplied for every measurement.
+    ///
+    /// The covariance order must exactly match the measurement order. The
+    /// existing [`Filter::step`] method keeps the sensor-wide covariance model.
+    pub fn step_with_covariances<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &[DVector<f64>],
+        measurement_covariances: &[DMatrix<f64>],
+        timestep: usize,
+    ) -> Result<StateEstimate, FilterError> {
+        validate_measurement_covariances(measurements, measurement_covariances)
+            .map_err(FilterError::InvalidInput)?;
+        self.step_internal(rng, measurements, Some(measurement_covariances), timestep)
+    }
+
+    fn step_internal<R: rand::Rng>(
+        &mut self,
+        rng: &mut R,
+        measurements: &[DVector<f64>],
+        measurement_covariances: Option<&[DMatrix<f64>]>,
+        timestep: usize,
+    ) -> Result<StateEstimate, FilterError> {
+        predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
+        self.init_birth_trajectories(super::super::DEFAULT_MAX_TRAJECTORY_LENGTH);
+
+        if !measurements.is_empty() {
+            let mut builder = AssociationBuilder::new(&self.tracks, &self.sensor);
+            let matrices = match measurement_covariances {
+                Some(covariances) => builder
+                    .build_with_covariances(measurements, covariances)
+                    .map_err(FilterError::InvalidInput)?,
+                None => builder.build(measurements),
+            };
+
+            let result = self
+                .associator
+                .associate(&matrices, &self.association_config, rng)
+                .map_err(FilterError::Association)?;
+
+            self.update_existence_from_association(&result);
+            self.updater
+                .update(&mut self.tracks, &result, &matrices.posteriors);
+        } else {
+            self.update_existence_no_measurements();
+        }
+
+        self.gate_tracks();
+        self.update_trajectories(timestep);
+        Ok(self.extract_estimates(timestep))
+    }
+
     /// Detailed step that returns all intermediate data for fixture validation.
     ///
     /// Unlike `step()`, this method returns the state after each major step:
@@ -367,57 +419,7 @@ impl<A: Associator> Filter for LmbFilter<A> {
         measurements: &Self::Measurements,
         timestep: usize,
     ) -> Result<StateEstimate, FilterError> {
-        // ══════════════════════════════════════════════════════════════════════
-        // STEP 1: Prediction - propagate tracks forward and add birth components
-        // ══════════════════════════════════════════════════════════════════════
-        predict_tracks(&mut self.tracks, &self.motion, &self.birth, timestep, false);
-
-        // ══════════════════════════════════════════════════════════════════════
-        // STEP 2: Initialize trajectory recording for new birth tracks
-        // ══════════════════════════════════════════════════════════════════════
-        self.init_birth_trajectories(super::super::DEFAULT_MAX_TRAJECTORY_LENGTH);
-
-        // ══════════════════════════════════════════════════════════════════════
-        // STEP 3: Measurement update - data association and track updates
-        // ══════════════════════════════════════════════════════════════════════
-        if !measurements.is_empty() {
-            // Build association matrices
-            let mut builder = AssociationBuilder::new(&self.tracks, &self.sensor);
-            let matrices = builder.build(measurements);
-
-            // Run data association
-            let result = self
-                .associator
-                .associate(&matrices, &self.association_config, rng)
-                .map_err(FilterError::Association)?;
-
-            // Update existence probabilities from association result
-            self.update_existence_from_association(&result);
-
-            // Update track spatial distributions
-            self.updater
-                .update(&mut self.tracks, &result, &matrices.posteriors);
-        } else {
-            // No measurements: update existence for missed detection
-            self.update_existence_no_measurements();
-        }
-
-        // (STEP 4 skipped - hypothesis management is LMBM only)
-
-        // ══════════════════════════════════════════════════════════════════════
-        // STEP 5: Track gating - prune low-existence tracks, archive trajectories
-        // ══════════════════════════════════════════════════════════════════════
-        self.gate_tracks();
-
-        // ══════════════════════════════════════════════════════════════════════
-        // STEP 6: Update trajectories - append current state to track histories
-        // ══════════════════════════════════════════════════════════════════════
-        self.update_trajectories(timestep);
-
-        // ══════════════════════════════════════════════════════════════════════
-        // STEP 7: Extract estimates - return current state estimate
-        // ══════════════════════════════════════════════════════════════════════
-        Ok(self.extract_estimates(timestep))
+        self.step_internal(rng, measurements, None, timestep)
     }
 
     fn state(&self) -> &Self::State {
@@ -516,6 +518,36 @@ mod tests {
 
         // Should process measurements
         assert!(estimate.timestamp == 0);
+    }
+
+    #[test]
+    fn test_filter_step_with_measurement_covariances() {
+        let mut filter = create_test_filter();
+        let mut rng = rand::thread_rng();
+        let measurements = vec![
+            DVector::from_vec(vec![0.0, 0.0]),
+            DVector::from_vec(vec![5.0, 5.0]),
+        ];
+        let covariances = vec![DMatrix::identity(2, 2), DMatrix::identity(2, 2) * 4.0];
+
+        let estimate = filter
+            .step_with_covariances(&mut rng, &measurements, &covariances, 0)
+            .unwrap();
+
+        assert_eq!(estimate.timestamp, 0);
+    }
+
+    #[test]
+    fn test_filter_rejects_misaligned_measurement_covariances() {
+        let mut filter = create_test_filter();
+        let mut rng = rand::thread_rng();
+        let measurements = vec![DVector::from_vec(vec![0.0, 0.0])];
+
+        let error = filter
+            .step_with_covariances(&mut rng, &measurements, &[], 0)
+            .unwrap_err();
+
+        assert!(matches!(error, FilterError::InvalidInput(_)));
     }
 
     #[test]
